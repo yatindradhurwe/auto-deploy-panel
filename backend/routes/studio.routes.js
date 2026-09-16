@@ -538,6 +538,18 @@ ${userPrompt}
       }
     }
 
+    res.json({
+      success: true,
+      provider,
+      aiReply,
+      gitLog,
+      autoDeployed: autoDeploy
+    })
+  } catch (err) {
+    res.status(500).json({ error: `Agent execution failed: ${err.message}` })
+  }
+})
+
 /**
  * POST /api/studio/env/get
  * Reads .env file for selected project
