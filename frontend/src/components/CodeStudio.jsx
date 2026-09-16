@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { Folder, FileCode, ChevronRight, ChevronDown, Save, RefreshCw, Code, Terminal, FileText, CheckCircle2, Play, Search, X, GitBranch, Download, Upload, AlertCircle, Sparkles, FolderGit2 } from 'lucide-react'
+import { Folder, FileCode, ChevronRight, ChevronDown, Save, RefreshCw, Code, Terminal, FileText, CheckCircle2, Play, Search, X, GitBranch, Download, Upload, AlertCircle, Sparkles, FolderGit2, Bot } from 'lucide-react'
+import AIAgentStudioDrawer from './AIAgentStudioDrawer'
 
 export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
   const [projects, setProjects] = useState([])
@@ -14,6 +15,9 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
   const [savingFile, setSavingFile] = useState(false)
   const [saveMessage, setSaveMessage] = useState(null)
   const [expandedFolders, setExpandedFolders] = useState({})
+
+  // AI Agent Studio Drawer State
+  const [showAgentDrawer, setShowAgentDrawer] = useState(false)
 
   // Git State
   const [gitStatus, setGitStatus] = useState({ branch: 'main', modifiedCount: 0 })
@@ -349,6 +353,16 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
             <span>{pushingGit ? 'Pushing...' : 'Git Commit & Push'}</span>
           </button>
 
+          {/* AI Agent Studio Drawer Toggle */}
+          <button
+            onClick={() => setShowAgentDrawer(true)}
+            className="px-3.5 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-medium rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-lg shadow-purple-900/30"
+            title="Open Multi-Model AI Agent Studio (Gemini, Grok, Claude, ChatGPT)"
+          >
+            <Bot className="w-3.5 h-3.5 text-purple-200" />
+            <span>AI Agent Studio</span>
+          </button>
+
           {/* Save File */}
           {activeFile && (
             <button
@@ -536,6 +550,20 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
         </div>
 
       </div>
+
+      {/* AI Agent Studio Drawer */}
+      <AIAgentStudioDrawer
+        isOpen={showAgentDrawer}
+        onClose={() => setShowAgentDrawer(false)}
+        activeFile={activeFile}
+        fileContent={fileContent}
+        projectPath={selectedProject ? selectedProject.path : ''}
+        jwtToken={jwtToken}
+        onApplyCodeFix={(newCode) => {
+          setFileContent(newCode)
+          setShowAgentDrawer(false)
+        }}
+      />
     </div>
   )
 }

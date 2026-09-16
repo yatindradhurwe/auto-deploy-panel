@@ -53,35 +53,80 @@ function analyzeDevOpsHeuristics(logsText, config) {
 }
 
 /**
- * Calls Gemini REST API to diagnose deployment errors and generate AI responses
+ * REST API Caller for Multi-Provider AI Engine (Gemini, Grok, Claude, ChatGPT)
  */
-function callGeminiApi(apiKey, promptText) {
+export function callMultiProviderApi(provider, apiKey, promptText, systemInstruction = '') {
   return new Promise((resolve, reject) => {
-    const payload = JSON.stringify({
-      contents: [{ parts: [{ text: promptText }] }]
-    })
+    let hostname = ''
+    let pathStr = ''
+    let headers = { 'Content-Type': 'application/json' }
+    let payload = ''
 
-    const options = {
-      hostname: 'generativelanguage.googleapis.com',
-      path: `/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(payload)
-      }
+    if (provider === 'grok') {
+      // xAI Grok API (OpenAI compatible format)
+      hostname = 'api.x.ai'
+      pathStr = '/v1/chat/completions'
+      headers['Authorization'] = `Bearer ${apiKey}`
+      payload = JSON.stringify({
+        model: 'grok-beta',
+        messages: [
+          { role: 'system', content: systemInstruction || 'You are xAI Grok Autonomous Coding Agent.' },
+          { role: 'user', content: promptText }
+        ]
+      })
+    } else if (provider === 'claude') {
+      // Anthropic Claude API
+      hostname = 'api.anthropic.com'
+      pathStr = '/v1/messages'
+      headers['x-api-key'] = apiKey
+      headers['anthropic-version'] = '2023-06-01'
+      payload = JSON.stringify({
+        model: 'claude-3-5-sonnet-20241022',
+        max_tokens: 4096,
+        messages: [{ role: 'user', content: promptText }]
+      })
+    } else if (provider === 'chatgpt' || provider === 'openai') {
+      // OpenAI ChatGPT API
+      hostname = 'api.openai.com'
+      pathStr = '/v1/chat/completions'
+      headers['Authorization'] = `Bearer ${apiKey}`
+      payload = JSON.stringify({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: systemInstruction || 'You are OpenAI ChatGPT Autonomous Coding & DevOps Agent.' },
+          { role: 'user', content: promptText }
+        ]
+      })
+    } else {
+      // Default: Google Gemini API
+      hostname = 'generativelanguage.googleapis.com'
+      pathStr = `/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`
+      payload = JSON.stringify({
+        contents: [{ parts: [{ text: `${systemInstruction ? systemInstruction + '\n\n' : ''}${promptText}` }] }]
+      })
     }
 
-    const req = https.request(options, (res) => {
+    headers['Content-Length'] = Buffer.byteLength(payload)
+
+    const req = https.request({ hostname, path: pathStr, method: 'POST', headers }, (res) => {
       let data = ''
       res.on('data', (chunk) => { data += chunk })
       res.on('end', () => {
         try {
           const parsed = JSON.parse(data)
-          const reply = parsed?.candidates?.[0]?.content?.parts?.[0]?.text
+          let reply = ''
+          if (provider === 'grok' || provider === 'chatgpt' || provider === 'openai') {
+            reply = parsed?.choices?.[0]?.message?.content
+          } else if (provider === 'claude') {
+            reply = parsed?.content?.[0]?.text
+          } else {
+            reply = parsed?.candidates?.[0]?.content?.parts?.[0]?.text
+          }
+
           if (reply) resolve(reply)
-          else reject(new Error(parsed.error?.message || 'Gemini API returned empty response'))
+          else reject(new Error(parsed.error?.message || `${provider.toUpperCase()} API returned empty response`))
         } catch (e) {
-          reject(new Error('Invalid response from Gemini API'))
+          reject(new Error(`Invalid response structure from ${provider.toUpperCase()} API`))
         }
       })
     })
@@ -121,9 +166,9 @@ Respond in Markdown with clear headings:
 ### 🛠️ Bash Commands to Execute
 `
 
-  if (apiKey && provider === 'gemini') {
+  if (apiKey) {
     try {
-      const aiReply = await callGeminiApi(apiKey, systemPrompt)
+      const aiReply = await callMultiProviderApi(provider, apiKey, systemPrompt)
       const heuristics = analyzeDevOpsHeuristics(logsText, config)
       return {
         success: true,
@@ -131,7 +176,7 @@ Respond in Markdown with clear headings:
         heuristicDiagnosis: heuristics
       }
     } catch (err) {
-      console.warn('Gemini API call failed, falling back to heuristics:', err.message)
+      console.warn(`${provider} API call failed, falling back to heuristics:`, err.message)
     }
   }
 
