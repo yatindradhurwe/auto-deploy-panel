@@ -530,221 +530,221 @@ export default function App() {
 
         {activeTab === 'deploy' && (
           <>
-            {/* Top Info Banner */}
-            <div className="bg-gradient-to-r from-slate-900 via-slate-900/90 to-blue-950/40 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
-              <div className="absolute top-0 right-0 -mt-8 -mr-8 w-48 h-48 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none"></div>
+            {/* Top Info Banner - Apple Translucent Glass style */}
+            <div className="bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl p-6 shadow-2xl shadow-slate-950/50 relative overflow-hidden">
+              <div className="absolute top-0 right-0 -mt-8 -mr-8 w-64 h-64 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none"></div>
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
                 <div>
-                  <h1 className="text-xl font-bold text-white flex items-center gap-2">
+                  <h1 className="text-xl font-extrabold text-white flex items-center gap-2">
                     Deploy Software to Public Server & Domain
                   </h1>
-              <p className="text-sm text-slate-400 mt-1 max-w-2xl">
-                Connect your GitHub account, configure server SSH credentials, and let the integrated AI Agent Copilot diagnose errors and execute automated server fixes.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setShowAiDrawer(true)}
-                className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-xs px-4 py-2.5 rounded-xl font-semibold flex items-center space-x-2 transition"
-              >
-                <Sparkles className="h-4 w-4 text-cyan-400" />
-                <span>Open AI Copilot</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Step 1 & Step 2 Forms Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-
-          {/* Card 1: Server SSH Credentials */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-lg">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                  <Server className="h-5 w-5" />
+                  <p className="text-xs text-slate-400 mt-1 max-w-2xl font-mono">
+                    Connect your GitHub account, configure server SSH credentials, and let the integrated AI Agent Copilot diagnose errors and execute automated server fixes.
+                  </p>
                 </div>
-                <div>
-                  <h2 className="font-semibold text-white">1. Server Connection (SSH)</h2>
-                  <p className="text-xs text-slate-400">Target Linux Server IP & Access Credentials</p>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setShowAiDrawer(true)}
+                    className="bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 text-xs px-4 py-2.5 rounded-2xl font-bold flex items-center space-x-2 transition shadow-md shadow-cyan-950/40 cursor-pointer"
+                  >
+                    <Sparkles className="h-4 w-4 text-cyan-400 animate-pulse" />
+                    <span>Open AI Copilot</span>
+                  </button>
                 </div>
               </div>
-
-              <button
-                onClick={handleTestSsh}
-                disabled={testingSsh}
-                className="text-xs bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-cyan-400 border border-slate-700 px-3 py-1.5 rounded-lg flex items-center space-x-1.5 transition"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${testingSsh ? 'animate-spin' : ''}`} />
-                <span>{testingSsh ? 'Testing...' : 'Test SSH Connection'}</span>
-              </button>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
-              <div className="col-span-2 space-y-1.5">
-                <label className="text-xs font-medium text-slate-300">Server IP Address</label>
-                <input
-                  type="text"
-                  value={config.host}
-                  onChange={(e) => handleInputChange('host', e.target.value)}
-                  placeholder="e.g. 187.127.165.128"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-cyan-500"
-                />
-              </div>
+            {/* Step 1 & Step 2 Forms Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-300">SSH Port</label>
-                <input
-                  type="text"
-                  value={config.port}
-                  onChange={(e) => handleInputChange('port', e.target.value)}
-                  placeholder="22"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-            </div>
+              {/* Card 1: Server SSH Credentials */}
+              <div className="bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl p-6 space-y-6 shadow-2xl shadow-slate-950/50">
+                <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                  <div className="flex items-center space-x-3.5">
+                    <div className="p-2.5 rounded-2xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 ring-1 ring-cyan-500/20">
+                      <Server className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h2 className="font-extrabold text-white text-sm">1. Server Connection (SSH)</h2>
+                      <p className="text-[11px] text-slate-400 font-mono">Target Linux Server IP & Access Credentials</p>
+                    </div>
+                  </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-300">SSH Username</label>
-                <input
-                  type="text"
-                  value={config.username}
-                  onChange={(e) => handleInputChange('username', e.target.value)}
-                  placeholder="root"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-300">SSH Password</label>
-                <input
-                  type="password"
-                  value={config.password}
-                  onChange={(e) => handleInputChange('password', e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-            </div>
-
-            {/* SSH Test Status Result */}
-            {sshStatus && (
-              <div
-                className={`p-3.5 rounded-xl border text-xs font-mono space-y-1 ${
-                  sshStatus.type === 'success'
-                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                    : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
-                }`}
-              >
-                <div className="flex items-center space-x-2 font-semibold">
-                  {sshStatus.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
-                  <span>{sshStatus.message}</span>
+                  <button
+                    onClick={handleTestSsh}
+                    disabled={testingSsh}
+                    className="text-xs bg-slate-800/80 hover:bg-slate-700/80 disabled:opacity-50 text-cyan-300 border border-white/10 px-3.5 py-1.5 rounded-xl flex items-center space-x-1.5 transition font-semibold cursor-pointer"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${testingSsh ? 'animate-spin' : ''}`} />
+                    <span>{testingSsh ? 'Testing...' : 'Test SSH Connection'}</span>
+                  </button>
                 </div>
-                {sshStatus.details && <p className="text-[11px] opacity-80 whitespace-pre-wrap mt-1">{sshStatus.details}</p>}
-              </div>
-            )}
-          </div>
 
-          {/* Card 2: Software & Domain Config */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-lg">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                  <Globe className="h-5 w-5" />
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="col-span-2 space-y-1.5">
+                    <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest">Server IP Address</label>
+                    <input
+                      type="text"
+                      value={config.host}
+                      onChange={(e) => handleInputChange('host', e.target.value)}
+                      placeholder="e.g. 187.127.165.128"
+                      className="w-full bg-slate-950/90 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-cyan-400 shadow-inner"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest">SSH Port</label>
+                    <input
+                      type="text"
+                      value={config.port}
+                      onChange={(e) => handleInputChange('port', e.target.value)}
+                      placeholder="22"
+                      className="w-full bg-slate-950/90 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-cyan-400 shadow-inner"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <h2 className="font-semibold text-white">2. Public Domain & Repo Config</h2>
-                  <p className="text-xs text-slate-400">Target Public Domain & GitHub Source</p>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest">SSH Username</label>
+                    <input
+                      type="text"
+                      value={config.username}
+                      onChange={(e) => handleInputChange('username', e.target.value)}
+                      placeholder="root"
+                      className="w-full bg-slate-950/90 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-cyan-400 shadow-inner"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest">SSH Password</label>
+                    <input
+                      type="password"
+                      value={config.password}
+                      onChange={(e) => handleInputChange('password', e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full bg-slate-950/90 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-cyan-400 shadow-inner"
+                    />
+                  </div>
+                </div>
+
+                {/* SSH Test Status Result */}
+                {sshStatus && (
+                  <div
+                    className={`p-3.5 rounded-2xl border text-xs font-mono space-y-1 shadow-inner ${
+                      sshStatus.type === 'success'
+                        ? 'bg-emerald-950/80 border-emerald-800/80 text-emerald-300'
+                        : 'bg-rose-950/80 border-rose-800/80 text-rose-300'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2 font-bold">
+                      {sshStatus.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+                      <span>{sshStatus.message}</span>
+                    </div>
+                    {sshStatus.details && <p className="text-[11px] opacity-80 whitespace-pre-wrap mt-1">{sshStatus.details}</p>}
+                  </div>
+                )}
+              </div>
+
+              {/* Card 2: Software & Domain Config */}
+              <div className="bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl p-6 space-y-6 shadow-2xl shadow-slate-950/50">
+                <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                  <div className="flex items-center space-x-3.5">
+                    <div className="p-2.5 rounded-2xl bg-blue-500/10 text-blue-400 border border-blue-500/30 ring-1 ring-blue-500/20">
+                      <Globe className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h2 className="font-extrabold text-white text-sm">2. Public Domain & Repo Config</h2>
+                      <p className="text-[11px] text-slate-400 font-mono">Target Public Domain & GitHub Source</p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      if (repos.length === 0 && githubToken) handleFetchGithubRepos()
+                      else setShowGithubDrawer(true)
+                    }}
+                    className="text-xs bg-slate-800/80 hover:bg-slate-700/80 text-cyan-300 border border-white/10 px-3.5 py-1.5 rounded-xl flex items-center space-x-1.5 transition font-semibold cursor-pointer"
+                  >
+                    <Github className="h-3.5 w-3.5 text-cyan-400" />
+                    <span>Select Repo</span>
+                  </button>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest flex items-center justify-between">
+                    <span>Target Public Domain Name</span>
+                    <span className="text-[9px] text-cyan-300 bg-cyan-950/80 border border-cyan-800 px-2 py-0.5 rounded-full font-bold">Nginx + SSL Auto</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={config.domain}
+                      onChange={(e) => handleInputChange('domain', e.target.value)}
+                      placeholder="e.g. tip-crm.yjtechnosoft.com"
+                      className="w-full bg-slate-950/90 border border-white/10 rounded-2xl pl-9 pr-3.5 py-2.5 text-xs text-cyan-300 font-mono focus:outline-none focus:border-cyan-400 shadow-inner font-semibold"
+                    />
+                    <Globe className="h-4 w-4 text-slate-500 absolute left-3 top-3" />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest">Git Repository URL</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={config.gitRepoUrl}
+                      onChange={(e) => handleInputChange('gitRepoUrl', e.target.value)}
+                      placeholder="https://github.com/org/repo.git"
+                      className="w-full bg-slate-950/90 border border-white/10 rounded-2xl pl-9 pr-3.5 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-cyan-400 shadow-inner"
+                    />
+                    <Code className="h-4 w-4 text-slate-500 absolute left-3 top-3" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest">Remote App Path</label>
+                    <input
+                      type="text"
+                      value={config.remoteDir}
+                      onChange={(e) => handleInputChange('remoteDir', e.target.value)}
+                      placeholder="/var/www/my-app"
+                      className="w-full bg-slate-950/90 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-cyan-400 shadow-inner"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest">PM2 Process Name</label>
+                    <input
+                      type="text"
+                      value={config.appName}
+                      onChange={(e) => handleInputChange('appName', e.target.value)}
+                      placeholder="my-app-backend"
+                      className="w-full bg-slate-950/90 border border-white/10 rounded-2xl px-3.5 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-cyan-400 shadow-inner"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <label className="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer font-mono">
+                    <input
+                      type="checkbox"
+                      checked={config.setupSsl}
+                      onChange={(e) => handleInputChange('setupSsl', e.target.checked)}
+                      className="rounded border-white/10 text-cyan-500 focus:ring-cyan-500 bg-slate-950"
+                    />
+                    <span>Auto-provision SSL Certificate (Certbot Let's Encrypt)</span>
+                  </label>
+
+                  <div className="flex items-center space-x-1.5 text-xs text-slate-400 font-mono">
+                    <span>Backend Port:</span>
+                    <span className="font-mono text-cyan-300 font-bold">{config.backendPort}</span>
+                  </div>
                 </div>
               </div>
-
-              <button
-                onClick={() => {
-                  if (repos.length === 0 && githubToken) handleFetchGithubRepos()
-                  else setShowGithubDrawer(true)
-                }}
-                className="text-xs bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-slate-700 px-3 py-1.5 rounded-lg flex items-center space-x-1.5 transition"
-              >
-                <Github className="h-3.5 w-3.5 text-cyan-400" />
-                <span>Select from GitHub</span>
-              </button>
             </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-300 flex items-center justify-between">
-                <span>Target Public Domain Name</span>
-                <span className="text-[10px] text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded">Nginx + SSL Auto-Configured</span>
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={config.domain}
-                  onChange={(e) => handleInputChange('domain', e.target.value)}
-                  placeholder="e.g. tip-crm.yjtechnosoft.com"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-sm text-cyan-300 font-mono focus:outline-none focus:border-cyan-500"
-                />
-                <Globe className="h-4 w-4 text-slate-500 absolute left-3 top-2.5" />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-300">Git Repository URL</label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={config.gitRepoUrl}
-                  onChange={(e) => handleInputChange('gitRepoUrl', e.target.value)}
-                  placeholder="https://github.com/org/repo.git"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-cyan-500"
-                />
-                <Code className="h-4 w-4 text-slate-500 absolute left-3 top-2.5" />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-300">Remote App Path</label>
-                <input
-                  type="text"
-                  value={config.remoteDir}
-                  onChange={(e) => handleInputChange('remoteDir', e.target.value)}
-                  placeholder="/var/www/my-app"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-300">PM2 Process Name</label>
-                <input
-                  type="text"
-                  value={config.appName}
-                  onChange={(e) => handleInputChange('appName', e.target.value)}
-                  placeholder="my-app-backend"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between pt-2">
-              <label className="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={config.setupSsl}
-                  onChange={(e) => handleInputChange('setupSsl', e.target.checked)}
-                  className="rounded border-slate-800 text-cyan-500 focus:ring-cyan-500 bg-slate-950"
-                />
-                <span>Auto-provision SSL Certificate (Certbot Let's Encrypt)</span>
-              </label>
-
-              <div className="flex items-center space-x-1.5 text-xs text-slate-400">
-                <span>Backend Port:</span>
-                <span className="font-mono text-cyan-400 font-bold">{config.backendPort}</span>
-              </div>
-            </div>
-          </div>
-        </div>
 
         {/* Step 3: Server Port & Service Inspection Card */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-lg">
