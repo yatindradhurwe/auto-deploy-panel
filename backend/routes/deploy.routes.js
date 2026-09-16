@@ -1,4 +1,5 @@
 import express from 'express'
+import https from 'https'
 import { testSshConnection, scanPortsAndServices, executeDeployment } from '../services/ssh.service.js'
 
 const router = express.Router()
@@ -28,6 +29,71 @@ router.post('/scan-ports', async (req, res) => {
   } catch (err) {
     res.status(400).json({ success: false, error: err.message })
   }
+})
+
+/**
+ * Fetch Repositories from GitHub API using Personal Access Token
+ */
+router.post('/github-repos', async (req, res) => {
+  const { githubToken } = req.body
+  if (!githubToken) {
+    return res.status(400).json({ success: false, error: 'GitHub Personal Access Token is required' })
+  }
+
+  const options = {
+    hostname: 'api.github.com',
+    path: '/user/repos?per_page=100&sort=updated',
+    method: 'GET',
+    headers: {
+      'Authorization': `token ${githubToken.trim()}`,
+      'User-Agent': 'AutoDeploy-Console-App',
+      'Accept': 'application/vnd.github.v3+json'
+    }
+  }
+
+  const request = https.request(options, (apiRes) => {
+    let body = ''
+    apiRes.on('data', (chunk) => { body += chunk })
+    apiRes.on('end', () => {
+      if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+        try {
+          const repos = JSON.parse(body)
+          const formatted = repos.map((repo) => {
+            const cleanUrl = repo.clone_url
+            // Embed token into clone URL if repository is private
+            const authUrl = repo.private
+              ? cleanUrl.replace('https://', `https://${githubToken.trim()}@`)
+              : cleanUrl
+
+            return {
+              id: repo.id,
+              name: repo.name,
+              full_name: repo.full_name,
+              private: repo.private,
+              description: repo.description,
+              html_url: repo.html_url,
+              clone_url: cleanUrl,
+              authenticated_url: authUrl,
+              default_branch: repo.default_branch || 'main',
+              updated_at: repo.updated_at,
+              language: repo.language
+            }
+          })
+          res.json({ success: true, repos: formatted })
+        } catch (e) {
+          res.status(500).json({ success: false, error: 'Failed to parse GitHub API response' })
+        }
+      } else {
+        res.status(apiRes.statusCode).json({ success: false, error: `GitHub API error: Status ${apiRes.statusCode}` })
+      }
+    })
+  })
+
+  request.on('error', (err) => {
+    res.status(500).json({ success: false, error: `GitHub Request failed: ${err.message}` })
+  })
+
+  request.end()
 })
 
 /**

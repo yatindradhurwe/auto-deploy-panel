@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
   Server, Terminal, ShieldCheck, Globe, Zap, Cpu, CheckCircle2,
-  XCircle, AlertTriangle, Play, RefreshCw, Copy, Check, Lock, HardDrive, Code
+  XCircle, AlertTriangle, Play, RefreshCw, Copy, Check, Lock, HardDrive, Code,
+  Github, Search, X, ChevronRight, Sparkles, FolderGit2
 } from 'lucide-react'
 
 const DEFAULT_CONFIG = {
@@ -32,7 +33,22 @@ export default function App() {
   const [deploySuccess, setDeploySuccess] = useState(null)
   const [copied, setCopied] = useState(false)
 
+  // GitHub Side Panel State (Persisted in LocalStorage)
+  const [githubToken, setGithubToken] = useState(() => localStorage.getItem('autodeploy_gh_token') || '')
+  const [showGithubDrawer, setShowGithubDrawer] = useState(false)
+  const [loadingRepos, setLoadingRepos] = useState(false)
+  const [repos, setRepos] = useState([])
+  const [repoSearch, setRepoSearch] = useState('')
+  const [repoError, setRepoError] = useState(null)
+
   const terminalEndRef = useRef(null)
+
+  // Save GitHub token to local storage
+  useEffect(() => {
+    if (githubToken) {
+      localStorage.setItem('autodeploy_gh_token', githubToken)
+    }
+  }, [githubToken])
 
   // Auto-scroll terminal
   useEffect(() => {
@@ -79,6 +95,51 @@ export default function App() {
     setConfig(DEFAULT_CONFIG)
     setSshStatus(null)
     setScanResult(null)
+  }
+
+  const handleFetchGithubRepos = async (tokenToUse = githubToken) => {
+    if (!tokenToUse) {
+      setShowGithubDrawer(true)
+      setRepoError('Please enter your GitHub Personal Access Token below to load your repositories.')
+      return
+    }
+    setLoadingRepos(true)
+    setRepoError(null)
+    try {
+      const res = await fetch('/api/deploy/github-repos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ githubToken: tokenToUse }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setRepos(data.repos)
+        setShowGithubDrawer(true)
+      } else {
+        setRepoError(data.error || 'Failed to fetch repositories')
+      }
+    } catch (err) {
+      setRepoError(err.message)
+    } finally {
+      setLoadingRepos(false)
+    }
+  }
+
+  const handleSelectRepo = (repo) => {
+    const cleanRepoName = repo.name.toLowerCase().replace(/[^a-z0-9-]/g, '-')
+    const targetPath = `/var/www/${cleanRepoName}`
+    const targetAppName = `${cleanRepoName}-backend`
+    const targetDomain = repo.name === 'TOP-Income-Producer-CRM' ? 'tip-crm.yjtechnosoft.com' : `${cleanRepoName}.com`
+
+    setConfig((prev) => ({
+      ...prev,
+      gitRepoUrl: repo.authenticated_url || repo.clone_url,
+      remoteDir: targetPath,
+      appName: targetAppName,
+      domain: targetDomain,
+    }))
+
+    setShowGithubDrawer(false)
   }
 
   const handleTestSsh = async () => {
@@ -165,10 +226,15 @@ export default function App() {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const filteredRepos = repos.filter((r) =>
+    r.name.toLowerCase().includes(repoSearch.toLowerCase()) ||
+    (r.description && r.description.toLowerCase().includes(repoSearch.toLowerCase()))
+  )
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col relative overflow-x-hidden">
       {/* Top Navbar */}
-      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-50">
+      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
@@ -177,19 +243,36 @@ export default function App() {
             <div>
               <div className="flex items-center space-x-2">
                 <span className="font-bold text-lg tracking-tight text-white">AutoDeploy Console</span>
-                <span className="text-xs bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-2 py-0.5 rounded-full font-mono">v1.0.0</span>
+                <span className="text-xs bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-2 py-0.5 rounded-full font-mono">v1.1.0</span>
               </div>
-              <p className="text-xs text-slate-400">One-Click Server Deployment & Domain Manager</p>
+              <p className="text-xs text-slate-400">One-Click Cloud Server Deployment & GitHub Integration</p>
             </div>
           </div>
 
           <div className="flex items-center space-x-3">
+            {/* GitHub Side Panel Toggle Button */}
+            <button
+              onClick={() => {
+                if (repos.length === 0 && githubToken) handleFetchGithubRepos()
+                else setShowGithubDrawer(true)
+              }}
+              className="text-xs bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 px-3.5 py-1.5 rounded-lg flex items-center space-x-2 transition shadow-sm"
+            >
+              <Github className="h-4 w-4 text-white" />
+              <span className="font-medium">GitHub Repositories</span>
+              {repos.length > 0 && (
+                <span className="bg-cyan-500 text-slate-950 text-[10px] font-bold px-1.5 py-0.2 rounded-full">
+                  {repos.length}
+                </span>
+              )}
+            </button>
+
             <button
               onClick={handlePresetServer}
-              className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg flex items-center space-x-2 transition"
+              className="text-xs bg-slate-800/80 hover:bg-slate-800 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg flex items-center space-x-1.5 transition"
             >
               <Server className="h-3.5 w-3.5 text-cyan-400" />
-              <span>Fill Saved Server Profile</span>
+              <span>Preset Profile</span>
             </button>
 
             <a
@@ -217,15 +300,21 @@ export default function App() {
                 Deploy Software to Public Server & Domain
               </h1>
               <p className="text-sm text-slate-400 mt-1 max-w-2xl">
-                Configure target SSH credentials, specify your public domain name, auto-detect non-conflicting backend ports, and watch live execution logs in real time.
+                Connect your GitHub account to select public/private repositories, configure target server SSH credentials, auto-detect open ports, and execute automated deployments with live streaming terminal logs.
               </p>
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="text-right">
-                <div className="text-xs text-slate-400">Target Public Domain</div>
-                <div className="text-sm font-mono font-semibold text-cyan-400">https://{config.domain}</div>
-              </div>
+              <button
+                onClick={() => {
+                  if (repos.length === 0 && githubToken) handleFetchGithubRepos()
+                  else setShowGithubDrawer(true)
+                }}
+                className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-xs px-4 py-2.5 rounded-xl font-medium flex items-center space-x-2 transition"
+              >
+                <FolderGit2 className="h-4 w-4" />
+                <span>Browse GitHub Projects</span>
+              </button>
             </div>
           </div>
         </div>
@@ -324,14 +413,27 @@ export default function App() {
 
           {/* Card 2: Software & Domain Config */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-lg">
-            <div className="flex items-center space-x-3 border-b border-slate-800 pb-4">
-              <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                <Globe className="h-5 w-5" />
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  <Globe className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="font-semibold text-white">2. Public Domain & Repo Config</h2>
+                  <p className="text-xs text-slate-400">Target Public Domain & GitHub Source</p>
+                </div>
               </div>
-              <div>
-                <h2 className="font-semibold text-white">2. Public Domain & Repo Config</h2>
-                <p className="text-xs text-slate-400">Target Public Domain & GitHub Source</p>
-              </div>
+
+              <button
+                onClick={() => {
+                  if (repos.length === 0 && githubToken) handleFetchGithubRepos()
+                  else setShowGithubDrawer(true)
+                }}
+                className="text-xs bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-slate-700 px-3 py-1.5 rounded-lg flex items-center space-x-1.5 transition"
+              >
+                <Github className="h-3.5 w-3.5 text-cyan-400" />
+                <span>Select from GitHub</span>
+              </button>
             </div>
 
             <div className="space-y-1.5">
@@ -581,9 +683,139 @@ export default function App() {
 
       </main>
 
+      {/* GitHub Slide-Out Side Panel Drawer */}
+      {showGithubDrawer && (
+        <div className="fixed inset-0 z-50 overflow-hidden bg-slate-950/70 backdrop-blur-sm flex justify-end">
+          <div className="w-full max-w-md bg-slate-900 border-l border-slate-800 h-full flex flex-col shadow-2xl animate-in slide-in-from-right duration-200">
+            {/* Drawer Header */}
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                  <Github className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-white text-sm">GitHub Repositories</h3>
+                  <p className="text-[11px] text-slate-400">Select a project to auto-fill deployment config</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowGithubDrawer(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Token Connection Box */}
+            <div className="p-4 border-b border-slate-800 bg-slate-950/60 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-medium text-slate-300">GitHub Personal Access Token</label>
+                <a
+                  href="https://github.com/settings/tokens"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[10px] text-cyan-400 hover:underline"
+                >
+                  Create Token
+                </a>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={githubToken}
+                  onChange={(e) => setGithubToken(e.target.value)}
+                  placeholder="Paste GitHub Personal Access Token..."
+                  className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs font-mono text-cyan-300 focus:outline-none focus:border-cyan-500"
+                />
+                <button
+                  onClick={() => handleFetchGithubRepos(githubToken)}
+                  disabled={loadingRepos}
+                  className="bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-slate-950 font-semibold px-3 py-1.5 rounded-lg text-xs flex items-center space-x-1 transition"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${loadingRepos ? 'animate-spin' : ''}`} />
+                  <span>Fetch</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Search Filter */}
+            <div className="p-3 border-b border-slate-800 bg-slate-900">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={repoSearch}
+                  onChange={(e) => setRepoSearch(e.target.value)}
+                  placeholder="Search repository..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
+                />
+                <Search className="h-3.5 w-3.5 text-slate-500 absolute left-2.5 top-2.5" />
+              </div>
+            </div>
+
+            {/* Repositories List */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {repoError && (
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
+                  {repoError}
+                </div>
+              )}
+
+              {loadingRepos ? (
+                <div className="h-48 flex flex-col items-center justify-center space-y-2 text-slate-400 text-xs">
+                  <RefreshCw className="h-6 w-6 animate-spin text-cyan-400" />
+                  <span>Fetching GitHub Repositories...</span>
+                </div>
+              ) : filteredRepos.length === 0 ? (
+                <div className="h-48 flex flex-col items-center justify-center space-y-2 text-slate-500 text-xs text-center p-4">
+                  <FolderGit2 className="h-8 w-8 text-slate-700" />
+                  <p>No repositories found. Enter token and click Fetch above.</p>
+                </div>
+              ) : (
+                filteredRepos.map((repo) => (
+                  <div
+                    key={repo.id}
+                    className="bg-slate-950/80 border border-slate-800 hover:border-cyan-500/50 rounded-xl p-3.5 space-y-2.5 transition group cursor-pointer"
+                    onClick={() => handleSelectRepo(repo)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="font-semibold text-xs text-white group-hover:text-cyan-400 transition flex items-center space-x-1.5">
+                        <Code className="h-3.5 w-3.5 text-slate-400" />
+                        <span>{repo.name}</span>
+                      </div>
+
+                      {repo.private ? (
+                        <span className="text-[10px] font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <Lock className="h-2.5 w-2.5" /> Private
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                          Public
+                        </span>
+                      )}
+                    </div>
+
+                    {repo.description && (
+                      <p className="text-[11px] text-slate-400 line-clamp-2">{repo.description}</p>
+                    )}
+
+                    <div className="flex items-center justify-between pt-1 border-t border-slate-900 text-[10px] text-slate-500">
+                      <span>{repo.language || 'Code'}</span>
+                      <span className="text-cyan-400 group-hover:translate-x-1 transition flex items-center space-x-0.5 font-medium">
+                        <span>Deploy This Repo</span>
+                        <ChevronRight className="h-3 w-3" />
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Footer */}
       <footer className="border-t border-slate-900 bg-slate-950 py-4 text-center text-xs text-slate-500 font-mono">
-        AutoDeploy Console &copy; 2026 · Standalone Server Deployment & Public Domain Manager
+        AutoDeploy Console &copy; 2026 · Standalone Server Deployment & GitHub Integration
       </footer>
     </div>
   )
