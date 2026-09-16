@@ -3,7 +3,7 @@ import {
   Server, Terminal, ShieldCheck, Globe, Zap, Cpu, CheckCircle2,
   XCircle, AlertTriangle, Play, RefreshCw, Copy, Check, Lock, HardDrive, Code,
   Github, Search, X, ChevronRight, Sparkles, FolderGit2, Bot, LogOut, UserCheck,
-  Layers, Database, FolderTree, LayoutDashboard, Key
+  Layers, Database, FolderTree, LayoutDashboard, Key, Activity, Clock, Webhook
 } from 'lucide-react'
 import AICopilotDrawer from './components/AICopilotDrawer'
 import LoginPage from './components/LoginPage'
@@ -12,6 +12,10 @@ import ProjectExplorer from './components/ProjectExplorer'
 import DatabaseManager from './components/DatabaseManager'
 import CodeStudio from './components/CodeStudio'
 import EnvManager from './components/EnvManager'
+import LogsTelemetryManager from './components/LogsTelemetryManager'
+import DomainSSLManager from './components/DomainSSLManager'
+import CronManager from './components/CronManager'
+import WebhookManager from './components/WebhookManager'
 
 const DEFAULT_CONFIG = {
   host: '187.127.165.128',
@@ -497,6 +501,54 @@ export default function App() {
               <Key className="w-4 h-4 text-amber-400" />
               <span>Environment (.env)</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab('logs')}
+              className={`px-4 py-2 rounded-xl flex items-center gap-2 transition-all duration-300 cursor-pointer ${
+                activeTab === 'logs'
+                  ? 'bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 text-white font-bold shadow-lg shadow-cyan-500/25 ring-1 ring-white/20'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/50'
+              }`}
+            >
+              <Activity className="w-4 h-4 text-emerald-400" />
+              <span>Logs & Health</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('ssl')}
+              className={`px-4 py-2 rounded-xl flex items-center gap-2 transition-all duration-300 cursor-pointer ${
+                activeTab === 'ssl'
+                  ? 'bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 text-white font-bold shadow-lg shadow-cyan-500/25 ring-1 ring-white/20'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/50'
+              }`}
+            >
+              <Globe className="w-4 h-4 text-cyan-400" />
+              <span>SSL & Domains</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('cron')}
+              className={`px-4 py-2 rounded-xl flex items-center gap-2 transition-all duration-300 cursor-pointer ${
+                activeTab === 'cron'
+                  ? 'bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 text-white font-bold shadow-lg shadow-cyan-500/25 ring-1 ring-white/20'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/50'
+              }`}
+            >
+              <Clock className="w-4 h-4 text-amber-300" />
+              <span>Cron Jobs</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('webhooks')}
+              className={`px-4 py-2 rounded-xl flex items-center gap-2 transition-all duration-300 cursor-pointer ${
+                activeTab === 'webhooks'
+                  ? 'bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 text-white font-bold shadow-lg shadow-cyan-500/25 ring-1 ring-white/20'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/50'
+              }`}
+            >
+              <Webhook className="w-4 h-4 text-indigo-400" />
+              <span>Webhooks CI/CD</span>
+            </button>
           </div>
 
           <div className="hidden md:flex items-center gap-2 text-slate-400 text-[11px] bg-slate-900/60 border border-white/10 px-3 py-1.5 rounded-xl shadow-inner">
@@ -543,6 +595,22 @@ export default function App() {
 
         {activeTab === 'env' && (
           <EnvManager jwtToken={jwtToken} />
+        )}
+
+        {activeTab === 'logs' && (
+          <LogsTelemetryManager jwtToken={jwtToken} />
+        )}
+
+        {activeTab === 'ssl' && (
+          <DomainSSLManager jwtToken={jwtToken} />
+        )}
+
+        {activeTab === 'cron' && (
+          <CronManager jwtToken={jwtToken} />
+        )}
+
+        {activeTab === 'webhooks' && (
+          <WebhookManager jwtToken={jwtToken} />
         )}
 
         {activeTab === 'deploy' && (
