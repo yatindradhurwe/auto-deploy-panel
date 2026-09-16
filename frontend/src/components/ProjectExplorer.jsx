@@ -101,7 +101,7 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
                   <td className="py-3.5 px-4 text-slate-400">#{proc.pm_id}</td>
                   <td className="py-3.5 px-4">
                     <div className="font-semibold text-white text-xs">{proc.name}</div>
-                    <div className="text-[10px] text-slate-500 font-mono">/var/www/{proc.name}</div>
+                    <div className="text-[10px] text-slate-500 font-mono">{proc.cwd || `/var/www/${proc.name}`}</div>
                   </td>
                   <td className="py-3.5 px-4">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border inline-flex items-center gap-1 ${

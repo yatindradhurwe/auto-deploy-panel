@@ -55,7 +55,7 @@ const DEFAULT_SERVERS = [
   }
 ]
 
-// Server Projects List
+// Server Projects List Default Presets
 const SERVER_PROJECTS = [
   {
     id: 'proj-autodeploy',
@@ -76,28 +76,131 @@ const SERVER_PROJECTS = [
     branch: 'main',
     type: 'Enterprise CRM App',
     status: 'active'
-  },
-  {
-    id: 'proj-happiness',
-    name: 'Happiness Creators Web App',
-    repoName: 'happiness-creators',
-    path: '/var/www/happinesscreators.org',
-    gitUrl: 'https://github.com/yatindradhurwe/happiness-creators.git',
-    branch: 'main',
-    type: 'Web Portal',
-    status: 'idle'
-  },
-  {
-    id: 'proj-reredesk',
-    name: 'Rere Desk Support Engine',
-    repoName: 'rere-desk',
-    path: '/var/www/rere-desk',
-    gitUrl: 'https://github.com/yatindradhurwe/rere-desk.git',
-    branch: 'main',
-    type: 'Helpdesk Backend',
-    status: 'idle'
   }
 ]
+
+function getGitDetails(dirPath) {
+  let gitUrl = ''
+  let branch = 'main'
+  try {
+    const gitConfigPath = path.join(dirPath, '.git', 'config')
+    if (fs.existsSync(gitConfigPath)) {
+      const content = fs.readFileSync(gitConfigPath, 'utf8')
+      const match = content.match(/url\s*=\s*(.+)/)
+      if (match) gitUrl = match[1].trim()
+    }
+  } catch (e) {}
+
+  try {
+    const headPath = path.join(dirPath, '.git', 'HEAD')
+    if (fs.existsSync(headPath)) {
+      const headContent = fs.readFileSync(headPath, 'utf8').trim()
+      if (headContent.startsWith('ref: refs/heads/')) {
+        branch = headContent.replace('ref: refs/heads/', '')
+      }
+    }
+  } catch (e) {}
+
+  return { gitUrl, branch }
+}
+
+function discoverServerProjects() {
+  const candidateMap = new Map() // normPath -> { name, repoName }
+
+  // 1. Presets / Local dev paths
+  const localAppRoot = path.resolve(process.cwd(), '..').replace(/\\/g, '/')
+  const localCrmRoot = path.resolve(process.cwd(), '../../crm-export').replace(/\\/g, '/')
+
+  if (fs.existsSync(localAppRoot)) {
+    candidateMap.set(localAppRoot, { name: 'AutoDeploy Panel (This Studio)', repoName: 'auto-deploy-panel' })
+  }
+  if (fs.existsSync(localCrmRoot)) {
+    candidateMap.set(localCrmRoot, { name: 'TOP Income Producer CRM (crm-export)', repoName: 'crm-export' })
+  }
+
+  // 2. Scan /var/www subdirectories
+  const varWww = '/var/www'
+  if (fs.existsSync(varWww)) {
+    try {
+      const entries = fs.readdirSync(varWww, { withFileTypes: true })
+      entries.forEach(entry => {
+        if (entry.isDirectory() && entry.name !== 'html') {
+          const fullP = path.join(varWww, entry.name).replace(/\\/g, '/')
+          if (!candidateMap.has(fullP)) {
+            candidateMap.set(fullP, { name: entry.name, repoName: entry.name })
+          }
+        }
+      })
+    } catch (e) {}
+  }
+
+  // 3. Scan /home/*/htdocs/* subdirectories
+  const homeDir = '/home'
+  if (fs.existsSync(homeDir)) {
+    try {
+      const users = fs.readdirSync(homeDir, { withFileTypes: true })
+      users.forEach(u => {
+        if (u.isDirectory()) {
+          const htdocs = path.join(homeDir, u.name, 'htdocs')
+          if (fs.existsSync(htdocs)) {
+            const apps = fs.readdirSync(htdocs, { withFileTypes: true })
+            apps.forEach(app => {
+              if (app.isDirectory()) {
+                const fullP = path.join(htdocs, app.name).replace(/\\/g, '/')
+                if (!candidateMap.has(fullP)) {
+                  candidateMap.set(fullP, { name: app.name, repoName: app.name })
+                }
+              }
+            })
+          }
+        }
+      })
+    } catch (e) {}
+  }
+
+  // 4. PM2 Active Processes
+  const pm2Cwds = new Set()
+  try {
+    const stdout = execSync('pm2 jlist', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] })
+    const procs = JSON.parse(stdout)
+    procs.forEach(p => {
+      const cwd = p.pm2_env && p.pm2_env.pm_cwd
+      if (cwd && fs.existsSync(cwd)) {
+        const normCwd = path.resolve(cwd).replace(/\\/g, '/')
+        pm2Cwds.add(normCwd)
+        if (!candidateMap.has(normCwd)) {
+          candidateMap.set(normCwd, { name: p.name || path.basename(normCwd), repoName: path.basename(normCwd) })
+        }
+      }
+    })
+  } catch (e) {}
+
+  const projects = []
+
+  candidateMap.forEach((meta, dirPath) => {
+    const folderName = path.basename(dirPath)
+    const { gitUrl, branch } = getGitDetails(dirPath)
+    const isRunningPm2 = pm2Cwds.has(dirPath)
+
+    let displayName = meta.name
+    if (displayName === folderName) {
+      displayName = folderName.replace(/[-_.]/g, ' ').toUpperCase()
+    }
+
+    projects.push({
+      id: `proj-${folderName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+      name: displayName,
+      repoName: meta.repoName || folderName,
+      path: dirPath,
+      gitUrl: gitUrl || `https://github.com/yatindradhurwe/${folderName}.git`,
+      branch: branch || 'main',
+      type: isRunningPm2 ? 'Active PM2 Service' : (fs.existsSync(path.join(dirPath, 'package.json')) ? 'Node.js App' : 'Web Application'),
+      status: isRunningPm2 ? 'active' : 'idle'
+    })
+  })
+
+  return projects
+}
 
 /**
  * GET /api/studio/servers
@@ -111,7 +214,12 @@ router.get('/servers', authenticateToken, (req, res) => {
  * Returns list of server projects for direct selection
  */
 router.get('/projects', authenticateToken, (req, res) => {
-  res.json({ success: true, projects: SERVER_PROJECTS })
+  try {
+    const projects = discoverServerProjects()
+    res.json({ success: true, projects })
+  } catch (err) {
+    res.json({ success: true, projects: SERVER_PROJECTS })
+  }
 })
 
 /**
@@ -133,7 +241,8 @@ router.post('/server-metrics', authenticateToken, (req, res) => {
           memory: proc.monit ? Math.round(proc.monit.memory / (1024 * 1024)) : 0,
           restarts: proc.pm2_env ? proc.pm2_env.restart_time : 0,
           uptime: proc.pm2_env ? proc.pm2_env.pm_uptime : Date.now(),
-          script: proc.pm2_env ? proc.pm2_env.pm_exec_path : ''
+          script: proc.pm2_env ? proc.pm2_env.pm_exec_path : '',
+          cwd: proc.pm2_env ? proc.pm2_env.pm_cwd : ''
         }))
       } catch (e) {}
     }
