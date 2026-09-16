@@ -147,8 +147,9 @@ export async function scanPortsAndServices(config) {
 
 /**
  * Runs a single SSH command and streams stdout/stderr chunks via callback.
+ * Rejects if command exits with non-zero exit code.
  */
-function runCommandStream(conn, command, onLog) {
+function runCommandStream(conn, command, onLog, allowFailure = false) {
   return new Promise((resolve, reject) => {
     conn.exec(command, (err, stream) => {
       if (err) return reject(err)
@@ -160,10 +161,10 @@ function runCommandStream(conn, command, onLog) {
         onLog(data.toString('utf-8'), true)
       })
       stream.on('close', (code) => {
-        if (code === 0) {
+        if (code === 0 || allowFailure) {
           resolve(code)
         } else {
-          resolve(code) // Resolve exit code so caller can handle non-zero gracefully
+          reject(new Error(`Command failed with exit code ${code}`))
         }
       })
     })
@@ -171,7 +172,21 @@ function runCommandStream(conn, command, onLog) {
 }
 
 /**
- * Executes full multi-step deployment pipeline on the remote server.
+ * Helper to run a silent query command on remote server and get output string.
+ */
+function runQuery(conn, command) {
+  return new Promise((resolve) => {
+    conn.exec(command, (err, stream) => {
+      if (err) return resolve('')
+      let out = ''
+      stream.on('data', (d) => { out += d.toString() })
+      stream.on('close', () => resolve(out.trim()))
+    })
+  })
+}
+
+/**
+ * Executes full multi-step deployment pipeline on the remote server with strict step validation & layout detection.
  */
 export async function executeDeployment(config, onLog) {
   let conn
@@ -180,18 +195,24 @@ export async function executeDeployment(config, onLog) {
     conn = await connectSsh(config)
     onLog(`SSH Connection Established Successfully!\n\n`, false, 'INIT')
 
-    const domain = config.domain ? config.domain.replace(/^https?:\/\//, '').replace(/\/.*$/, '') : ''
-    const appName = config.appName || 'tip-crm-backend'
+    let domain = (config.domain || '').trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+    let gitRepoUrl = (config.gitRepoUrl || '').trim()
+    const appName = (config.appName || 'my-app').trim()
     const backendPort = config.backendPort || 5050
-    const remoteDir = config.remoteDir || '/var/www/tip-crm'
-    const gitRepoUrl = config.gitRepoUrl || 'https://github.com/yatindradhurwe/TOP-Income-Producer-CRM.git'
+    let remoteDir = (config.remoteDir || `/var/www/${appName}`).trim()
     const setupSsl = config.setupSsl !== false
 
     if (!domain) {
       throw new Error('Public Domain Name is required for deployment')
     }
+    if (!gitRepoUrl) {
+      throw new Error('Git Repository URL is required for deployment')
+    }
 
-    // Step 1: Ensure Target Directory & Git Clone / Pull
+    // Clean up domain (remove trailing slashes)
+    domain = domain.replace(/\/$/, '')
+
+    // Step 1: Sync Codebase from Git
     onLog(`\n==========================================\n[STEP 1/6] Syncing Codebase from Repository...\n==========================================\n`, false, 'GIT')
     const gitCmd = `
       if [ -d "${remoteDir}/.git" ]; then
@@ -203,49 +224,99 @@ export async function executeDeployment(config, onLog) {
         git clone ${gitRepoUrl} ${remoteDir}
       fi
     `
-    await runCommandStream(conn, gitCmd, onLog)
+    try {
+      await runCommandStream(conn, gitCmd, onLog)
+    } catch (gitErr) {
+      onLog(`\n❌ GIT CLONE / SYNC FAILED!\n`, true, 'GIT')
+      onLog(`Possible Causes:\n`, true, 'GIT')
+      onLog(` 1. Typo in Git Repository URL: ${gitRepoUrl}\n`, true, 'GIT')
+      onLog(` 2. Private Repository: For private GitHub repos, format your URL as:\n`, true, 'GIT')
+      onLog(`    https://<YOUR_GITHUB_PAT_TOKEN>@github.com/<USERNAME>/<REPO>.git\n\n`, true, 'GIT')
+      throw new Error(`Git Sync Failed: ${gitErr.message}`)
+    }
 
-    // Step 2: Install Frontend Dependencies & Build Bundle
-    onLog(`\n==========================================\n[STEP 2/6] Building Frontend Dist Bundle...\n==========================================\n`, false, 'FRONTEND')
-    const frontendCmd = `
-      cd ${remoteDir}/frontend
-      echo "Installing frontend packages..."
-      npm install --production=false
-      echo "Executing Vite build..."
-      npm run build
-    `
-    await runCommandStream(conn, frontendCmd, onLog)
+    // Inspect repository layout on server
+    onLog(`\nAnalyzing project layout in ${remoteDir}...\n`, false, 'LAYOUT')
+    const hasFrontendDir = (await runQuery(conn, `[ -d "${remoteDir}/frontend" ] && echo "YES" || echo "NO"`)) === 'YES'
+    const hasBackendDir = (await runQuery(conn, `[ -d "${remoteDir}/backend" ] && echo "YES" || echo "NO"`)) === 'YES'
+    const hasRootPackageJson = (await runQuery(conn, `[ -f "${remoteDir}/package.json" ] && echo "YES" || echo "NO"`)) === 'YES'
 
-    // Step 3: Install Backend Dependencies
-    onLog(`\n==========================================\n[STEP 3/6] Installing Backend Dependencies...\n==========================================\n`, false, 'BACKEND')
-    const backendCmd = `
-      cd ${remoteDir}/backend
-      echo "Installing backend packages..."
-      npm install
-    `
-    await runCommandStream(conn, backendCmd, onLog)
+    onLog(`Layout detected: Monorepo Frontend=${hasFrontendDir}, Backend=${hasBackendDir}, Root Package=${hasRootPackageJson}\n`, false, 'LAYOUT')
 
-    // Step 4: PM2 Backend Process Lifecycle Management
-    onLog(`\n==========================================\n[STEP 4/6] Configuring PM2 Service (${appName} on Port ${backendPort})...\n==========================================\n`, false, 'PM2')
-    const pm2Cmd = `
-      pm2 delete ${appName} || true
-      cd ${remoteDir}/backend
-      PORT=${backendPort} pm2 start server.js --name '${appName}' --update-env
-      pm2 save
-    `
-    await runCommandStream(conn, pm2Cmd, onLog)
+    let webRootDir = `${remoteDir}`
+    let backendEntryDir = null
+
+    // Step 2: Build Frontend
+    onLog(`\n==========================================\n[STEP 2/6] Building Frontend Production Assets...\n==========================================\n`, false, 'FRONTEND')
+    if (hasFrontendDir) {
+      onLog(`Building frontend inside ${remoteDir}/frontend...\n`, false, 'FRONTEND')
+      const frontendCmd = `cd ${remoteDir}/frontend && npm install --production=false && npm run build`
+      await runCommandStream(conn, frontendCmd, onLog)
+      
+      const hasFrontendDist = (await runQuery(conn, `[ -d "${remoteDir}/frontend/dist" ] && echo "YES" || echo "NO"`)) === 'YES'
+      if (hasFrontendDist) {
+        webRootDir = `${remoteDir}/frontend/dist`
+      } else {
+        webRootDir = `${remoteDir}/frontend`
+      }
+    } else if (hasRootPackageJson) {
+      onLog(`Building project at root ${remoteDir}...\n`, false, 'FRONTEND')
+      const rootBuildCmd = `cd ${remoteDir} && npm install --production=false && (npm run build || true)`
+      await runCommandStream(conn, rootBuildCmd, onLog)
+
+      const hasDist = (await runQuery(conn, `[ -d "${remoteDir}/dist" ] && echo "YES" || echo "NO"`)) === 'YES'
+      const hasBuild = (await runQuery(conn, `[ -d "${remoteDir}/build" ] && echo "YES" || echo "NO"`)) === 'YES'
+      const hasPublic = (await runQuery(conn, `[ -d "${remoteDir}/public" ] && echo "YES" || echo "NO"`)) === 'YES'
+
+      if (hasDist) webRootDir = `${remoteDir}/dist`
+      else if (hasBuild) webRootDir = `${remoteDir}/build`
+      else if (hasPublic) webRootDir = `${remoteDir}/public`
+      else webRootDir = remoteDir
+    } else {
+      onLog(`No package.json build script required. Using static root ${remoteDir}.\n`, false, 'FRONTEND')
+      webRootDir = remoteDir
+    }
+
+    onLog(`Selected Nginx Static Web Root: ${webRootDir}\n`, false, 'FRONTEND')
+
+    // Step 3 & Step 4: Backend Setup & PM2 Service
+    onLog(`\n==========================================\n[STEP 3 & 4/6] Backend Setup & PM2 Service Management...\n==========================================\n`, false, 'BACKEND')
+    if (hasBackendDir) {
+      backendEntryDir = `${remoteDir}/backend`
+    } else if (hasRootPackageJson) {
+      const hasServerJs = (await runQuery(conn, `[ -f "${remoteDir}/server.js" -o -f "${remoteDir}/index.js" -o -f "${remoteDir}/app.js" ] && echo "YES" || echo "NO"`)) === 'YES'
+      if (hasServerJs) backendEntryDir = remoteDir
+    }
+
+    if (backendEntryDir) {
+      onLog(`Installing backend packages in ${backendEntryDir}...\n`, false, 'BACKEND')
+      await runCommandStream(conn, `cd ${backendEntryDir} && npm install`, onLog)
+
+      const serverFile = (await runQuery(conn, `
+        if [ -f "${backendEntryDir}/server.js" ]; then echo "server.js";
+        elif [ -f "${backendEntryDir}/index.js" ]; then echo "index.js";
+        elif [ -f "${backendEntryDir}/app.js" ]; then echo "app.js";
+        else echo ""; fi
+      `)) || 'server.js'
+
+      onLog(`Starting PM2 backend service (${appName} -> ${serverFile} on Port ${backendPort})...\n`, false, 'PM2')
+      const pm2Cmd = `
+        pm2 delete ${appName} || true
+        cd ${backendEntryDir}
+        PORT=${backendPort} pm2 start ${serverFile} --name '${appName}' --update-env
+        pm2 save
+      `
+      await runCommandStream(conn, pm2Cmd, onLog)
+    } else {
+      onLog(`No Node.js backend entry point (server.js/index.js) found. Skipping PM2 backend service.\n`, false, 'PM2')
+    }
 
     // Step 5: Nginx Site Block Configuration
     onLog(`\n==========================================\n[STEP 5/6] Auto-Configuring Nginx Web Server for Domain: ${domain}...\n==========================================\n`, false, 'NGINX')
-    const nginxConf = `server {
-    server_name ${domain};
-
-    location / {
-        root ${remoteDir}/frontend/dist;
-        index index.html;
-        try_files $uri $uri/ /index.html;
-    }
-
+    
+    let proxyLocation = ''
+    if (backendEntryDir) {
+      proxyLocation = `
     location /api/ {
         proxy_pass http://127.0.0.1:${backendPort}/api/;
         proxy_http_version 1.1;
@@ -256,10 +327,22 @@ export async function executeDeployment(config, onLog) {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+    }`
     }
+
+    const nginxConf = `server {
+    server_name ${domain};
+
+    location / {
+        root ${webRootDir};
+        index index.html index.htm;
+        try_files $uri $uri/ /index.html;
+    }
+${proxyLocation}
 
     listen 80;
 }`
+
     const nginxCmd = `
       cat << 'EOF' > /etc/nginx/sites-available/${domain}.conf
 ${nginxConf}
@@ -280,12 +363,12 @@ EOF
         certbot --nginx -d ${domain} --non-interactive --agree-tos --register-unsafely-without-email --redirect || true
         systemctl reload nginx
       `
-      await runCommandStream(conn, certbotCmd, onLog)
+      await runCommandStream(conn, certbotCmd, onLog, true)
     } else {
       onLog(`\n[STEP 6/6] Skipped SSL Certbot (Disabled in options).\n`, false, 'SSL')
     }
 
-    onLog(`\n==========================================\n🎉 AUTOMATED DEPLOYMENT SUCCESSFUL!\nPublic Domain: https://${domain}\nBackend API: https://${domain}/api/health\n==========================================\n`, false, 'COMPLETE')
+    onLog(`\n==========================================\n🎉 AUTOMATED DEPLOYMENT SUCCESSFUL!\nPublic Domain: https://${domain}\nWeb Root: ${webRootDir}\n==========================================\n`, false, 'COMPLETE')
 
   } catch (err) {
     onLog(`\n❌ DEPLOYMENT FAILED WITH EXCEPTION:\n${err.message}\n`, true, 'ERROR')
