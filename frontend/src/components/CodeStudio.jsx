@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Folder, FileCode, ChevronRight, ChevronDown, Save, RefreshCw, Code, Terminal, FileText, CheckCircle2, Play, Search, X, GitBranch, Download, Upload, AlertCircle, Sparkles, FolderGit2, Bot } from 'lucide-react'
+import { Folder, FileCode, ChevronRight, ChevronDown, Save, RefreshCw, Code, Terminal, FileText, CheckCircle2, Play, Search, X, GitBranch, Download, Upload, AlertCircle, Sparkles, FolderGit2, Bot, RotateCcw, History } from 'lucide-react'
 import AIAgentStudioDrawer from './AIAgentStudioDrawer'
 
 export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
@@ -19,13 +19,17 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
   // AI Agent Studio Drawer State
   const [showAgentDrawer, setShowAgentDrawer] = useState(false)
 
-  // Git State
+  // Git State & Rollback State
   const [gitStatus, setGitStatus] = useState({ branch: 'main', modifiedCount: 0 })
   const [pullingGit, setPullingGit] = useState(false)
   const [pushingGit, setPushingGit] = useState(false)
   const [showCommitModal, setShowCommitModal] = useState(false)
   const [commitMsg, setCommitMsg] = useState('update code from studio ide')
   const [gitLogModal, setGitLogModal] = useState(null)
+
+  const [showRollbackModal, setShowRollbackModal] = useState(false)
+  const [commitHistory, setCommitHistory] = useState([])
+  const [loadingHistory, setLoadingHistory] = useState(false)
 
   useEffect(() => {
     fetchProjects()
@@ -161,6 +165,57 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
       alert(`Git Push Failed: ${err.message}`)
     } finally {
       setPushingGit(false)
+    }
+  }
+
+  const handleFetchHistory = async () => {
+    if (!selectedProject) return
+    setLoadingHistory(true)
+    setShowRollbackModal(true)
+    try {
+      const res = await fetch('/api/studio/git/history', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${jwtToken}`
+        },
+        body: JSON.stringify({ projectPath: selectedProject.path })
+      })
+      const data = await res.json()
+      if (data.success) {
+        setCommitHistory(data.commits || [])
+      }
+    } catch (err) {
+      console.error('Failed to fetch commit history', err)
+    } finally {
+      setLoadingHistory(false)
+    }
+  }
+
+  const handleRollbackCommit = async (commitHash) => {
+    if (!selectedProject || !commitHash) return
+    if (!window.confirm(`Are you sure you want to rollback ${selectedProject.name} to commit ${commitHash}?`)) return
+
+    try {
+      const res = await fetch('/api/studio/git/rollback', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${jwtToken}`
+        },
+        body: JSON.stringify({ projectPath: selectedProject.path, commitHash })
+      })
+      const data = await res.json()
+      if (data.success) {
+        setShowRollbackModal(false)
+        setGitLogModal({ title: `Git Rollback to ${commitHash} Complete`, output: data.output || data.message })
+        fetchFileTree(selectedProject.path)
+        fetchGitStatus(selectedProject.path)
+      } else {
+        alert(`Rollback Error: ${data.error}`)
+      }
+    } catch (err) {
+      alert(`Rollback Failed: ${err.message}`)
     }
   }
 
@@ -362,6 +417,16 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
             <span>{pushingGit ? 'Pushing...' : 'Git Commit & Push'}</span>
           </button>
 
+          {/* Git Commit Rollback */}
+          <button
+            onClick={handleFetchHistory}
+            className="px-3.5 py-1.5 bg-slate-800/80 hover:bg-slate-700/80 text-amber-300 border border-amber-500/30 rounded-xl font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-sm"
+            title="View recent Git commits and rollback codebase"
+          >
+            <History className="w-3.5 h-3.5 text-amber-400" />
+            <span>Rollback</span>
+          </button>
+
           {/* AI Agent Studio Drawer Toggle */}
           <button
             onClick={() => setShowAgentDrawer(true)}
@@ -472,6 +537,58 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
                 Close Output Window
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Git Rollback Commit Selector Modal */}
+      {showRollbackModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xl flex items-center justify-center p-4">
+          <div className="bg-[#0B0E17] border border-white/10 rounded-3xl p-6 w-full max-w-lg shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <h3 className="text-sm font-extrabold text-white flex items-center gap-2">
+                <RotateCcw className="w-4 h-4 text-amber-400" />
+                Select Commit to Rollback ({selectedProject?.name})
+              </h3>
+              <button
+                onClick={() => setShowRollbackModal(false)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {loadingHistory ? (
+              <div className="flex items-center justify-center p-8 text-xs font-mono text-slate-400">
+                <RefreshCw className="w-4 h-4 animate-spin mr-2 text-amber-400" />
+                Fetching Git commit history...
+              </div>
+            ) : commitHistory.length === 0 ? (
+              <p className="text-xs text-slate-400 font-mono p-4 text-center">No recent commit history found.</p>
+            ) : (
+              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                {commitHistory.map((c) => (
+                  <div
+                    key={c.hash}
+                    className="p-3 bg-slate-950/80 border border-white/5 hover:border-amber-500/40 rounded-2xl flex items-center justify-between gap-3 text-xs font-mono transition"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2 text-slate-200 font-bold">
+                        <span className="text-amber-400 px-2 py-0.5 rounded bg-amber-950/80 border border-amber-800 text-[10px]">{c.hash}</span>
+                        <span className="truncate max-w-xs">{c.subject}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">by {c.author} • {c.relativeTime}</div>
+                    </div>
+                    <button
+                      onClick={() => handleRollbackCommit(c.hash)}
+                      className="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl text-[11px] font-bold transition cursor-pointer shrink-0"
+                    >
+                      Rollback To This
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

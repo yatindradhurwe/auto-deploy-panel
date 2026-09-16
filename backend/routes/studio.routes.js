@@ -538,16 +538,124 @@ ${userPrompt}
       }
     }
 
-    res.json({
-      success: true,
-      provider,
-      aiReply,
-      gitLog,
-      autoDeployed: autoDeploy
-    })
-  } catch (err) {
-    res.status(500).json({ error: `Agent execution failed: ${err.message}` })
+/**
+ * POST /api/studio/env/get
+ * Reads .env file for selected project
+ */
+router.post('/env/get', authenticateToken, (req, res) => {
+  const { projectPath } = req.body
+  if (!projectPath || !fs.existsSync(projectPath)) {
+    return res.status(400).json({ error: 'Invalid or missing project directory' })
   }
+
+  const envFiles = ['.env', '.env.production', '.env.local']
+  let envPath = ''
+  for (const f of envFiles) {
+    const p = path.join(projectPath, f)
+    if (fs.existsSync(p)) {
+      envPath = p
+      break
+    }
+  }
+
+  if (!envPath) {
+    envPath = path.join(projectPath, '.env')
+  }
+
+  let rawContent = ''
+  if (fs.existsSync(envPath)) {
+    try {
+      rawContent = fs.readFileSync(envPath, 'utf8')
+    } catch (e) {}
+  }
+
+  const envVars = []
+  rawContent.split('\n').forEach((line) => {
+    const trimmed = line.trim()
+    if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+      const idx = trimmed.indexOf('=')
+      const key = trimmed.slice(0, idx).trim()
+      const value = trimmed.slice(idx + 1).trim()
+      envVars.push({ key, value })
+    }
+  })
+
+  res.json({
+    success: true,
+    envPath,
+    rawContent,
+    envVars
+  })
+})
+
+/**
+ * POST /api/studio/env/save
+ * Saves updated .env content for selected project
+ */
+router.post('/env/save', authenticateToken, (req, res) => {
+  const { projectPath, rawContent, envVars } = req.body
+  if (!projectPath || !fs.existsSync(projectPath)) {
+    return res.status(400).json({ error: 'Invalid project directory' })
+  }
+
+  const envPath = path.join(projectPath, '.env')
+  let contentToWrite = rawContent || ''
+
+  if (envVars && Array.isArray(envVars) && !rawContent) {
+    contentToWrite = envVars.map((item) => `${item.key}=${item.value}`).join('\n')
+  }
+
+  try {
+    fs.writeFileSync(envPath, contentToWrite, 'utf8')
+    res.json({ success: true, message: '.env file saved successfully', envPath })
+  } catch (err) {
+    res.status(500).json({ error: `Failed to write .env: ${err.message}` })
+  }
+})
+
+/**
+ * POST /api/studio/git/history
+ * Returns recent Git commit log for rollback selector
+ */
+router.post('/git/history', authenticateToken, (req, res) => {
+  const { projectPath } = req.body
+  if (!projectPath || !fs.existsSync(projectPath)) {
+    return res.status(400).json({ error: 'Invalid project directory' })
+  }
+
+  exec('git log -n 12 --pretty=format:"%h|%s|%an|%cr"', { cwd: projectPath }, (error, stdout) => {
+    if (error) {
+      return res.json({ success: true, commits: [] })
+    }
+
+    const commits = stdout
+      .split('\n')
+      .filter((l) => l.trim())
+      .map((line) => {
+        const [hash, subject, author, relativeTime] = line.split('|')
+        return { hash, subject, author, relativeTime }
+      })
+
+    res.json({ success: true, commits })
+  })
+})
+
+/**
+ * POST /api/studio/git/rollback
+ * Executes Git checkout or reset to rollback to a specific commit
+ */
+router.post('/git/rollback', authenticateToken, (req, res) => {
+  const { projectPath, commitHash } = req.body
+  if (!projectPath || !fs.existsSync(projectPath) || !commitHash) {
+    return res.status(400).json({ error: 'Invalid rollback parameters' })
+  }
+
+  exec(`git reset --hard ${commitHash}`, { cwd: projectPath }, (error, stdout, stderr) => {
+    if (error) {
+      return res.status(500).json({ error: stderr || error.message })
+    }
+    res.json({ success: true, message: `Successfully rolled back to commit ${commitHash}`, output: stdout })
+  })
 })
 
 export default router
