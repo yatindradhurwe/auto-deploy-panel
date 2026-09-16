@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import { Layers, Play, Square, RefreshCw, Cpu, Activity, Clock, Terminal, AlertCircle, CheckCircle2, ChevronRight, HardDrive } from 'lucide-react'
+import { Layers, Play, Square, RefreshCw, Cpu, Activity, Clock, Terminal, AlertCircle, CheckCircle2, ChevronRight, HardDrive, Code } from 'lucide-react'
 
-export default function ProjectExplorer({ jwtToken, activeServer }) {
+export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio }) {
   const [processes, setProcesses] = useState([])
   const [serverStats, setServerStats] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -92,7 +92,7 @@ export default function ProjectExplorer({ jwtToken, activeServer }) {
                 <th className="py-3 px-4">CPU %</th>
                 <th className="py-3 px-4">Memory</th>
                 <th className="py-3 px-4">Restarts</th>
-                <th className="py-3 px-4 text-right">Service Control</th>
+                <th className="py-3 px-4 text-right">Service Control & Studio IDE</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 font-mono">
@@ -117,6 +117,13 @@ export default function ProjectExplorer({ jwtToken, activeServer }) {
                   <td className="py-3.5 px-4 text-blue-400">{proc.memory} MB</td>
                   <td className="py-3.5 px-4 text-purple-400">{proc.restarts}</td>
                   <td className="py-3.5 px-4 text-right space-x-2">
+                    <button
+                      onClick={() => onOpenInStudio && onOpenInStudio(proc.name)}
+                      className="px-2.5 py-1 bg-cyan-950/80 hover:bg-cyan-900/80 text-cyan-300 border border-cyan-800/80 rounded-lg text-[11px] transition cursor-pointer font-semibold inline-flex items-center gap-1"
+                    >
+                      <Code className="w-3 h-3" />
+                      <span>Open in Studio</span>
+                    </button>
                     <button
                       onClick={() => toggleProcessState(proc.pm_id)}
                       className={`px-2.5 py-1 rounded-lg border transition text-[11px] cursor-pointer ${

@@ -33,6 +33,7 @@ export default function App() {
     host: '187.127.165.128',
     domain: 'automate-deployment.yjtechnosoft.com'
   })
+  const [targetProjectInStudio, setTargetProjectInStudio] = useState('')
 
   // JWT Auth State
   const [jwtToken, setJwtToken] = useState(() => localStorage.getItem('autodeploy_jwt_token') || '')
@@ -509,7 +510,14 @@ export default function App() {
         )}
 
         {activeTab === 'projects' && (
-          <ProjectExplorer jwtToken={jwtToken} activeServer={activeServer} />
+          <ProjectExplorer
+            jwtToken={jwtToken}
+            activeServer={activeServer}
+            onOpenInStudio={(projName) => {
+              setTargetProjectInStudio(projName)
+              setActiveTab('code')
+            }}
+          />
         )}
 
         {activeTab === 'databases' && (
@@ -517,7 +525,7 @@ export default function App() {
         )}
 
         {activeTab === 'code' && (
-          <CodeStudio jwtToken={jwtToken} activeServer={activeServer} />
+          <CodeStudio jwtToken={jwtToken} activeServer={activeServer} initialProject={targetProjectInStudio} />
         )}
 
         {activeTab === 'deploy' && (

@@ -55,17 +55,67 @@ const DEFAULT_SERVERS = [
   }
 ]
 
+// Server Projects List
+const SERVER_PROJECTS = [
+  {
+    id: 'proj-autodeploy',
+    name: 'AutoDeploy Panel (This Studio)',
+    repoName: 'auto-deploy-panel',
+    path: path.resolve(process.cwd(), '..').replace(/\\/g, '/'),
+    gitUrl: 'https://github.com/yatindradhurwe/auto-deploy-panel.git',
+    branch: 'main',
+    type: 'Fullstack Studio Panel',
+    status: 'active'
+  },
+  {
+    id: 'proj-tipcrm',
+    name: 'TOP Income Producer CRM (crm-export)',
+    repoName: 'crm-export',
+    path: path.resolve(process.cwd(), '../../crm-export').replace(/\\/g, '/'),
+    gitUrl: 'https://github.com/yatindradhurwe/TOP-Income-Producer-CRM.git',
+    branch: 'main',
+    type: 'Enterprise CRM App',
+    status: 'active'
+  },
+  {
+    id: 'proj-happiness',
+    name: 'Happiness Creators Web App',
+    repoName: 'happiness-creators',
+    path: '/var/www/happinesscreators.org',
+    gitUrl: 'https://github.com/yatindradhurwe/happiness-creators.git',
+    branch: 'main',
+    type: 'Web Portal',
+    status: 'idle'
+  },
+  {
+    id: 'proj-reredesk',
+    name: 'Rere Desk Support Engine',
+    repoName: 'rere-desk',
+    path: '/var/www/rere-desk',
+    gitUrl: 'https://github.com/yatindradhurwe/rere-desk.git',
+    branch: 'main',
+    type: 'Helpdesk Backend',
+    status: 'idle'
+  }
+]
+
 /**
  * GET /api/studio/servers
- * Returns server connection history
  */
 router.get('/servers', authenticateToken, (req, res) => {
   res.json({ success: true, servers: DEFAULT_SERVERS })
 })
 
 /**
+ * GET /api/studio/projects
+ * Returns list of server projects for direct selection
+ */
+router.get('/projects', authenticateToken, (req, res) => {
+  res.json({ success: true, projects: SERVER_PROJECTS })
+})
+
+/**
  * POST /api/studio/server-metrics
- * Returns live server metrics & PM2 process list
  */
 router.post('/server-metrics', authenticateToken, (req, res) => {
   const { host = '187.127.165.128' } = req.body
@@ -88,11 +138,10 @@ router.post('/server-metrics', authenticateToken, (req, res) => {
       } catch (e) {}
     }
 
-    // Default fallback list if PM2 list is empty or running on different node
     if (pm2Processes.length === 0) {
       pm2Processes = [
         { pm_id: 3, name: 'tip-crm-backend', status: 'online', cpu: 2, memory: 71, restarts: 6, uptime: Date.now() - 36000000 },
-        { pm_id: 9, name: 'auto-deploy-backend', status: 'online', cpu: 1, memory: 74, restarts: 0, uptime: Date.now() - 7200000 },
+        { pm_id: 10, name: 'auto-deploy-backend', status: 'online', cpu: 1, memory: 74, restarts: 0, uptime: Date.now() - 7200000 },
         { pm_id: 0, name: 'happiness-creators', status: 'online', cpu: 0, memory: 79, restarts: 8, uptime: Date.now() - 86400000 },
         { pm_id: 2, name: 'rere-desk', status: 'online', cpu: 1, memory: 127, restarts: 1, uptime: Date.now() - 43200000 }
       ]
@@ -115,47 +164,123 @@ router.post('/server-metrics', authenticateToken, (req, res) => {
 })
 
 /**
+ * POST /api/studio/git/status
+ * Returns git status of project
+ */
+router.post('/git/status', authenticateToken, (req, res) => {
+  const { projectPath } = req.body
+  const targetDir = projectPath && fs.existsSync(projectPath) ? projectPath : path.resolve(process.cwd(), '..')
+
+  exec('git status --short && git branch --show-current', { cwd: targetDir }, (error, stdout) => {
+    if (error) {
+      return res.json({ success: false, branch: 'main', modifiedCount: 0, raw: 'Not a git repo' })
+    }
+    const lines = stdout.trim().split('\n')
+    const branch = lines.pop() || 'main'
+    const modifiedCount = lines.filter((l) => l.trim()).length
+    res.json({ success: true, branch, modifiedCount, modifiedFiles: lines })
+  })
+})
+
+/**
+ * POST /api/studio/git/pull
+ * Executes git pull origin main
+ */
+router.post('/git/pull', authenticateToken, (req, res) => {
+  const { projectPath, branch = 'main' } = req.body
+  const targetDir = projectPath && fs.existsSync(projectPath) ? projectPath : path.resolve(process.cwd(), '..')
+
+  exec(`git pull origin ${branch}`, { cwd: targetDir }, (error, stdout, stderr) => {
+    if (error) {
+      return res.status(500).json({ success: false, error: stderr || error.message })
+    }
+    res.json({ success: true, message: 'Git Pull completed successfully', output: stdout })
+  })
+})
+
+/**
+ * POST /api/studio/git/push
+ * Executes git add . && git commit -m "<message>" && git push origin main
+ */
+router.post('/git/push', authenticateToken, (req, res) => {
+  const { projectPath, commitMessage = 'update from studio ide', branch = 'main' } = req.body
+  const targetDir = projectPath && fs.existsSync(projectPath) ? projectPath : path.resolve(process.cwd(), '..')
+
+  const safeMsg = commitMessage.replace(/"/g, '\\"')
+  const cmd = process.platform === 'win32'
+    ? `git add . ; git commit -m "${safeMsg}" ; git push origin ${branch}`
+    : `git add . && git commit -m "${safeMsg}" && git push origin ${branch}`
+
+  exec(cmd, { cwd: targetDir }, (error, stdout, stderr) => {
+    if (error && !stdout.includes('working tree clean')) {
+      return res.status(500).json({ success: false, error: stderr || error.message })
+    }
+    res.json({ success: true, message: 'Git Push completed successfully', output: stdout || 'Already up to date.' })
+  })
+})
+
+/**
  * POST /api/studio/databases
- * Returns connected database instances and schema tables
+ * Multi-Database Admin Suite Profiles (PostgreSQL / pgAdmin, MySQL / phpMyAdmin, MongoDB / Compass, Redis GUI)
  */
 router.post('/databases', authenticateToken, (req, res) => {
   const sampleDatabases = [
     {
-      id: 'db-supabase-prod',
-      name: 'TIP-CRM Supabase Database',
-      type: 'PostgreSQL / Supabase',
+      id: 'db-postgres-pgadmin',
+      name: 'PostgreSQL / pgAdmin Engine (TIP-CRM)',
+      type: 'PostgreSQL 15 (pgAdmin)',
+      engine: 'postgresql',
       host: 'db.yjtechnosoft.com:5432',
       status: 'connected',
+      icon: 'elephant',
       tables: [
-        { name: 'users', rows: 1420, size: '2.4 MB', primaryKey: 'id' },
-        { name: 'leads', rows: 8940, size: '14.8 MB', primaryKey: 'id' },
-        { name: 'deals', rows: 3120, size: '6.1 MB', primaryKey: 'id' },
-        { name: 'contacts', rows: 4500, size: '8.2 MB', primaryKey: 'id' },
-        { name: 'activities', rows: 12450, size: '21.5 MB', primaryKey: 'id' },
-        { name: 'pipelines', rows: 48, size: '320 KB', primaryKey: 'id' }
+        { name: 'users', rows: 1420, size: '2.4 MB', primaryKey: 'id', columns: ['id (uuid)', 'email (varchar)', 'password_hash (text)', 'role (enum)', 'created_at (timestamp)'] },
+        { name: 'leads', rows: 8940, size: '14.8 MB', primaryKey: 'id', columns: ['id (uuid)', 'name (varchar)', 'phone (varchar)', 'status (varchar)', 'score (int)'] },
+        { name: 'deals', rows: 3120, size: '6.1 MB', primaryKey: 'id', columns: ['id (uuid)', 'title (varchar)', 'value (numeric)', 'stage (varchar)', 'assigned_to (uuid)'] },
+        { name: 'contacts', rows: 4500, size: '8.2 MB', primaryKey: 'id', columns: ['id (uuid)', 'first_name (varchar)', 'last_name (varchar)', 'email (varchar)'] },
+        { name: 'activity_logs', rows: 12450, size: '21.5 MB', primaryKey: 'id', columns: ['id (uuid)', 'user_id (uuid)', 'action (text)', 'timestamp (timestamp)'] }
       ]
     },
     {
-      id: 'db-mysql-autodeploy',
-      name: 'AutoDeploy Panel Storage',
-      type: 'MySQL v8.0',
+      id: 'db-mysql-phpmyadmin',
+      name: 'MySQL / phpMyAdmin Engine (AutoDeploy Storage)',
+      type: 'MySQL v8.0 (phpMyAdmin)',
+      engine: 'mysql',
       host: '127.0.0.1:3306',
       status: 'connected',
+      icon: 'dolphin',
       tables: [
-        { name: 'deploy_logs', rows: 320, size: '1.8 MB', primaryKey: 'id' },
-        { name: 'server_credentials', rows: 14, size: '120 KB', primaryKey: 'id' },
-        { name: 'audit_events', rows: 1890, size: '3.4 MB', primaryKey: 'id' }
+        { name: 'deploy_logs', rows: 320, size: '1.8 MB', primaryKey: 'id', columns: ['id (int)', 'deploy_id (varchar)', 'step (varchar)', 'log_text (text)', 'created_at (datetime)'] },
+        { name: 'server_credentials', rows: 14, size: '120 KB', primaryKey: 'id', columns: ['id (int)', 'server_name (varchar)', 'ip_address (varchar)', 'ssh_port (int)', 'ssh_user (varchar)'] },
+        { name: 'audit_events', rows: 1890, size: '3.4 MB', primaryKey: 'id', columns: ['id (int)', 'admin_email (varchar)', 'event_type (varchar)', 'created_at (datetime)'] }
       ]
     },
     {
-      id: 'db-redis-cache',
-      name: 'Redis Session Cache',
-      type: 'Redis v7.2',
+      id: 'db-mongodb-compass',
+      name: 'MongoDB Compass Engine (Analytics & Logs)',
+      type: 'MongoDB v7.0 (Compass)',
+      engine: 'mongodb',
+      host: 'mongodb://127.0.0.1:27017/analytics',
+      status: 'connected',
+      icon: 'leaf',
+      collections: [
+        { name: 'page_views', count: 48900, size: '34.2 MB', sampleDoc: '{\n  "_id": "650a12b...",\n  "path": "/dashboard",\n  "views": 420,\n  "ua": "Mozilla/5.0"\n}' },
+        { name: 'session_events', count: 12400, size: '11.8 MB', sampleDoc: '{\n  "_id": "650a12c...",\n  "userId": "usr_01",\n  "ip": "187.127.165.128",\n  "event": "login_success"\n}' },
+        { name: 'ai_diagnostics', count: 860, size: '4.1 MB', sampleDoc: '{\n  "_id": "650a12d...",\n  "deployId": "dep_99",\n  "issue": "port 5000 in use",\n  "fixCmd": "kill -9 5000"\n}' }
+      ]
+    },
+    {
+      id: 'db-redis-gui',
+      name: 'Redis GUI Engine (Session & Token Cache)',
+      type: 'Redis v7.2 (GUI Console)',
+      engine: 'redis',
       host: '127.0.0.1:6379',
       status: 'connected',
-      tables: [
-        { name: 'session:jwt_tokens', rows: 42, size: '84 KB', primaryKey: 'key' },
-        { name: 'cache:git_repos', rows: 18, size: '140 KB', primaryKey: 'key' }
+      icon: 'redis',
+      keys: [
+        { key: 'session:jwt_tokens:admin-001', type: 'string', ttl: '86390s', value: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' },
+        { key: 'cache:git_repos:yatindradhurwe', type: 'hash', ttl: '3500s', value: '{ "repos": 14, "fetched": "2026-09-17" }' },
+        { key: 'queue:deploy_tasks', type: 'list', ttl: 'no-expire', value: '["task-197", "task-307"]' }
       ]
     }
   ]
@@ -165,11 +290,14 @@ router.post('/databases', authenticateToken, (req, res) => {
 
 /**
  * POST /api/studio/files/tree
- * Returns project directory file tree for Code Studio
  */
 router.post('/files/tree', authenticateToken, (req, res) => {
   const { projectPath } = req.body
-  const rootDir = projectPath || path.resolve(process.cwd(), '..')
+
+  let rootDir = projectPath
+  if (!rootDir || !fs.existsSync(rootDir)) {
+    rootDir = path.resolve(process.cwd(), '..')
+  }
 
   const scanDir = (dirPath, relativeBase = '') => {
     const items = []
@@ -210,7 +338,6 @@ router.post('/files/tree', authenticateToken, (req, res) => {
 
 /**
  * POST /api/studio/files/read
- * Reads content of target file
  */
 router.post('/files/read', authenticateToken, (req, res) => {
   const { filePath } = req.body
@@ -232,7 +359,6 @@ router.post('/files/read', authenticateToken, (req, res) => {
 
 /**
  * POST /api/studio/files/save
- * Writes modified content to file
  */
 router.post('/files/save', authenticateToken, (req, res) => {
   const { filePath, content } = req.body
