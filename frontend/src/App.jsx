@@ -2,10 +2,15 @@ import React, { useState, useEffect, useRef } from 'react'
 import {
   Server, Terminal, ShieldCheck, Globe, Zap, Cpu, CheckCircle2,
   XCircle, AlertTriangle, Play, RefreshCw, Copy, Check, Lock, HardDrive, Code,
-  Github, Search, X, ChevronRight, Sparkles, FolderGit2, Bot, LogOut, UserCheck
+  Github, Search, X, ChevronRight, Sparkles, FolderGit2, Bot, LogOut, UserCheck,
+  Layers, Database, FolderTree, LayoutDashboard
 } from 'lucide-react'
 import AICopilotDrawer from './components/AICopilotDrawer'
 import LoginPage from './components/LoginPage'
+import ServerManager from './components/ServerManager'
+import ProjectExplorer from './components/ProjectExplorer'
+import DatabaseManager from './components/DatabaseManager'
+import CodeStudio from './components/CodeStudio'
 
 const DEFAULT_CONFIG = {
   host: '187.127.165.128',
@@ -21,6 +26,14 @@ const DEFAULT_CONFIG = {
 }
 
 export default function App() {
+  // Studio Workspace Active Navigation Tab
+  const [activeTab, setActiveTab] = useState('deploy') // 'deploy' | 'servers' | 'projects' | 'databases' | 'code'
+  const [activeServer, setActiveServer] = useState({
+    name: 'Production Server Node 01',
+    host: '187.127.165.128',
+    domain: 'automate-deployment.yjtechnosoft.com'
+  })
+
   // JWT Auth State
   const [jwtToken, setJwtToken] = useState(() => localStorage.getItem('autodeploy_jwt_token') || '')
   const [currentUser, setCurrentUser] = useState(() => {
@@ -407,17 +420,116 @@ export default function App() {
         </div>
       </header>
 
+      {/* Studio Workspace Tab Navigation Bar */}
+      <div className="bg-slate-900/90 border-b border-slate-800 backdrop-blur sticky top-16 z-30 shadow-md">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between overflow-x-auto font-mono text-xs">
+          <div className="flex items-center space-x-1 py-2">
+            <button
+              onClick={() => setActiveTab('deploy')}
+              className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition cursor-pointer ${
+                activeTab === 'deploy'
+                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold shadow-md'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+              }`}
+            >
+              <Zap className="w-4 h-4" />
+              <span>1-Click Deploy</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('servers')}
+              className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition cursor-pointer ${
+                activeTab === 'servers'
+                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold shadow-md'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+              }`}
+            >
+              <Server className="w-4 h-4" />
+              <span>Server History</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('projects')}
+              className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition cursor-pointer ${
+                activeTab === 'projects'
+                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold shadow-md'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+              }`}
+            >
+              <Layers className="w-4 h-4" />
+              <span>Projects & PM2</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('databases')}
+              className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition cursor-pointer ${
+                activeTab === 'databases'
+                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold shadow-md'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+              }`}
+            >
+              <Database className="w-4 h-4" />
+              <span>Databases</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('code')}
+              className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition cursor-pointer ${
+                activeTab === 'code'
+                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold shadow-md'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+              }`}
+            >
+              <FolderTree className="w-4 h-4" />
+              <span>Code Studio IDE</span>
+            </button>
+          </div>
+
+          <div className="hidden md:flex items-center gap-2 text-slate-400 text-[11px]">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>Target Host:</span>
+            <span className="text-cyan-300 font-semibold">{activeServer.name} ({activeServer.host})</span>
+          </div>
+        </div>
+      </div>
+
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
 
-        {/* Top Info Banner */}
-        <div className="bg-gradient-to-r from-slate-900 via-slate-900/90 to-blue-950/40 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
-          <div className="absolute top-0 right-0 -mt-8 -mr-8 w-48 h-48 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none"></div>
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
-            <div>
-              <h1 className="text-xl font-bold text-white flex items-center gap-2">
-                Deploy Software to Public Server & Domain
-              </h1>
+        {activeTab === 'servers' && (
+          <ServerManager
+            jwtToken={jwtToken}
+            onSelectServer={(srv) => {
+              setActiveServer(srv)
+              handleInputChange('host', srv.host)
+              handleInputChange('domain', srv.domain)
+              setActiveTab('deploy')
+            }}
+          />
+        )}
+
+        {activeTab === 'projects' && (
+          <ProjectExplorer jwtToken={jwtToken} activeServer={activeServer} />
+        )}
+
+        {activeTab === 'databases' && (
+          <DatabaseManager jwtToken={jwtToken} />
+        )}
+
+        {activeTab === 'code' && (
+          <CodeStudio jwtToken={jwtToken} activeServer={activeServer} />
+        )}
+
+        {activeTab === 'deploy' && (
+          <>
+            {/* Top Info Banner */}
+            <div className="bg-gradient-to-r from-slate-900 via-slate-900/90 to-blue-950/40 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 -mt-8 -mr-8 w-48 h-48 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none"></div>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+                <div>
+                  <h1 className="text-xl font-bold text-white flex items-center gap-2">
+                    Deploy Software to Public Server & Domain
+                  </h1>
               <p className="text-sm text-slate-400 mt-1 max-w-2xl">
                 Connect your GitHub account, configure server SSH credentials, and let the integrated AI Agent Copilot diagnose errors and execute automated server fixes.
               </p>
@@ -815,6 +927,8 @@ export default function App() {
             </div>
           </div>
         </div>
+        </>
+        )}
 
       </main>
 
