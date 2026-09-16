@@ -65,87 +65,87 @@ export default function AIAgentStudioDrawer({ isOpen, onClose, activeFile, fileC
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden bg-slate-950/80 backdrop-blur-sm flex justify-end font-sans">
-      <div className="w-full max-w-xl bg-slate-900 border-l border-slate-800 h-full flex flex-col shadow-2xl animate-in slide-in-from-right duration-200">
+    <div className="fixed inset-0 z-50 overflow-hidden bg-slate-950/80 backdrop-blur-xl flex justify-end font-sans">
+      <div className="w-full max-w-xl bg-[#0B0E17]/95 border-l border-white/10 h-full flex flex-col shadow-2xl animate-in slide-in-from-right duration-300">
         
-        {/* Header */}
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950">
-          <div className="flex items-center space-x-3">
-            <div className="p-2 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 text-slate-950 font-bold shadow-md">
+        {/* Header - Apple Translucent Glass */}
+        <div className="p-4 border-b border-white/10 flex items-center justify-between bg-slate-950/90 backdrop-blur-xl">
+          <div className="flex items-center space-x-3.5">
+            <div className="p-2.5 rounded-2xl bg-gradient-to-tr from-purple-500 via-indigo-600 to-cyan-500 text-white font-bold shadow-lg shadow-purple-950/50 ring-1 ring-white/20">
               <Bot className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="font-bold text-white text-sm tracking-tight flex items-center gap-2">
+              <h3 className="font-extrabold text-white text-sm tracking-tight flex items-center gap-2">
                 Multi-Model Autonomous AI Agent Studio
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-950 border border-cyan-800 text-cyan-400 font-mono">
-                  v2.0
+                <span className="text-[9px] px-2 py-0.5 rounded-full bg-purple-950/80 border border-purple-800 text-purple-300 font-mono font-bold">
+                  v2.0 AI
                 </span>
               </h3>
-              <p className="text-[11px] text-slate-400">Self-coding, Git auto-commit & Live server self-deployer</p>
+              <p className="text-[11px] text-slate-400 font-mono">Self-coding, Git auto-commit & Live server self-deployer</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/80 transition cursor-pointer"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
         {/* Content Container */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
+        <div className="flex-1 overflow-y-auto p-5 space-y-5 text-xs">
           
           {/* Provider Selector Tabs */}
           <div>
-            <label className="block text-[11px] font-mono text-slate-400 uppercase tracking-wider mb-2">
+            <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest font-bold mb-2.5">
               Select Autonomous AI Engine:
             </label>
             <div className="grid grid-cols-4 gap-2 font-mono text-[11px]">
               <button
                 onClick={() => setProvider('gemini')}
-                className={`p-2.5 rounded-xl border flex flex-col items-center gap-1 transition cursor-pointer ${
+                className={`p-3 rounded-2xl border flex flex-col items-center gap-1.5 transition-all duration-200 cursor-pointer ${
                   provider === 'gemini'
-                    ? 'bg-cyan-950/80 border-cyan-500/80 text-cyan-300 font-bold shadow-md'
-                    : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200'
+                    ? 'bg-cyan-950/90 border-cyan-500/80 text-cyan-300 font-bold shadow-lg shadow-cyan-950/50 ring-1 ring-cyan-500/40'
+                    : 'bg-slate-950/60 border-white/5 text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
                 }`}
               >
-                <span className="text-base">♊</span>
+                <span className="text-lg">♊</span>
                 <span>Gemini</span>
               </button>
 
               <button
                 onClick={() => setProvider('grok')}
-                className={`p-2.5 rounded-xl border flex flex-col items-center gap-1 transition cursor-pointer ${
+                className={`p-3 rounded-2xl border flex flex-col items-center gap-1.5 transition-all duration-200 cursor-pointer ${
                   provider === 'grok'
-                    ? 'bg-amber-950/80 border-amber-500/80 text-amber-300 font-bold shadow-md'
-                    : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200'
+                    ? 'bg-amber-950/90 border-amber-500/80 text-amber-300 font-bold shadow-lg shadow-amber-950/50 ring-1 ring-amber-500/40'
+                    : 'bg-slate-950/60 border-white/5 text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
                 }`}
               >
-                <span className="text-base">🚀</span>
+                <span className="text-lg">🚀</span>
                 <span>xAI Grok</span>
               </button>
 
               <button
                 onClick={() => setProvider('claude')}
-                className={`p-2.5 rounded-xl border flex flex-col items-center gap-1 transition cursor-pointer ${
+                className={`p-3 rounded-2xl border flex flex-col items-center gap-1.5 transition-all duration-200 cursor-pointer ${
                   provider === 'claude'
-                    ? 'bg-purple-950/80 border-purple-500/80 text-purple-300 font-bold shadow-md'
-                    : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200'
+                    ? 'bg-purple-950/90 border-purple-500/80 text-purple-300 font-bold shadow-lg shadow-purple-950/50 ring-1 ring-purple-500/40'
+                    : 'bg-slate-950/60 border-white/5 text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
                 }`}
               >
-                <span className="text-base">🧠</span>
+                <span className="text-lg">🧠</span>
                 <span>Claude</span>
               </button>
 
               <button
                 onClick={() => setProvider('chatgpt')}
-                className={`p-2.5 rounded-xl border flex flex-col items-center gap-1 transition cursor-pointer ${
+                className={`p-3 rounded-2xl border flex flex-col items-center gap-1.5 transition-all duration-200 cursor-pointer ${
                   provider === 'chatgpt'
-                    ? 'bg-emerald-950/80 border-emerald-500/80 text-emerald-300 font-bold shadow-md'
-                    : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200'
+                    ? 'bg-emerald-950/90 border-emerald-500/80 text-emerald-300 font-bold shadow-lg shadow-emerald-950/50 ring-1 ring-emerald-500/40'
+                    : 'bg-slate-950/60 border-white/5 text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
                 }`}
               >
-                <span className="text-base">🤖</span>
+                <span className="text-lg">🤖</span>
                 <span>ChatGPT</span>
               </button>
             </div>

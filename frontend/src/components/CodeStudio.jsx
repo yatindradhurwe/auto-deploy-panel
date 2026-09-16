@@ -244,6 +244,15 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
     }
   }
 
+  const getFileIcon = (fileName) => {
+    const ext = fileName.split('.').pop()?.toLowerCase()
+    if (['js', 'jsx', 'ts', 'tsx'].includes(ext)) return <FileCode className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+    if (['json', 'md', 'txt'].includes(ext)) return <FileText className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+    if (['css', 'scss', 'html'].includes(ext)) return <Code className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+    if (['py', 'sh', 'bash'].includes(ext)) return <Terminal className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+    return <FileCode className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+  }
+
   const renderTreeNode = (node, depth = 0) => {
     const isExpanded = expandedFolders[node.path]
     const isDirectory = node.type === 'directory'
@@ -252,9 +261,9 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
       <div key={node.path} className="select-none">
         <button
           onClick={() => handleOpenFile(node)}
-          style={{ paddingLeft: `${depth * 14 + 8}px` }}
-          className={`w-full py-1.5 pr-2 text-left font-mono text-xs flex items-center gap-1.5 transition rounded hover:bg-slate-800/60 ${
-            activeFile?.path === node.path ? 'bg-slate-800 text-cyan-300 font-semibold' : 'text-slate-300'
+          style={{ paddingLeft: `${depth * 14 + 10}px` }}
+          className={`w-full py-1.5 pr-2.5 text-left font-mono text-[11px] flex items-center gap-2 transition rounded-xl hover:bg-slate-800/60 cursor-pointer ${
+            activeFile?.path === node.path ? 'bg-cyan-950/70 text-cyan-300 font-bold border border-cyan-500/30 shadow-sm' : 'text-slate-300'
           }`}
         >
           {isDirectory ? (
@@ -264,12 +273,12 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
               ) : (
                 <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
               )}
-              <Folder className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <Folder className="w-3.5 h-3.5 text-amber-400 shrink-0 drop-shadow" />
             </>
           ) : (
             <>
               <span className="w-3.5 h-3.5 inline-block shrink-0"></span>
-              <FileCode className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+              {getFileIcon(node.name)}
             </>
           )}
           <span className="truncate">{node.name}</span>
@@ -286,24 +295,24 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
 
   return (
     <div className="space-y-4">
-      {/* Top Banner & Git Action Controls */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-slate-900 via-slate-900/90 to-blue-950/40 border border-slate-800 rounded-2xl p-5 shadow-xl">
+      {/* Top Banner & Git Action Controls - Apple Glassmorphism + AWS Toolbar */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl p-5 shadow-2xl shadow-slate-950/50">
         
         {/* Left Project Selector */}
         <div className="flex items-center space-x-3.5">
-          <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
+          <div className="p-3 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 ring-1 ring-cyan-500/20">
             <Code className="w-6 h-6" />
           </div>
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <label className="text-[11px] font-mono text-slate-400 uppercase tracking-wider">Active Target Repository:</label>
+            <div className="flex items-center gap-2.5 mb-1">
+              <label className="text-[10px] font-mono text-slate-400 uppercase tracking-widest font-bold">Active Repository Target:</label>
               <select
                 value={selectedProject?.id || ''}
                 onChange={(e) => {
                   const p = projects.find((proj) => proj.id === e.target.value)
                   if (p) setSelectedProject(p)
                 }}
-                className="bg-slate-950 border border-cyan-500/40 text-cyan-300 text-xs font-mono px-3 py-1 rounded-lg focus:outline-none focus:border-cyan-400 cursor-pointer"
+                className="bg-slate-950/90 border border-cyan-500/40 text-cyan-300 text-xs font-mono px-3 py-1.5 rounded-xl focus:outline-none focus:border-cyan-400 cursor-pointer shadow-inner"
               >
                 {projects.map((proj) => (
                   <option key={proj.id} value={proj.id}>
@@ -313,19 +322,19 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
               </select>
             </div>
             <p className="text-xs text-slate-400 flex items-center gap-2">
-              <span className="font-mono text-slate-300">{selectedProject?.path}</span>
+              <span className="font-mono text-slate-300 text-[11px] bg-slate-950/60 px-2.5 py-0.5 rounded-lg border border-white/5">{selectedProject?.path}</span>
             </p>
           </div>
         </div>
 
-        {/* Right Git Pull / Push Controls */}
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Right Git Pull / Push & AI Agent Controls */}
+        <div className="flex flex-wrap items-center gap-2.5">
           {/* Git Status Pill */}
-          <div className="px-2.5 py-1 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono flex items-center gap-1.5">
+          <div className="px-3 py-1.5 bg-slate-950/90 border border-white/10 rounded-2xl text-xs font-mono flex items-center gap-2 shadow-inner">
             <GitBranch className="w-3.5 h-3.5 text-amber-400" />
-            <span className="text-slate-300">{gitStatus.branch}</span>
+            <span className="text-slate-200 font-semibold">{gitStatus.branch}</span>
             {gitStatus.modifiedCount > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-amber-950 text-amber-400 border border-amber-800 text-[10px] font-bold">
+              <span className="px-2 py-0.2 rounded-full bg-amber-950/80 text-amber-300 border border-amber-800 text-[10px] font-bold">
                 {gitStatus.modifiedCount} modified
               </span>
             )}
@@ -335,7 +344,7 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
           <button
             onClick={handleGitPull}
             disabled={pullingGit}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-800/60 rounded-xl font-medium text-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+            className="px-3.5 py-1.5 bg-slate-800/80 hover:bg-slate-700/80 text-cyan-300 border border-cyan-800/60 rounded-xl font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 shadow-sm"
             title="Pull latest code from GitHub origin/main"
           >
             <Download className={`w-3.5 h-3.5 ${pullingGit ? 'animate-spin' : ''}`} />
@@ -346,7 +355,7 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
           <button
             onClick={() => setShowCommitModal(true)}
             disabled={pushingGit}
-            className="px-3.5 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-medium rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-md disabled:opacity-50"
+            className="px-4 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-lg shadow-cyan-500/20 disabled:opacity-50"
             title="Commit all changes and push to GitHub origin/main"
           >
             <Upload className={`w-3.5 h-3.5 ${pushingGit ? 'animate-spin' : ''}`} />
@@ -356,10 +365,10 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
           {/* AI Agent Studio Drawer Toggle */}
           <button
             onClick={() => setShowAgentDrawer(true)}
-            className="px-3.5 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-medium rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-lg shadow-purple-900/30"
+            className="px-4 py-1.5 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-lg shadow-purple-900/40 ring-1 ring-purple-400/30"
             title="Open Multi-Model AI Agent Studio (Gemini, Grok, Claude, ChatGPT)"
           >
-            <Bot className="w-3.5 h-3.5 text-purple-200" />
+            <Bot className="w-3.5 h-3.5 text-purple-200 animate-bounce" />
             <span>AI Agent Studio</span>
           </button>
 
@@ -368,7 +377,7 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
             <button
               onClick={handleSaveFile}
               disabled={savingFile}
-              className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-medium rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-md disabled:opacity-50"
+              className="px-4 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-lg shadow-emerald-950/40 disabled:opacity-50"
             >
               <Save className="w-3.5 h-3.5" />
               <span>{savingFile ? 'Saving...' : 'Save File'}</span>
@@ -377,7 +386,7 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
 
           <button
             onClick={() => selectedProject && fetchFileTree(selectedProject.path)}
-            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl transition cursor-pointer"
+            className="p-2 bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-white/10 rounded-xl transition cursor-pointer"
             title="Refresh File Tree"
           >
             <RefreshCw className={`w-4 h-4 ${loadingTree ? 'animate-spin' : ''}`} />
@@ -467,17 +476,17 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
         </div>
       )}
 
-      {/* Main Studio Editor Workspace */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 h-[620px]">
+      {/* Main Studio Editor Workspace - Android Studio Dark IDE Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 h-[640px]">
         
         {/* Left Tree Explorer Sidebar */}
-        <div className="bg-slate-900/90 backdrop-blur border border-slate-800 rounded-2xl flex flex-col overflow-hidden shadow-xl">
-          <div className="p-3 border-b border-slate-800 bg-slate-950/80 flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider">
-            <span className="flex items-center gap-1.5">
-              <Folder className="w-4 h-4 text-amber-400" />
+        <div className="bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl flex flex-col overflow-hidden shadow-2xl shadow-slate-950/50">
+          <div className="p-3.5 border-b border-white/10 bg-slate-950/90 flex items-center justify-between text-xs font-bold text-slate-300 uppercase tracking-wider">
+            <span className="flex items-center gap-2">
+              <Folder className="w-4 h-4 text-amber-400 shrink-0" />
               Project Explorer
             </span>
-            <span className="text-[10px] text-slate-500 font-mono">TREE</span>
+            <span className="text-[9px] px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800/80 font-mono font-bold">TREE</span>
           </div>
 
           <div className="p-2 flex-1 overflow-y-auto font-mono text-xs space-y-0.5">
@@ -493,25 +502,25 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
         </div>
 
         {/* Right Main Code Editor Window */}
-        <div className="lg:col-span-3 bg-slate-900/90 backdrop-blur border border-slate-800 rounded-2xl flex flex-col overflow-hidden shadow-xl">
+        <div className="lg:col-span-3 bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl flex flex-col overflow-hidden shadow-2xl shadow-slate-950/50">
           
-          {/* File Tab Bar */}
-          <div className="flex items-center bg-slate-950 border-b border-slate-800 overflow-x-auto text-xs font-mono">
+          {/* File Tab Bar - Android Studio Style */}
+          <div className="flex items-center bg-slate-950/90 border-b border-white/10 overflow-x-auto text-xs font-mono">
             {openFiles.map((f) => (
               <button
                 key={f.path}
                 onClick={() => handleOpenFile(f)}
-                className={`px-3.5 py-2.5 border-r border-slate-800 flex items-center gap-2 transition shrink-0 ${
+                className={`px-4 py-2.5 border-r border-white/10 flex items-center gap-2 transition shrink-0 cursor-pointer ${
                   activeFile?.path === f.path
-                    ? 'bg-slate-900 text-cyan-300 border-t-2 border-t-cyan-400 font-semibold'
+                    ? 'bg-slate-900 text-cyan-300 border-t-2 border-t-cyan-400 font-bold shadow-inner'
                     : 'text-slate-400 hover:bg-slate-900/50'
                 }`}
               >
-                <FileCode className="w-3.5 h-3.5 text-cyan-400" />
+                {getFileIcon(f.name)}
                 <span>{f.name}</span>
                 <span
                   onClick={(e) => handleCloseTab(f.path, e)}
-                  className="p-0.5 hover:bg-slate-800 rounded text-slate-500 hover:text-rose-400 transition"
+                  className="p-0.5 hover:bg-slate-800 rounded-md text-slate-500 hover:text-rose-400 transition"
                 >
                   <X className="w-3 h-3" />
                 </span>
@@ -521,7 +530,7 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
 
           {/* Active File Content Code Editor Area */}
           {activeFile ? (
-            <div className="flex-1 flex flex-col relative font-mono text-xs bg-slate-950">
+            <div className="flex-1 flex flex-col relative font-mono text-xs bg-[#080B11]">
               {loadingFile && (
                 <div className="absolute inset-0 bg-slate-950/80 backdrop-blur z-10 flex items-center justify-center text-slate-400">
                   <RefreshCw className="w-5 h-5 animate-spin mr-2 text-cyan-400" />
@@ -532,18 +541,26 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
                 value={fileContent}
                 onChange={(e) => setFileContent(e.target.value)}
                 spellCheck={false}
-                className="flex-1 w-full p-4 bg-slate-950 text-slate-100 font-mono text-xs focus:outline-none resize-none leading-relaxed select-text"
+                className="flex-1 w-full p-4 bg-[#080B11] text-slate-100 font-mono text-xs focus:outline-none resize-none leading-relaxed select-text tracking-wide selection:bg-cyan-500/30"
               ></textarea>
-              <div className="p-2 bg-slate-900 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400 font-mono">
-                <span className="truncate">{activeFile.fullPath || activeFile.path}</span>
-                <span>Lines: {fileContent.split('\n').length}</span>
+              <div className="p-2.5 bg-slate-950/90 border-t border-white/10 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                <span className="truncate flex items-center gap-1.5">
+                  <FileCode className="w-3.5 h-3.5 text-cyan-400" />
+                  {activeFile.fullPath || activeFile.path}
+                </span>
+                <div className="flex items-center gap-3">
+                  <span className="px-2 py-0.5 rounded bg-slate-900 border border-white/5 text-slate-300">UTF-8</span>
+                  <span className="px-2 py-0.5 rounded bg-slate-900 border border-white/5 text-cyan-400 font-bold">Lines: {fileContent.split('\n').length}</span>
+                </div>
               </div>
             </div>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-500">
-              <Code className="w-12 h-12 text-slate-700 mb-3" />
-              <p className="text-sm font-medium text-slate-400">No File Selected</p>
-              <p className="text-xs text-slate-500 max-w-sm mt-1">Select a file from the left Project Explorer tree to open and edit code directly in Code Studio</p>
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-500 bg-[#080B11]">
+              <div className="p-4 rounded-3xl bg-slate-900/60 border border-white/10 mb-4 shadow-xl">
+                <Code className="w-12 h-12 text-cyan-400 opacity-80" />
+              </div>
+              <p className="text-base font-bold text-slate-300">No File Opened</p>
+              <p className="text-xs text-slate-500 max-w-sm mt-1">Select a file from the left Project Explorer tree to edit code directly in Code Studio IDE</p>
             </div>
           )}
 

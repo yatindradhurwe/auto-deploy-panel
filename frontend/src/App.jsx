@@ -350,20 +350,20 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col relative overflow-x-hidden">
-      {/* Top Navbar */}
-      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-40">
+    <div className="min-h-screen bg-[#07090E] text-slate-100 flex flex-col relative overflow-x-hidden selection:bg-cyan-500/30 selection:text-cyan-200">
+      {/* Top Navbar - Apple Translucent Glass Style */}
+      <header className="border-b border-white/10 bg-slate-950/70 backdrop-blur-2xl sticky top-0 z-40 shadow-xl shadow-slate-950/40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
-              <Zap className="h-6 w-6 text-slate-950 font-bold" />
+          <div className="flex items-center space-x-3.5">
+            <div className="h-10 w-10 rounded-2xl bg-gradient-to-tr from-cyan-500 via-blue-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-cyan-500/25 ring-1 ring-white/20">
+              <Zap className="h-5 w-5 text-white font-bold" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <span className="font-bold text-lg tracking-tight text-white">AutoDeploy Console</span>
-                <span className="text-xs bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-2 py-0.5 rounded-full font-mono">v1.2.0 AI</span>
+                <span className="font-extrabold text-base tracking-tight text-white bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">AutoDeploy Console</span>
+                <span className="text-[10px] bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full font-mono font-semibold tracking-wider">PRO STUDIO v2.0</span>
               </div>
-              <p className="text-xs text-slate-400">One-Click Server Deployment & AI Agent Copilot</p>
+              <p className="text-[11px] text-slate-400 font-mono">Autonomous Cloud Deploy & Multi-Model AI Agent IDE</p>
             </div>
           </div>
 
@@ -371,10 +371,10 @@ export default function App() {
             {/* AI Agent Drawer Trigger Button */}
             <button
               onClick={() => setShowAiDrawer(true)}
-              className="text-xs bg-gradient-to-r from-cyan-500/20 to-blue-600/20 hover:from-cyan-500/30 hover:to-blue-600/30 text-cyan-300 border border-cyan-500/40 px-3.5 py-1.5 rounded-lg flex items-center space-x-2 transition shadow-sm font-semibold"
+              className="text-xs bg-gradient-to-r from-cyan-500/20 via-blue-500/20 to-indigo-500/20 hover:from-cyan-500/30 hover:to-indigo-500/30 text-cyan-300 border border-cyan-500/40 px-3.5 py-1.5 rounded-xl flex items-center space-x-2 transition-all duration-300 shadow-md shadow-cyan-950/40 font-semibold cursor-pointer ring-1 ring-cyan-500/20"
             >
               <Sparkles className="h-4 w-4 text-cyan-400 animate-pulse" />
-              <span>AI DevOps Agent</span>
+              <span>AI DevOps Copilot</span>
             </button>
 
             {/* GitHub Side Panel Toggle Button */}
@@ -383,7 +383,7 @@ export default function App() {
                 if (repos.length === 0 && githubToken) handleFetchGithubRepos()
                 else setShowGithubDrawer(true)
               }}
-              className="text-xs bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 px-3 py-1.5 rounded-lg flex items-center space-x-2 transition shadow-sm"
+              className="text-xs bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-white/10 px-3 py-1.5 rounded-xl flex items-center space-x-2 transition shadow-sm cursor-pointer"
             >
               <Github className="h-4 w-4 text-white" />
               <span className="font-medium">GitHub</span>
@@ -391,28 +391,28 @@ export default function App() {
 
             <button
               onClick={handlePresetServer}
-              className="text-xs bg-slate-800/80 hover:bg-slate-800 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg flex items-center space-x-1.5 transition"
+              className="text-xs bg-slate-900/80 hover:bg-slate-800 text-slate-300 border border-white/10 px-3 py-1.5 rounded-xl flex items-center space-x-1.5 transition cursor-pointer"
             >
               <Server className="h-3.5 w-3.5 text-cyan-400" />
               <span>Preset Profile</span>
             </button>
 
             {/* Logged in Admin User Badge & Logout */}
-            <div className="flex items-center space-x-2.5 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1 ml-2">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center text-slate-950 font-bold text-xs shadow">
+            <div className="flex items-center space-x-2.5 bg-slate-900/90 border border-white/10 rounded-2xl px-3 py-1 ml-2 shadow-inner">
+              <div className="w-7 h-7 rounded-xl bg-gradient-to-tr from-cyan-400 to-blue-600 flex items-center justify-center text-slate-950 font-extrabold text-xs shadow-md ring-1 ring-white/30">
                 {currentUser?.name ? currentUser.name.charAt(0) : 'A'}
               </div>
               <div className="hidden md:block text-left leading-tight">
                 <div className="text-xs font-semibold text-white flex items-center gap-1.5">
-                  <span>{currentUser?.name || 'Admin'}</span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-400 border border-cyan-800/80 font-mono">ADMIN</span>
+                  <span>{currentUser?.name || 'System Admin'}</span>
+                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-800/80 font-mono font-bold">ADMIN</span>
                 </div>
-                <div className="text-[10px] text-slate-400">{currentUser?.email || 'admin@tipcrm.com'}</div>
+                <div className="text-[10px] text-slate-400 font-mono">{currentUser?.email || 'admin@tipcrm.com'}</div>
               </div>
               <button
                 onClick={handleLogout}
                 title="Sign Out of Console"
-                className="ml-1.5 p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
+                className="ml-1.5 p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-950/50 rounded-lg transition-colors cursor-pointer"
               >
                 <LogOut className="h-4 w-4" />
               </button>
@@ -421,16 +421,16 @@ export default function App() {
         </div>
       </header>
 
-      {/* Studio Workspace Tab Navigation Bar */}
-      <div className="bg-slate-900/90 border-b border-slate-800 backdrop-blur sticky top-16 z-30 shadow-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between overflow-x-auto font-mono text-xs">
-          <div className="flex items-center space-x-1 py-2">
+      {/* Studio Workspace AWS Segmented Tab Bar */}
+      <div className="bg-slate-950/80 border-b border-white/10 backdrop-blur-xl sticky top-16 z-30 shadow-2xl">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between overflow-x-auto font-mono text-xs py-2">
+          <div className="flex items-center space-x-1 bg-slate-900/80 p-1 rounded-2xl border border-white/10 shadow-inner">
             <button
               onClick={() => setActiveTab('deploy')}
-              className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition cursor-pointer ${
+              className={`px-4 py-2 rounded-xl flex items-center gap-2 transition-all duration-300 cursor-pointer ${
                 activeTab === 'deploy'
-                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold shadow-md'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                  ? 'bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 text-white font-bold shadow-lg shadow-cyan-500/25 ring-1 ring-white/20'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/50'
               }`}
             >
               <Zap className="w-4 h-4" />
@@ -439,10 +439,10 @@ export default function App() {
 
             <button
               onClick={() => setActiveTab('servers')}
-              className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition cursor-pointer ${
+              className={`px-4 py-2 rounded-xl flex items-center gap-2 transition-all duration-300 cursor-pointer ${
                 activeTab === 'servers'
-                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold shadow-md'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                  ? 'bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 text-white font-bold shadow-lg shadow-cyan-500/25 ring-1 ring-white/20'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/50'
               }`}
             >
               <Server className="w-4 h-4" />
@@ -451,10 +451,10 @@ export default function App() {
 
             <button
               onClick={() => setActiveTab('projects')}
-              className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition cursor-pointer ${
+              className={`px-4 py-2 rounded-xl flex items-center gap-2 transition-all duration-300 cursor-pointer ${
                 activeTab === 'projects'
-                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold shadow-md'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                  ? 'bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 text-white font-bold shadow-lg shadow-cyan-500/25 ring-1 ring-white/20'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/50'
               }`}
             >
               <Layers className="w-4 h-4" />
@@ -463,10 +463,10 @@ export default function App() {
 
             <button
               onClick={() => setActiveTab('databases')}
-              className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition cursor-pointer ${
+              className={`px-4 py-2 rounded-xl flex items-center gap-2 transition-all duration-300 cursor-pointer ${
                 activeTab === 'databases'
-                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold shadow-md'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                  ? 'bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 text-white font-bold shadow-lg shadow-cyan-500/25 ring-1 ring-white/20'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/50'
               }`}
             >
               <Database className="w-4 h-4" />
@@ -475,10 +475,10 @@ export default function App() {
 
             <button
               onClick={() => setActiveTab('code')}
-              className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition cursor-pointer ${
+              className={`px-4 py-2 rounded-xl flex items-center gap-2 transition-all duration-300 cursor-pointer ${
                 activeTab === 'code'
-                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold shadow-md'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                  ? 'bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 text-white font-bold shadow-lg shadow-cyan-500/25 ring-1 ring-white/20'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/50'
               }`}
             >
               <FolderTree className="w-4 h-4" />
@@ -486,10 +486,10 @@ export default function App() {
             </button>
           </div>
 
-          <div className="hidden md:flex items-center gap-2 text-slate-400 text-[11px]">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>Target Host:</span>
-            <span className="text-cyan-300 font-semibold">{activeServer.name} ({activeServer.host})</span>
+          <div className="hidden md:flex items-center gap-2 text-slate-400 text-[11px] bg-slate-900/60 border border-white/10 px-3 py-1.5 rounded-xl shadow-inner">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-sm shadow-emerald-400/50"></span>
+            <span className="font-mono text-slate-400">Target Host:</span>
+            <span className="text-cyan-300 font-semibold font-mono">{activeServer.name} ({activeServer.host})</span>
           </div>
         </div>
       </div>
