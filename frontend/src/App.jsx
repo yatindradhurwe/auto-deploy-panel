@@ -2,9 +2,10 @@ import React, { useState, useEffect, useRef } from 'react'
 import {
   Server, Terminal, ShieldCheck, Globe, Zap, Cpu, CheckCircle2,
   XCircle, AlertTriangle, Play, RefreshCw, Copy, Check, Lock, HardDrive, Code,
-  Github, Search, X, ChevronRight, Sparkles, FolderGit2, Bot
+  Github, Search, X, ChevronRight, Sparkles, FolderGit2, Bot, LogOut, UserCheck
 } from 'lucide-react'
 import AICopilotDrawer from './components/AICopilotDrawer'
+import LoginPage from './components/LoginPage'
 
 const DEFAULT_CONFIG = {
   host: '187.127.165.128',
@@ -20,6 +21,74 @@ const DEFAULT_CONFIG = {
 }
 
 export default function App() {
+  // JWT Auth State
+  const [jwtToken, setJwtToken] = useState(() => localStorage.getItem('autodeploy_jwt_token') || '')
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem('autodeploy_user')
+      return saved ? JSON.parse(saved) : null
+    } catch (e) {
+      return null
+    }
+  })
+  const [verifyingSession, setVerifyingSession] = useState(true)
+
+  // Verify JWT session on initial load
+  useEffect(() => {
+    const verifySession = async () => {
+      const token = localStorage.getItem('autodeploy_jwt_token')
+      if (!token) {
+        setVerifyingSession(false)
+        return
+      }
+      try {
+        const res = await fetch('/api/auth/me', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        if (res.ok) {
+          const data = await res.json()
+          if (data.user) {
+            setCurrentUser(data.user)
+            localStorage.setItem('autodeploy_user', JSON.stringify(data.user))
+          }
+        } else if (res.status === 401 || res.status === 403) {
+          // Token expired or invalid -> automatic logout
+          handleLogout()
+        }
+      } catch (err) {
+        console.warn('Session verification check:', err)
+      } finally {
+        setVerifyingSession(false)
+      }
+    }
+    verifySession()
+  }, [])
+
+  const handleLoginSuccess = (user, token) => {
+    setCurrentUser(user)
+    setJwtToken(token)
+  }
+
+  const handleLogout = async () => {
+    try {
+      if (jwtToken) {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${jwtToken}` }
+        }).catch(() => {})
+      }
+    } finally {
+      localStorage.removeItem('autodeploy_jwt_token')
+      localStorage.removeItem('autodeploy_user')
+      setJwtToken('')
+      setCurrentUser(null)
+      setDeployId(null)
+      setLogs([])
+      setCurrentStep('IDLE')
+      setDeploySuccess(null)
+    }
+  }
+
   const [config, setConfig] = useState(DEFAULT_CONFIG)
   const [testingSsh, setTestingSsh] = useState(false)
   const [sshStatus, setSshStatus] = useState(null)
@@ -63,7 +132,7 @@ export default function App() {
   useEffect(() => {
     if (!deployId) return
 
-    const eventSource = new EventSource(`/api/deploy/stream/${deployId}`)
+    const eventSource = new EventSource(`/api/deploy/stream/${deployId}?token=${encodeURIComponent(jwtToken)}`)
 
     eventSource.onmessage = (event) => {
       try {
@@ -116,7 +185,10 @@ export default function App() {
     try {
       const res = await fetch('/api/deploy/github-repos', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': jwtToken ? `Bearer ${jwtToken}` : ''
+        },
         body: JSON.stringify({ githubToken: tokenToUse }),
       })
       const data = await res.json()
@@ -156,7 +228,10 @@ export default function App() {
     try {
       const res = await fetch('/api/deploy/test-ssh', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': jwtToken ? `Bearer ${jwtToken}` : ''
+        },
         body: JSON.stringify(config),
       })
       const data = await res.json()
@@ -178,7 +253,10 @@ export default function App() {
     try {
       const res = await fetch('/api/deploy/scan-ports', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': jwtToken ? `Bearer ${jwtToken}` : ''
+        },
         body: JSON.stringify(config),
       })
       const data = await res.json()
@@ -211,7 +289,10 @@ export default function App() {
     try {
       const res = await fetch('/api/deploy/deploy', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': jwtToken ? `Bearer ${jwtToken}` : ''
+        },
         body: JSON.stringify(config),
       })
       const data = await res.json()
@@ -238,6 +319,21 @@ export default function App() {
     r.name.toLowerCase().includes(repoSearch.toLowerCase()) ||
     (r.description && r.description.toLowerCase().includes(repoSearch.toLowerCase()))
   )
+
+  if (verifyingSession) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-100 font-sans">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-9 h-9 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-xs text-slate-400 font-mono tracking-wide">Verifying Admin Session...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!jwtToken || !currentUser) {
+    return <LoginPage onLoginSuccess={handleLoginSuccess} />
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col relative overflow-x-hidden">
@@ -286,6 +382,27 @@ export default function App() {
               <Server className="h-3.5 w-3.5 text-cyan-400" />
               <span>Preset Profile</span>
             </button>
+
+            {/* Logged in Admin User Badge & Logout */}
+            <div className="flex items-center space-x-2.5 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1 ml-2">
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center text-slate-950 font-bold text-xs shadow">
+                {currentUser?.name ? currentUser.name.charAt(0) : 'A'}
+              </div>
+              <div className="hidden md:block text-left leading-tight">
+                <div className="text-xs font-semibold text-white flex items-center gap-1.5">
+                  <span>{currentUser?.name || 'Admin'}</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-400 border border-cyan-800/80 font-mono">ADMIN</span>
+                </div>
+                <div className="text-[10px] text-slate-400">{currentUser?.email || 'admin@tipcrm.com'}</div>
+              </div>
+              <button
+                onClick={handleLogout}
+                title="Sign Out of Console"
+                className="ml-1.5 p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </div>
       </header>

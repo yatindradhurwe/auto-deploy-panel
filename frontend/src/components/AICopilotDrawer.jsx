@@ -30,9 +30,13 @@ export default function AICopilotDrawer({ isOpen, onClose, logs, config, onAutoF
     setDiagnosis(null)
     setFixResult(null)
     try {
+      const token = localStorage.getItem('autodeploy_jwt_token')
       const res = await fetch('/api/deploy/ai-copilot', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
         body: JSON.stringify({
           logs,
           config,
@@ -59,9 +63,13 @@ export default function AICopilotDrawer({ isOpen, onClose, logs, config, onAutoF
     setExecutingFix(true)
     setFixResult(null)
     try {
+      const token = localStorage.getItem('autodeploy_jwt_token')
       const res = await fetch('/api/deploy/ai-execute-fix', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
         body: JSON.stringify({
           config,
           command,
