@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef } from 'react'
 import {
   Server, Terminal, ShieldCheck, Globe, Zap, Cpu, CheckCircle2,
   XCircle, AlertTriangle, Play, RefreshCw, Copy, Check, Lock, HardDrive, Code,
-  Github, Search, X, ChevronRight, Sparkles, FolderGit2
+  Github, Search, X, ChevronRight, Sparkles, FolderGit2, Bot
 } from 'lucide-react'
+import AICopilotDrawer from './components/AICopilotDrawer'
 
 const DEFAULT_CONFIG = {
   host: '187.127.165.128',
@@ -33,13 +34,16 @@ export default function App() {
   const [deploySuccess, setDeploySuccess] = useState(null)
   const [copied, setCopied] = useState(false)
 
-  // GitHub Side Panel State (Persisted in LocalStorage)
+  // GitHub Side Panel State
   const [githubToken, setGithubToken] = useState(() => localStorage.getItem('autodeploy_gh_token') || '')
   const [showGithubDrawer, setShowGithubDrawer] = useState(false)
   const [loadingRepos, setLoadingRepos] = useState(false)
   const [repos, setRepos] = useState([])
   const [repoSearch, setRepoSearch] = useState('')
   const [repoError, setRepoError] = useState(null)
+
+  // AI Copilot Drawer State
+  const [showAiDrawer, setShowAiDrawer] = useState(false)
 
   const terminalEndRef = useRef(null)
 
@@ -69,6 +73,10 @@ export default function App() {
         if (data.step === 'END') {
           setDeploying(false)
           setDeploySuccess(!data.isError)
+          if (data.isError) {
+            // Auto open AI copilot on deployment failure!
+            setShowAiDrawer(true)
+          }
           eventSource.close()
         }
       } catch (e) {
@@ -243,28 +251,32 @@ export default function App() {
             <div>
               <div className="flex items-center space-x-2">
                 <span className="font-bold text-lg tracking-tight text-white">AutoDeploy Console</span>
-                <span className="text-xs bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-2 py-0.5 rounded-full font-mono">v1.1.0</span>
+                <span className="text-xs bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-2 py-0.5 rounded-full font-mono">v1.2.0 AI</span>
               </div>
-              <p className="text-xs text-slate-400">One-Click Cloud Server Deployment & GitHub Integration</p>
+              <p className="text-xs text-slate-400">One-Click Server Deployment & AI Agent Copilot</p>
             </div>
           </div>
 
           <div className="flex items-center space-x-3">
+            {/* AI Agent Drawer Trigger Button */}
+            <button
+              onClick={() => setShowAiDrawer(true)}
+              className="text-xs bg-gradient-to-r from-cyan-500/20 to-blue-600/20 hover:from-cyan-500/30 hover:to-blue-600/30 text-cyan-300 border border-cyan-500/40 px-3.5 py-1.5 rounded-lg flex items-center space-x-2 transition shadow-sm font-semibold"
+            >
+              <Sparkles className="h-4 w-4 text-cyan-400 animate-pulse" />
+              <span>AI DevOps Agent</span>
+            </button>
+
             {/* GitHub Side Panel Toggle Button */}
             <button
               onClick={() => {
                 if (repos.length === 0 && githubToken) handleFetchGithubRepos()
                 else setShowGithubDrawer(true)
               }}
-              className="text-xs bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 px-3.5 py-1.5 rounded-lg flex items-center space-x-2 transition shadow-sm"
+              className="text-xs bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 px-3 py-1.5 rounded-lg flex items-center space-x-2 transition shadow-sm"
             >
               <Github className="h-4 w-4 text-white" />
-              <span className="font-medium">GitHub Repositories</span>
-              {repos.length > 0 && (
-                <span className="bg-cyan-500 text-slate-950 text-[10px] font-bold px-1.5 py-0.2 rounded-full">
-                  {repos.length}
-                </span>
-              )}
+              <span className="font-medium">GitHub</span>
             </button>
 
             <button
@@ -274,16 +286,6 @@ export default function App() {
               <Server className="h-3.5 w-3.5 text-cyan-400" />
               <span>Preset Profile</span>
             </button>
-
-            <a
-              href={`https://${config.domain}`}
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 px-3 py-1.5 rounded-lg flex items-center space-x-1.5 transition"
-            >
-              <Globe className="h-3.5 w-3.5" />
-              <span>https://{config.domain}</span>
-            </a>
           </div>
         </div>
       </header>
@@ -300,20 +302,17 @@ export default function App() {
                 Deploy Software to Public Server & Domain
               </h1>
               <p className="text-sm text-slate-400 mt-1 max-w-2xl">
-                Connect your GitHub account to select public/private repositories, configure target server SSH credentials, auto-detect open ports, and execute automated deployments with live streaming terminal logs.
+                Connect your GitHub account, configure server SSH credentials, and let the integrated AI Agent Copilot diagnose errors and execute automated server fixes.
               </p>
             </div>
 
             <div className="flex items-center gap-3">
               <button
-                onClick={() => {
-                  if (repos.length === 0 && githubToken) handleFetchGithubRepos()
-                  else setShowGithubDrawer(true)
-                }}
-                className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-xs px-4 py-2.5 rounded-xl font-medium flex items-center space-x-2 transition"
+                onClick={() => setShowAiDrawer(true)}
+                className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-xs px-4 py-2.5 rounded-xl font-semibold flex items-center space-x-2 transition"
               >
-                <FolderGit2 className="h-4 w-4" />
-                <span>Browse GitHub Projects</span>
+                <Sparkles className="h-4 w-4 text-cyan-400" />
+                <span>Open AI Copilot</span>
               </button>
             </div>
           </div>
@@ -624,6 +623,15 @@ export default function App() {
               </div>
 
               <div className="flex items-center space-x-2">
+                {/* AI Auto Fix Button in Terminal Header */}
+                <button
+                  onClick={() => setShowAiDrawer(true)}
+                  className="text-[11px] bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 px-2.5 py-1 rounded-md flex items-center space-x-1 transition font-semibold"
+                >
+                  <Sparkles className="h-3 w-3 text-cyan-400" />
+                  <span>🤖 Auto-Fix with AI Agent</span>
+                </button>
+
                 <button
                   onClick={handleCopyLogs}
                   disabled={logs.length === 0}
@@ -661,10 +669,20 @@ export default function App() {
             <div className="bg-slate-900/80 px-4 py-2 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400 font-mono">
               <div className="flex items-center space-x-2">
                 <span>Status:</span>
-                <span className={`font-semibold ${deploying ? 'text-amber-400 animate-pulse' : deploySuccess ? 'text-emerald-400' : 'text-slate-400'}`}>
-                  {deploying ? `Deploying (${currentStep})...` : deploySuccess ? 'Deployment Successful' : 'Idle'}
+                <span className={`font-semibold ${deploying ? 'text-amber-400 animate-pulse' : deploySuccess === false ? 'text-rose-400' : deploySuccess ? 'text-emerald-400' : 'text-slate-400'}`}>
+                  {deploying ? `Deploying (${currentStep})...` : deploySuccess === false ? 'Deployment Failed' : deploySuccess ? 'Deployment Successful' : 'Idle'}
                 </span>
               </div>
+
+              {deploySuccess === false && (
+                <button
+                  onClick={() => setShowAiDrawer(true)}
+                  className="text-rose-400 hover:text-rose-300 font-semibold flex items-center space-x-1 animate-pulse"
+                >
+                  <Bot className="h-3.5 w-3.5" />
+                  <span>Click to Auto-Fix with AI Agent</span>
+                </button>
+              )}
 
               {deploySuccess && (
                 <a
@@ -813,9 +831,17 @@ export default function App() {
         </div>
       )}
 
+      {/* AI Copilot Drawer */}
+      <AICopilotDrawer
+        isOpen={showAiDrawer}
+        onClose={() => setShowAiDrawer(false)}
+        logs={logs}
+        config={config}
+      />
+
       {/* Footer */}
       <footer className="border-t border-slate-900 bg-slate-950 py-4 text-center text-xs text-slate-500 font-mono">
-        AutoDeploy Console &copy; 2026 · Standalone Server Deployment & GitHub Integration
+        AutoDeploy Console &copy; 2026 · Standalone Server Deployment & AI Agent Copilot
       </footer>
     </div>
   )

@@ -1,6 +1,7 @@
 import express from 'express'
 import https from 'https'
 import { testSshConnection, scanPortsAndServices, executeDeployment } from '../services/ssh.service.js'
+import { diagnoseDeploymentError, executeSshPatch } from '../services/ai.service.js'
 
 const router = express.Router()
 
@@ -28,6 +29,34 @@ router.post('/scan-ports', async (req, res) => {
     res.json(result)
   } catch (err) {
     res.status(400).json({ success: false, error: err.message })
+  }
+})
+
+/**
+ * AI DevOps Copilot Diagnosis & Error Analysis
+ */
+router.post('/ai-copilot', async (req, res) => {
+  try {
+    const result = await diagnoseDeploymentError(req.body)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+/**
+ * Execute AI-suggested SSH Patch Command on Server
+ */
+router.post('/ai-execute-fix', async (req, res) => {
+  const { config, command } = req.body
+  if (!config || !command) {
+    return res.status(400).json({ success: false, error: 'Config and Command are required' })
+  }
+  try {
+    const result = await executeSshPatch(config, command)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
   }
 })
 
