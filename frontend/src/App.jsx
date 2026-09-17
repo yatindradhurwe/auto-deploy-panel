@@ -3,7 +3,7 @@ import {
   Server, Terminal, ShieldCheck, Globe, Zap, Cpu, CheckCircle2,
   XCircle, AlertTriangle, Play, RefreshCw, Copy, Check, Lock, HardDrive, Code,
   Github, Search, X, ChevronRight, Sparkles, FolderGit2, Bot, LogOut, UserCheck,
-  Layers, Database, FolderTree, LayoutDashboard, Key, Activity, Clock, Webhook, Save
+  Layers, Database, FolderTree, LayoutDashboard, Key, Activity, Clock, Webhook, Save, Trash2, DownloadCloud
 } from 'lucide-react'
 import AICopilotDrawer from './components/AICopilotDrawer'
 import LoginPage from './components/LoginPage'
@@ -355,12 +355,42 @@ export default function App() {
     }
   }
 
-  const handleTriggerDeploy = async () => {
+  // Duplicate Project Pre-Check & Conflict Modal State
+  const [duplicateConflictModal, setDuplicateConflictModal] = useState(null)
+  const [checkingDuplicate, setCheckingDuplicate] = useState(false)
+
+  const handleTriggerDeploy = async (forceOverwrite = false) => {
     if (!config.host || !config.domain) {
       alert('Please provide Server IP and Public Domain Name before deploying.')
       return
     }
 
+    // Pre-check if project/domain/directory already exists on server
+    if (!forceOverwrite) {
+      setCheckingDuplicate(true)
+      try {
+        const checkRes = await fetch('/api/deploy/check-existing', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': jwtToken ? `Bearer ${jwtToken}` : ''
+          },
+          body: JSON.stringify(config)
+        })
+        const checkData = await checkRes.json()
+        if (checkData.success && checkData.exists) {
+          setDuplicateConflictModal(checkData)
+          setCheckingDuplicate(false)
+          return
+        }
+      } catch (e) {
+        console.warn('Pre-deployment check error, proceeding:', e)
+      } finally {
+        setCheckingDuplicate(false)
+      }
+    }
+
+    setDuplicateConflictModal(null)
     setDeploying(true)
     setLogs([])
     setDeploySuccess(null)
@@ -385,6 +415,87 @@ export default function App() {
     } catch (err) {
       setDeploying(false)
       alert(`Deployment request failed: ${err.message}`)
+    }
+  }
+
+  const handleDeleteDuplicateAndDeployFresh = async () => {
+    if (!duplicateConflictModal) return
+    const { appName, remoteDir, domain } = duplicateConflictModal
+    setDuplicateConflictModal(null)
+    setDeploying(true)
+    setLogs([{ text: `[PRE-DEPLOY] Deleting existing duplicate project '${appName}' from live server...\n`, isError: false, step: 'INIT' }])
+
+    try {
+      const delRes = await fetch('/api/studio/projects/delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': jwtToken ? `Bearer ${jwtToken}` : ''
+        },
+        body: JSON.stringify({
+          host: config.host,
+          port: config.port,
+          username: config.username,
+          password: config.password,
+          appName,
+          projectPath: remoteDir,
+          domain,
+          deletePm2: true,
+          deleteFiles: true,
+          deleteNginx: true
+        })
+      })
+      const delData = await delRes.json()
+      if (delData.success) {
+        setLogs((prev) => [...prev, { text: `[PRE-DEPLOY] Duplicate project deleted successfully! Launching fresh deployment...\n`, isError: false, step: 'INIT' }])
+        handleTriggerDeploy(true)
+      } else {
+        setDeploying(false)
+        alert(`Failed to delete duplicate project: ${delData.error}`)
+      }
+    } catch (err) {
+      setDeploying(false)
+      alert(`Delete duplicate request failed: ${err.message}`)
+    }
+  }
+
+  const handleUpdateExistingProjectFromModal = async () => {
+    if (!duplicateConflictModal) return
+    const { appName, remoteDir } = duplicateConflictModal
+    setDuplicateConflictModal(null)
+    setDeploying(true)
+    setLogs([{ text: `[UPDATE] Triggering 1-Click Pull & Update for existing live project '${appName}'...\n`, isError: false, step: 'INIT' }])
+
+    try {
+      const updateRes = await fetch('/api/studio/git/pull-and-update', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': jwtToken ? `Bearer ${jwtToken}` : ''
+        },
+        body: JSON.stringify({
+          host: config.host,
+          port: config.port,
+          username: config.username,
+          password: config.password,
+          appName,
+          projectPath: remoteDir,
+          branch: 'main'
+        })
+      })
+      const updateData = await updateRes.json()
+      if (updateData.success) {
+        setLogs((prev) => [...prev, { text: updateData.output || updateData.message, isError: false, step: 'END' }])
+        setDeploySuccess(true)
+      } else {
+        setLogs((prev) => [...prev, { text: (updateData.error || 'Update failed') + '\n' + (updateData.output || ''), isError: true, step: 'END' }])
+        setDeploySuccess(false)
+      }
+    } catch (err) {
+      setDeploying(false)
+      alert(`Update request failed: ${err.message}`)
+    } finally {
+      setDeploying(false)
     }
   }
 
@@ -977,13 +1088,13 @@ export default function App() {
 
             <button
               onClick={handleTriggerDeploy}
-              disabled={deploying}
+              disabled={deploying || checkingDuplicate}
               className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50 text-slate-950 font-bold px-6 py-3 rounded-xl shadow-lg shadow-cyan-500/20 flex items-center justify-center space-x-2 transition text-sm cursor-pointer"
             >
-              {deploying ? (
+              {deploying || checkingDuplicate ? (
                 <>
                   <RefreshCw className="h-4 w-4 animate-spin text-slate-950" />
-                  <span>Deploying to {config.domain}...</span>
+                  <span>{checkingDuplicate ? 'Checking duplicates on live server...' : `Deploying to ${config.domain}...`}</span>
                 </>
               ) : (
                 <>
@@ -1234,6 +1345,119 @@ export default function App() {
                   </div>
                 ))
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Duplicate Project Conflict Resolution Modal */}
+      {duplicateConflictModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl max-w-xl w-full p-6 space-y-5 shadow-2xl shadow-cyan-950/50 animate-in fade-in zoom-in duration-200">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                  <AlertTriangle className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    Duplicate Project Detected on Live Server
+                  </h3>
+                  <p className="text-xs text-slate-400 font-mono">
+                    Host: <span className="text-cyan-400 font-semibold">{config.host}</span> | Domain: <span className="text-cyan-400 font-semibold">{duplicateConflictModal.domain}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDuplicateConflictModal(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Warning Message Box */}
+            <div className="bg-amber-950/30 border border-amber-500/30 rounded-xl p-4 space-y-2">
+              <p className="text-xs text-amber-200 font-medium">
+                The target project or domain already exists on your live server. Proceeding directly will overwrite or cause conflicts with existing running services.
+              </p>
+              {duplicateConflictModal.reasons && duplicateConflictModal.reasons.length > 0 && (
+                <ul className="space-y-1 pt-1">
+                  {duplicateConflictModal.reasons.map((reason, idx) => (
+                    <li key={idx} className="text-[11px] text-amber-300/90 font-mono flex items-center gap-1.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-400"></span>
+                      <span>{reason}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Details Grid */}
+            <div className="grid grid-cols-3 gap-2 bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs">
+              <div className="space-y-1">
+                <div className="text-[10px] text-slate-500 uppercase font-mono">Directory</div>
+                <div className="font-mono text-slate-300 font-semibold truncate" title={duplicateConflictModal.remoteDir}>
+                  {duplicateConflictModal.details?.directoryExists ? '📁 Exists' : '❌ Not Found'}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-[10px] text-slate-500 uppercase font-mono">PM2 Service</div>
+                <div className="font-mono text-slate-300 font-semibold">
+                  {duplicateConflictModal.details?.pm2Exists ? `⚡ ${duplicateConflictModal.details.pm2Status || 'Active'}` : '❌ Not Found'}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-[10px] text-slate-500 uppercase font-mono">Nginx Config</div>
+                <div className="font-mono text-slate-300 font-semibold">
+                  {duplicateConflictModal.details?.nginxConfigExists ? '🌐 Configured' : '❌ Not Found'}
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="space-y-2.5 pt-2">
+              <div className="text-xs font-semibold text-slate-300">Choose how to proceed:</div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Delete Duplicate & Fresh Deploy */}
+                <button
+                  onClick={handleDeleteDuplicateAndDeployFresh}
+                  className="w-full bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 p-3 rounded-xl font-medium text-xs flex flex-col items-start space-y-1 transition group cursor-pointer"
+                >
+                  <div className="flex items-center space-x-1.5 font-semibold text-rose-400 group-hover:text-rose-200">
+                    <Trash2 className="h-4 w-4" />
+                    <span>Delete Duplicate & Deploy Fresh</span>
+                  </div>
+                  <span className="text-[10px] text-rose-300/70 font-mono text-left">
+                    Removes old directory, PM2 service & Nginx config, then executes full clean deployment.
+                  </span>
+                </button>
+
+                {/* 1-Click Git Pull & Update Existing */}
+                <button
+                  onClick={handleUpdateExistingProjectFromModal}
+                  className="w-full bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 p-3 rounded-xl font-medium text-xs flex flex-col items-start space-y-1 transition group cursor-pointer"
+                >
+                  <div className="flex items-center space-x-1.5 font-semibold text-cyan-400 group-hover:text-cyan-200">
+                    <RefreshCw className="h-4 w-4" />
+                    <span>Pull Latest Changes & Update</span>
+                  </div>
+                  <span className="text-[10px] text-cyan-300/70 font-mono text-left">
+                    Runs git pull, npm install/build, and reloads active PM2 service on live server.
+                  </span>
+                </button>
+              </div>
+
+              <div className="pt-2 text-right">
+                <button
+                  onClick={() => setDuplicateConflictModal(null)}
+                  className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-medium transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         </div>

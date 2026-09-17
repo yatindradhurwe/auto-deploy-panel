@@ -401,7 +401,18 @@ export async function updateExistingDeployment(config, onLog) {
       if [ -d "${remoteDir}/.git" ]; then
         cd ${remoteDir}
         echo "Working Directory: ${remoteDir}"
-        git fetch --all --tags
+        CURRENT_ORIGIN=$(git remote get-url origin 2>/dev/null || echo "")
+        if [ -n "$CURRENT_ORIGIN" ]; then
+          CLEAN_ORIGIN=$(echo "$CURRENT_ORIGIN" | sed -E 's#https://[^@]+@#https://#')
+          GH_TOKEN="${config.githubToken || ''}"
+          if [ -n "$GH_TOKEN" ]; then
+            AUTH_ORIGIN=$(echo "$CLEAN_ORIGIN" | sed "s#https://#https://$GH_TOKEN@#")
+            git remote set-url origin "$AUTH_ORIGIN" 2>/dev/null || true
+          else
+            git remote set-url origin "$CLEAN_ORIGIN" 2>/dev/null || true
+          fi
+        fi
+        git fetch --all --tags 2>/dev/null || true
         git stash --include-untracked 2>/dev/null || true
         git checkout ${branch} 2>/dev/null || git checkout -b ${branch} origin/${branch} 2>/dev/null || true
         git reset --hard origin/${branch}

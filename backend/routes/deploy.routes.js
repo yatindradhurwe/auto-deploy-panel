@@ -21,6 +21,78 @@ router.post('/test-ssh', async (req, res) => {
 })
 
 /**
+ * Check if a project directory, PM2 service, or Nginx site config already exists on target server before deploying
+ */
+router.post('/check-existing', async (req, res) => {
+  const { host, port, username, password, domain, appName, remoteDir } = req.body
+  if (!host) {
+    return res.status(400).json({ success: false, error: 'Host IP is required' })
+  }
+
+  try {
+    const cleanDomain = (domain || '').trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+    const cleanAppName = (appName || '').trim()
+    const cleanDir = (remoteDir || `/var/www/${cleanAppName}`).trim()
+
+    let hasDirectory = false
+    let hasNginx = false
+    let hasPm2 = false
+
+    try {
+      const { Client } = await import('ssh2')
+      const conn = new Client()
+      await new Promise((resolve) => {
+        conn.on('ready', () => {
+          const cmd = `
+            [ -d "${cleanDir}" ] && echo "DIR_YES" || echo "DIR_NO"
+            [ -f "/etc/nginx/sites-available/${cleanDomain}.conf" -o -f "/etc/nginx/sites-enabled/${cleanDomain}.conf" ] && echo "NGINX_YES" || echo "NGINX_NO"
+            pm2 describe ${cleanAppName} > /dev/null 2>&1 && echo "PM2_YES" || echo "PM2_NO"
+          `
+          conn.exec(cmd, (err, stream) => {
+            if (err) { conn.end(); return resolve(); }
+            let out = ''
+            stream.on('data', d => out += d.toString())
+            stream.on('close', () => {
+              conn.end()
+              if (out.includes('DIR_YES')) hasDirectory = true
+              if (out.includes('NGINX_YES')) hasNginx = true
+              if (out.includes('PM2_YES')) hasPm2 = true
+              resolve()
+            })
+          })
+        }).on('error', () => resolve()).connect({
+          host,
+          port: parseInt(port || 22, 10),
+          username: username || 'root',
+          password,
+          readyTimeout: 10000
+        })
+      })
+    } catch (e) {}
+
+    const exists = hasDirectory || hasPm2 || hasNginx
+    let details = ''
+    if (hasDirectory) details += `Directory '${cleanDir}' exists. `
+    if (hasPm2) details += `PM2 service '${cleanAppName}' is running. `
+    if (hasNginx) details += `Nginx domain config '${cleanDomain}' exists. `
+
+    res.json({
+      success: true,
+      exists,
+      hasDirectory,
+      hasPm2,
+      hasNginx,
+      appName: cleanAppName,
+      remoteDir: cleanDir,
+      domain: cleanDomain,
+      details: details.trim() || 'No existing project found.'
+    })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+/**
  * Scan Active Ports & PM2 Apps
  */
 router.post('/scan-ports', async (req, res) => {

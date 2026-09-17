@@ -379,7 +379,8 @@ router.post('/git/pull-and-update', authenticateToken, async (req, res) => {
         password,
         remoteDir,
         appName: targetAppName,
-        branch
+        branch,
+        githubToken: (req.body.githubToken || userSettings.githubToken || '').trim()
       }
 
       await updateExistingDeployment(sshConfig, onLog)
