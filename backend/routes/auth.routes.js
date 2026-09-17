@@ -84,6 +84,39 @@ router.get('/me', authenticateToken, (req, res) => {
   })
 })
 
+import { getUserSettings, saveUserSettings } from '../services/db.service.js'
+
+/**
+ * GET /api/auth/settings
+ * Header: Authorization: Bearer <token>
+ * Retrieves user-scoped database settings for logged-in user
+ */
+router.get('/settings', authenticateToken, (req, res) => {
+  try {
+    const userId = req.user.id
+    const settings = getUserSettings(userId)
+    res.json({ success: true, settings })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+/**
+ * POST /api/auth/settings
+ * Header: Authorization: Bearer <token>
+ * Saves/updates user-scoped database settings for logged-in user
+ */
+router.post('/settings', authenticateToken, (req, res) => {
+  try {
+    const userId = req.user.id
+    const newSettings = req.body || {}
+    const updated = saveUserSettings(userId, newSettings)
+    res.json({ success: true, settings: updated, message: 'Settings stored in database successfully' })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
 /**
  * POST /api/auth/logout
  * Header: Authorization: Bearer <token>
@@ -93,3 +126,4 @@ router.post('/logout', authenticateToken, (req, res) => {
 })
 
 export default router
+

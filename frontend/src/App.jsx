@@ -3,7 +3,7 @@ import {
   Server, Terminal, ShieldCheck, Globe, Zap, Cpu, CheckCircle2,
   XCircle, AlertTriangle, Play, RefreshCw, Copy, Check, Lock, HardDrive, Code,
   Github, Search, X, ChevronRight, Sparkles, FolderGit2, Bot, LogOut, UserCheck,
-  Layers, Database, FolderTree, LayoutDashboard, Key, Activity, Clock, Webhook
+  Layers, Database, FolderTree, LayoutDashboard, Key, Activity, Clock, Webhook, Save
 } from 'lucide-react'
 import AICopilotDrawer from './components/AICopilotDrawer'
 import LoginPage from './components/LoginPage'
@@ -52,6 +52,30 @@ export default function App() {
   })
   const [verifyingSession, setVerifyingSession] = useState(true)
 
+  // Fetch user settings from server database after login/verification
+  const loadUserSettings = async (token) => {
+    if (!token) return
+    try {
+      const res = await fetch('/api/auth/settings', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.success && data.settings) {
+          if (data.settings.githubToken) {
+            setGithubToken(data.settings.githubToken)
+          }
+          setConfig((prev) => ({
+            ...prev,
+            ...data.settings
+          }))
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load user settings from database:', e)
+    }
+  }
+
   // Verify JWT session on initial load
   useEffect(() => {
     const verifySession = async () => {
@@ -69,6 +93,7 @@ export default function App() {
           if (data.user) {
             setCurrentUser(data.user)
             localStorage.setItem('autodeploy_user', JSON.stringify(data.user))
+            await loadUserSettings(token)
           }
         } else if (res.status === 401 || res.status === 403) {
           // Token expired or invalid -> automatic logout
@@ -86,6 +111,7 @@ export default function App() {
   const handleLoginSuccess = (user, token) => {
     setCurrentUser(user)
     setJwtToken(token)
+    loadUserSettings(token)
   }
 
   const handleLogout = async () => {
@@ -126,6 +152,8 @@ export default function App() {
   const [githubToken, setGithubToken] = useState(() => localStorage.getItem('autodeploy_gh_token') || '')
   const [showGithubDrawer, setShowGithubDrawer] = useState(false)
   const [loadingRepos, setLoadingRepos] = useState(false)
+  const [savingToken, setSavingToken] = useState(false)
+  const [tokenSavedSuccess, setTokenSavedSuccess] = useState(false)
   const [repos, setRepos] = useState([])
   const [repoSearch, setRepoSearch] = useState('')
   const [repoError, setRepoError] = useState(null)
@@ -135,7 +163,7 @@ export default function App() {
 
   const terminalEndRef = useRef(null)
 
-  // Save GitHub token to local storage
+  // Save GitHub token to local storage & server database
   useEffect(() => {
     if (githubToken) {
       localStorage.setItem('autodeploy_gh_token', githubToken)
@@ -194,8 +222,8 @@ export default function App() {
   }
 
   const handleFetchGithubRepos = async (tokenToUse = githubToken) => {
+    setShowGithubDrawer(true)
     if (!tokenToUse) {
-      setShowGithubDrawer(true)
       setRepoError('Please enter your GitHub Personal Access Token below to load your repositories.')
       return
     }
@@ -213,7 +241,6 @@ export default function App() {
       const data = await res.json()
       if (data.success) {
         setRepos(data.repos)
-        setShowGithubDrawer(true)
       } else {
         setRepoError(data.error || 'Failed to fetch repositories')
       }
@@ -221,6 +248,40 @@ export default function App() {
       setRepoError(err.message)
     } finally {
       setLoadingRepos(false)
+    }
+  }
+
+  const handleSaveTokenToDatabase = async () => {
+    setShowGithubDrawer(true)
+    if (!githubToken || !githubToken.trim()) {
+      setRepoError('Please enter a GitHub Personal Access Token before saving.')
+      return
+    }
+    setSavingToken(true)
+    setRepoError(null)
+    setTokenSavedSuccess(false)
+    try {
+      const res = await fetch('/api/auth/settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': jwtToken ? `Bearer ${jwtToken}` : ''
+        },
+        body: JSON.stringify({ githubToken: githubToken.trim() })
+      })
+      const data = await res.json()
+      if (data.success) {
+        setTokenSavedSuccess(true)
+        setTimeout(() => setTokenSavedSuccess(false), 4000)
+        // Automatically fetch repos after saving
+        handleFetchGithubRepos(githubToken.trim())
+      } else {
+        setRepoError(data.error || 'Failed to save token to database.')
+      }
+    } catch (err) {
+      setRepoError(err.message)
+    } finally {
+      setSavingToken(false)
     }
   }
 
@@ -385,8 +446,8 @@ export default function App() {
             {/* GitHub Side Panel Toggle Button */}
             <button
               onClick={() => {
+                setShowGithubDrawer(true)
                 if (repos.length === 0 && githubToken) handleFetchGithubRepos()
-                else setShowGithubDrawer(true)
               }}
               className="text-xs bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-white/10 px-3 py-1.5 rounded-xl flex items-center space-x-2 transition shadow-sm cursor-pointer"
             >
@@ -747,8 +808,8 @@ export default function App() {
 
                   <button
                     onClick={() => {
+                      setShowGithubDrawer(true)
                       if (repos.length === 0 && githubToken) handleFetchGithubRepos()
-                      else setShowGithubDrawer(true)
                     }}
                     className="text-xs bg-slate-800/80 hover:bg-slate-700/80 text-cyan-300 border border-white/10 px-3.5 py-1.5 rounded-xl flex items-center space-x-1.5 transition font-semibold cursor-pointer"
                   >
@@ -1049,7 +1110,7 @@ export default function App() {
             </div>
 
             {/* Token Connection Box */}
-            <div className="p-4 border-b border-slate-800 bg-slate-950/60 space-y-2">
+            <div className="p-4 border-b border-slate-800 bg-slate-950/60 space-y-2.5">
               <div className="flex items-center justify-between">
                 <label className="text-[11px] font-medium text-slate-300">GitHub Personal Access Token</label>
                 <a
@@ -1061,7 +1122,7 @@ export default function App() {
                   Create Token
                 </a>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <input
                   type="password"
                   value={githubToken}
@@ -1069,15 +1130,38 @@ export default function App() {
                   placeholder="Paste GitHub Personal Access Token..."
                   className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs font-mono text-cyan-300 focus:outline-none focus:border-cyan-500"
                 />
-                <button
-                  onClick={() => handleFetchGithubRepos(githubToken)}
-                  disabled={loadingRepos}
-                  className="bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-slate-950 font-semibold px-3 py-1.5 rounded-lg text-xs flex items-center space-x-1 transition"
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${loadingRepos ? 'animate-spin' : ''}`} />
-                  <span>Fetch</span>
-                </button>
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={handleSaveTokenToDatabase}
+                    disabled={savingToken}
+                    className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold px-3 py-1.5 rounded-lg text-xs flex items-center space-x-1 transition cursor-pointer shadow-sm"
+                    title="Save token persistently to backend database for logged-in user"
+                  >
+                    {savingToken ? (
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Save className="h-3.5 w-3.5" />
+                    )}
+                    <span>{savingToken ? 'Saving...' : 'Save Token'}</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleFetchGithubRepos(githubToken)}
+                    disabled={loadingRepos}
+                    className="bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-slate-950 font-semibold px-3 py-1.5 rounded-lg text-xs flex items-center space-x-1 transition cursor-pointer shadow-sm"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${loadingRepos ? 'animate-spin' : ''}`} />
+                    <span>Fetch Repos</span>
+                  </button>
+                </div>
               </div>
+
+              {tokenSavedSuccess && (
+                <div className="flex items-center space-x-1.5 text-[11px] font-mono text-emerald-400 bg-emerald-950/80 border border-emerald-800/80 px-2.5 py-1 rounded-lg">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                  <span>Token saved to user database successfully!</span>
+                </div>
+              )}
             </div>
 
             {/* Search Filter */}

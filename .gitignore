@@ -17,6 +17,10 @@ yarn-error.log*
 .env
 .env.local
 
+# Local DB & Storage
+data/
+backend/data/
+
 # IDE & OS
 .vscode/
 .idea/

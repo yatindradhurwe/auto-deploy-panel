@@ -377,3 +377,83 @@ EOF
     if (conn) conn.end()
   }
 }
+
+/**
+ * Fast Update pipeline for existing live server deployment:
+ * 1. SSH into server
+ * 2. git fetch & git pull origin <branch>
+ * 3. npm install & frontend build if needed
+ * 4. pm2 reload / restart service
+ */
+export async function updateExistingDeployment(config, onLog) {
+  let conn
+  try {
+    onLog(`[SSH UPDATE] Connecting to live server ${config.username || 'root'}@${config.host}:${config.port || 22}...\n`, false, 'INIT')
+    conn = await connectSsh(config)
+    onLog(`[SSH UPDATE] Connection established cleanly!\n`, false, 'INIT')
+
+    const remoteDir = (config.remoteDir || `/var/www/${config.appName || 'my-app'}`).trim()
+    const appName = (config.appName || 'my-app').trim()
+    const branch = config.branch || 'main'
+
+    onLog(`\n==========================================\n[STEP 1/3] Pulling Latest Changes from GitHub (${branch})...\n==========================================\n`, false, 'GIT')
+    const pullCmd = `
+      if [ -d "${remoteDir}/.git" ]; then
+        cd ${remoteDir}
+        echo "Working Directory: ${remoteDir}"
+        git fetch --all
+        git reset --hard origin/${branch}
+        git pull origin ${branch}
+      else
+        echo "Error: Directory ${remoteDir} is not a git repository."
+        exit 1
+      fi
+    `
+    await runCommandStream(conn, pullCmd, onLog)
+
+    onLog(`\n==========================================\n[STEP 2/3] Installing Dependencies & Building Production Code...\n==========================================\n`, false, 'BUILD')
+    const buildCmd = `
+      cd ${remoteDir}
+      if [ -d "frontend" ]; then
+        echo "Building frontend workspace in ${remoteDir}/frontend..."
+        cd frontend && npm install --production=false && npm run build && cd ..
+      fi
+      if [ -d "backend" ]; then
+        echo "Installing backend dependencies in ${remoteDir}/backend..."
+        cd backend && npm install && cd ..
+      elif [ -f "package.json" ]; then
+        echo "Installing root npm packages in ${remoteDir}..."
+        npm install
+      fi
+    `
+    await runCommandStream(conn, buildCmd, onLog)
+
+    onLog(`\n==========================================\n[STEP 3/3] Reloading PM2 Service (${appName})...\n==========================================\n`, false, 'PM2')
+    const pm2Cmd = `
+      if pm2 describe ${appName} > /dev/null 2>&1; then
+        echo "Reloading existing PM2 process '${appName}' without downtime..."
+        pm2 reload ${appName} --update-env || pm2 restart ${appName} --update-env
+      else
+        echo "Starting PM2 process '${appName}'..."
+        if [ -d "${remoteDir}/backend" ]; then
+          cd ${remoteDir}/backend && (pm2 start server.js --name ${appName} --update-env || pm2 start index.js --name ${appName} --update-env)
+        else
+          cd ${remoteDir} && (pm2 start server.js --name ${appName} --update-env || pm2 start index.js --name ${appName} --update-env)
+        fi
+      fi
+      pm2 save
+      echo "Testing Nginx syntax & reloading web server..."
+      nginx -t 2>/dev/null && systemctl reload nginx 2>/dev/null || true
+    `
+    await runCommandStream(conn, pm2Cmd, onLog)
+
+    onLog(`\n==========================================\n🎉 LIVE SERVER UPDATED & RELOADED SUCCESSFULLY!\nApp Name: ${appName}\nRemote Path: ${remoteDir}\n==========================================\n`, false, 'COMPLETE')
+
+  } catch (err) {
+    onLog(`\n❌ LIVE SERVER UPDATE FAILED: ${err.message}\n`, true, 'ERROR')
+    throw err
+  } finally {
+    if (conn) conn.end()
+  }
+}
+

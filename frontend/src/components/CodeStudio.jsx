@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Folder, FileCode, ChevronRight, ChevronDown, Save, RefreshCw, Code, Terminal, FileText, CheckCircle2, Play, Search, X, GitBranch, Download, Upload, AlertCircle, Sparkles, FolderGit2, Bot, RotateCcw, History } from 'lucide-react'
+import { Folder, FileCode, ChevronRight, ChevronDown, Save, RefreshCw, Code, Terminal, FileText, CheckCircle2, Play, Search, X, GitBranch, Download, Upload, AlertCircle, Sparkles, FolderGit2, Bot, RotateCcw, History, DownloadCloud } from 'lucide-react'
 import AIAgentStudioDrawer from './AIAgentStudioDrawer'
 
 export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
@@ -133,6 +133,46 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
       alert(`Git Pull Failed: ${err.message}`)
     } finally {
       setPullingGit(false)
+    }
+  }
+
+  const [updatingLive, setUpdatingLive] = useState(false)
+
+  const handlePullAndUpdateLiveServer = async () => {
+    if (!selectedProject) return
+    setUpdatingLive(true)
+    try {
+      const res = await fetch('/api/studio/git/pull-and-update', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${jwtToken}`
+        },
+        body: JSON.stringify({
+          host: activeServer ? activeServer.host : '187.127.165.128',
+          appName: selectedProject.repoName || selectedProject.name,
+          projectPath: selectedProject.path,
+          branch: gitStatus.branch || 'main'
+        })
+      })
+      const data = await res.json()
+      if (data.success) {
+        setGitLogModal({
+          title: `🎉 Successfully Updated Live Server ('${selectedProject.name}')!`,
+          output: data.output || data.message
+        })
+        fetchFileTree(selectedProject.path)
+        fetchGitStatus(selectedProject.path)
+      } else {
+        setGitLogModal({
+          title: `❌ Failed to Update Live Server ('${selectedProject.name}')`,
+          output: (data.error || 'Update error') + '\n\n' + (data.output || '')
+        })
+      }
+    } catch (err) {
+      alert(`Live Update Failed: ${err.message}`)
+    } finally {
+      setUpdatingLive(false)
     }
   }
 
@@ -415,6 +455,17 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
           >
             <Upload className={`w-3.5 h-3.5 ${pushingGit ? 'animate-spin' : ''}`} />
             <span>{pushingGit ? 'Pushing...' : 'Git Commit & Push'}</span>
+          </button>
+
+          {/* Pull & Update Live Server */}
+          <button
+            onClick={handlePullAndUpdateLiveServer}
+            disabled={updatingLive}
+            className="px-4 py-1.5 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-lg shadow-purple-950/40 disabled:opacity-50 ring-1 ring-purple-400/30"
+            title="Pull latest code from GitHub origin/main and rebuild/reload live server app"
+          >
+            <DownloadCloud className={`w-3.5 h-3.5 text-purple-200 ${updatingLive ? 'animate-bounce' : ''}`} />
+            <span>{updatingLive ? 'Updating Live...' : 'Pull & Update Live'}</span>
           </button>
 
           {/* Git Commit Rollback */}

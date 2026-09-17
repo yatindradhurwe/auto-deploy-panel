@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react'
-import { Layers, Play, Square, RefreshCw, Cpu, Activity, Clock, Terminal, AlertCircle, CheckCircle2, ChevronRight, HardDrive, Code } from 'lucide-react'
+import { Layers, Play, Square, RefreshCw, Cpu, Activity, Clock, Terminal, AlertCircle, CheckCircle2, ChevronRight, HardDrive, Code, DownloadCloud, X, Check, Globe } from 'lucide-react'
 
 export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio }) {
   const [processes, setProcesses] = useState([])
   const [serverStats, setServerStats] = useState(null)
   const [loading, setLoading] = useState(true)
+
+  // Live Update Modal State
+  const [updatingAppName, setUpdatingAppName] = useState(null)
+  const [updateLogModal, setUpdateLogModal] = useState(null)
 
   useEffect(() => {
     fetchMetrics()
@@ -43,6 +47,60 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
         return proc
       })
     )
+  }
+
+  const handlePullAndUpdate = async (appName, projectPath) => {
+    setUpdatingAppName(appName)
+    setUpdateLogModal({
+      appName,
+      status: 'running',
+      title: `Updating '${appName}' from GitHub`,
+      logs: `[1/3] Connecting to live server (${activeServer ? activeServer.host : '187.127.165.128'})...\n[2/3] Pulling latest code changes & building dependencies...\n`
+    })
+
+    try {
+      const res = await fetch('/api/studio/git/pull-and-update', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${jwtToken}`
+        },
+        body: JSON.stringify({
+          host: activeServer ? activeServer.host : '187.127.165.128',
+          appName,
+          projectPath,
+          branch: 'main'
+        })
+      })
+
+      const data = await res.json()
+
+      if (data.success) {
+        setUpdateLogModal({
+          appName,
+          status: 'success',
+          title: `🎉 Successfully Updated '${appName}'!`,
+          logs: data.output || (data.logs ? data.logs.map(l => l.text).join('') : 'Update complete.')
+        })
+        fetchMetrics()
+      } else {
+        setUpdateLogModal({
+          appName,
+          status: 'failed',
+          title: `❌ Failed to Update '${appName}'`,
+          logs: data.error + '\n\n' + (data.output || '')
+        })
+      }
+    } catch (err) {
+      setUpdateLogModal({
+        appName,
+        status: 'failed',
+        title: `❌ Failed to Update '${appName}'`,
+        logs: `Network error: ${err.message}`
+      })
+    } finally {
+      setUpdatingAppName(null)
+    }
   }
 
   return (
@@ -117,6 +175,17 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
                   <td className="py-4 px-5 text-blue-300 font-bold">{proc.memory} MB</td>
                   <td className="py-4 px-5 text-purple-300 font-bold">{proc.restarts}</td>
                   <td className="py-4 px-5 text-right space-x-2">
+                    {/* 1-Click Pull & Update Live Server Button */}
+                    <button
+                      onClick={() => handlePullAndUpdate(proc.name, proc.cwd)}
+                      disabled={updatingAppName === proc.name}
+                      className="px-3 py-1.5 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white border border-purple-400/40 rounded-xl text-[11px] transition cursor-pointer font-bold inline-flex items-center gap-1.5 shadow-md shadow-purple-950/40 disabled:opacity-50"
+                      title="Pull latest code changes from GitHub, rebuild assets, and reload live server service"
+                    >
+                      <DownloadCloud className={`w-3.5 h-3.5 text-purple-200 ${updatingAppName === proc.name ? 'animate-bounce' : ''}`} />
+                      <span>{updatingAppName === proc.name ? 'Updating...' : 'Pull & Update Live'}</span>
+                    </button>
+
                     <button
                       onClick={() => onOpenInStudio && onOpenInStudio(proc.name)}
                       className="px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white border border-cyan-400/30 rounded-xl text-[11px] transition cursor-pointer font-bold inline-flex items-center gap-1.5 shadow-md shadow-cyan-950/40"
@@ -147,6 +216,56 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
           </table>
         </div>
       </div>
+
+      {/* Live Server Update Terminal Modal */}
+      {updateLogModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                  <DownloadCloud className="h-5 w-5 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-white text-sm">{updateLogModal.title}</h3>
+                  <p className="text-[11px] text-slate-400 font-mono">Live SSH execution terminal for project update</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setUpdateLogModal(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Modal Terminal Log Output */}
+            <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 h-72 overflow-y-auto font-mono text-xs text-slate-200 leading-relaxed whitespace-pre-wrap">
+              {updateLogModal.logs}
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              <div className="flex items-center space-x-2 text-xs font-mono">
+                <span className="text-slate-400">Status:</span>
+                <span className={`font-bold ${
+                  updateLogModal.status === 'running' ? 'text-amber-400 animate-pulse' :
+                  updateLogModal.status === 'success' ? 'text-emerald-400' : 'text-rose-400'
+                }`}>
+                  {updateLogModal.status === 'running' ? 'Executing Update Pipeline...' :
+                   updateLogModal.status === 'success' ? 'Update & Reload Complete ✓' : 'Update Failed'}
+                </span>
+              </div>
+
+              <button
+                onClick={() => setUpdateLogModal(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold transition"
+              >
+                Close Window
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

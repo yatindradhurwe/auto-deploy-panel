@@ -3,6 +3,8 @@ import fs from 'fs'
 import path from 'path'
 import { exec } from 'child_process'
 import { authenticateToken } from '../middleware/auth.middleware.js'
+import { updateExistingDeployment } from '../services/ssh.service.js'
+import { getUserSettings } from '../services/db.service.js'
 
 const router = express.Router()
 
@@ -327,6 +329,79 @@ router.post('/git/push', authenticateToken, (req, res) => {
     res.json({ success: true, message: 'Git Push completed successfully', output: stdout || 'Already up to date.' })
   })
 })
+
+/**
+ * POST /api/studio/git/pull-and-update
+ * Pulls latest code from GitHub for an existing live project,
+ * builds dependencies, and reloads PM2 service on the connected live server.
+ */
+router.post('/git/pull-and-update', authenticateToken, async (req, res) => {
+  const userId = req.user ? req.user.id : 'admin-001'
+  const userSettings = getUserSettings(userId)
+
+  const {
+    host = userSettings.host || '187.127.165.128',
+    port = userSettings.port || '22',
+    username = userSettings.username || 'root',
+    password = userSettings.password || 'Yatindra@1223',
+    projectPath,
+    appName,
+    branch = 'main'
+  } = req.body
+
+  const logs = []
+  const onLog = (chunk, isError = false) => {
+    logs.push({ text: chunk, isError, timestamp: new Date().toISOString() })
+  }
+
+  const remoteDir = projectPath || (appName ? `/var/www/${appName}` : '/var/www/tip-crm')
+  const targetAppName = appName || path.basename(remoteDir)
+
+  try {
+    if ((host === '127.0.0.1' || host === 'localhost') && fs.existsSync(remoteDir)) {
+      onLog(`Updating local project at ${remoteDir}...\n`)
+      const safeBranch = branch.replace(/[^a-zA-Z0-9_-]/g, '')
+      const localCmd = `git pull origin ${safeBranch} && (npm install || true) && (pm2 reload ${targetAppName} || true)`
+      
+      exec(localCmd, { cwd: remoteDir }, (error, stdout, stderr) => {
+        if (error) {
+          onLog(`Local update error: ${stderr || error.message}`, true)
+          return res.status(500).json({ success: false, error: stderr || error.message, logs })
+        }
+        onLog(stdout)
+        res.json({ success: true, message: `Successfully updated ${targetAppName} locally!`, output: stdout, logs })
+      })
+    } else {
+      const sshConfig = {
+        host,
+        port,
+        username,
+        password,
+        remoteDir,
+        appName: targetAppName,
+        branch
+      }
+
+      await updateExistingDeployment(sshConfig, onLog)
+      const fullLogText = logs.map(l => l.text).join('')
+      res.json({
+        success: true,
+        message: `Successfully pulled from GitHub & updated live server app '${targetAppName}'!`,
+        output: fullLogText,
+        logs
+      })
+    }
+  } catch (err) {
+    const fullLogText = logs.map(l => l.text).join('')
+    res.status(500).json({
+      success: false,
+      error: `Update failed: ${err.message}`,
+      output: fullLogText,
+      logs
+    })
+  }
+})
+
 
 /**
  * POST /api/studio/databases

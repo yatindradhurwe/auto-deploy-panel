@@ -60,21 +60,33 @@ router.post('/ai-execute-fix', async (req, res) => {
   }
 })
 
+import { getUserSettings, saveUserSettings } from '../services/db.service.js'
+
 /**
  * Fetch Repositories from GitHub API using Personal Access Token
  */
 router.post('/github-repos', async (req, res) => {
-  const { githubToken } = req.body
-  if (!githubToken) {
+  const userId = req.user ? req.user.id : 'admin-001'
+  let tokenToUse = (req.body.githubToken || '').trim()
+
+  if (!tokenToUse) {
+    const userSettings = getUserSettings(userId)
+    tokenToUse = (userSettings.githubToken || '').trim()
+  }
+
+  if (!tokenToUse) {
     return res.status(400).json({ success: false, error: 'GitHub Personal Access Token is required' })
   }
+
+  // Persist token in database for logged-in user
+  saveUserSettings(userId, { githubToken: tokenToUse })
 
   const options = {
     hostname: 'api.github.com',
     path: '/user/repos?per_page=100&sort=updated',
     method: 'GET',
     headers: {
-      'Authorization': `token ${githubToken.trim()}`,
+      'Authorization': tokenToUse.startsWith('bearer ') || tokenToUse.startsWith('token ') ? tokenToUse : `Bearer ${tokenToUse}`,
       'User-Agent': 'AutoDeploy-Console-App',
       'Accept': 'application/vnd.github.v3+json'
     }
@@ -87,11 +99,14 @@ router.post('/github-repos', async (req, res) => {
       if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
         try {
           const repos = JSON.parse(body)
+          if (!Array.isArray(repos)) {
+            return res.status(400).json({ success: false, error: repos.message || 'Invalid GitHub response format' })
+          }
           const formatted = repos.map((repo) => {
-            const cleanUrl = repo.clone_url
+            const cleanUrl = repo.clone_url || ''
             // Embed token into clone URL if repository is private
             const authUrl = repo.private
-              ? cleanUrl.replace('https://', `https://${githubToken.trim()}@`)
+              ? cleanUrl.replace('https://', `https://${tokenToUse}@`)
               : cleanUrl
 
             return {
@@ -110,10 +125,15 @@ router.post('/github-repos', async (req, res) => {
           })
           res.json({ success: true, repos: formatted })
         } catch (e) {
-          res.status(500).json({ success: false, error: 'Failed to parse GitHub API response' })
+          res.status(500).json({ success: false, error: `Failed to parse GitHub API response: ${e.message}` })
         }
       } else {
-        res.status(apiRes.statusCode).json({ success: false, error: `GitHub API error: Status ${apiRes.statusCode}` })
+        let errDetails = `GitHub API error: Status ${apiRes.statusCode}`
+        try {
+          const parsed = JSON.parse(body)
+          if (parsed.message) errDetails = `GitHub API: ${parsed.message}`
+        } catch (e) {}
+        res.status(apiRes.statusCode).json({ success: false, error: errDetails })
       }
     })
   })
