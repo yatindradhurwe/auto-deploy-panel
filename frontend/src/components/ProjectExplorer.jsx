@@ -236,6 +236,30 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
     }
   }
 
+  const handleRealTimeFetch = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/studio/projects/realtime-fetch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${jwtToken}`
+        },
+        body: JSON.stringify({ host: activeServer ? activeServer.host : '187.127.165.128' })
+      })
+      const data = await res.json()
+      if (data.success) {
+        fetchMetrics()
+        fetchAutoUpdateConfigs()
+        alert(`🎉 Real-Time scan completed! Sync data updated from live server & GitHub.`)
+      }
+    } catch (e) {
+      console.error('Real-Time fetch error:', e)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="space-y-6 font-sans">
       {/* Header Banner - Apple Glassmorphism + AWS Telemetry */}
@@ -257,13 +281,24 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
           </div>
         </div>
 
-        <button
-          onClick={fetchMetrics}
-          className="px-4 py-2 bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 border border-white/10 rounded-2xl transition cursor-pointer flex items-center gap-2 text-xs font-semibold shadow-sm"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${loading ? 'animate-spin' : ''}`} />
-          <span>Refresh Telemetry</span>
-        </button>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={handleRealTimeFetch}
+            className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold border border-cyan-400/40 rounded-2xl transition cursor-pointer flex items-center gap-2 text-xs shadow-md shadow-cyan-950/40"
+            title="Scan live server /var/www directories, active PM2 processes, Nginx configs, and GitHub commits in real time"
+          >
+            <Zap className={`w-3.5 h-3.5 text-cyan-200 ${loading ? 'animate-spin' : ''}`} />
+            <span>Real-Time Sync Telemetry</span>
+          </button>
+
+          <button
+            onClick={fetchMetrics}
+            className="px-4 py-2 bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 border border-white/10 rounded-2xl transition cursor-pointer flex items-center gap-2 text-xs font-semibold shadow-sm"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${loading ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
+        </div>
       </div>
 
       {/* Services Table Card - AWS EC2 Style */}

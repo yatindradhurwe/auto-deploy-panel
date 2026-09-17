@@ -3,7 +3,7 @@ import {
   Server, Terminal, ShieldCheck, Globe, Zap, Cpu, CheckCircle2,
   XCircle, AlertTriangle, Play, RefreshCw, Copy, Check, Lock, HardDrive, Code,
   Github, Search, X, ChevronRight, Sparkles, FolderGit2, Bot, LogOut, UserCheck,
-  Layers, Database, FolderTree, LayoutDashboard, Key, Activity, Clock, Webhook, Save, Trash2, DownloadCloud
+  Layers, Database, FolderTree, LayoutDashboard, Key, Activity, Clock, Webhook, Save, Trash2, DownloadCloud, Mail
 } from 'lucide-react'
 import AICopilotDrawer from './components/AICopilotDrawer'
 import LoginPage from './components/LoginPage'
@@ -16,6 +16,7 @@ import LogsTelemetryManager from './components/LogsTelemetryManager'
 import DomainSSLManager from './components/DomainSSLManager'
 import CronManager from './components/CronManager'
 import WebhookManager from './components/WebhookManager'
+import EmailManager from './components/EmailManager'
 
 const DEFAULT_CONFIG = {
   host: '187.127.165.128',
@@ -721,6 +722,18 @@ export default function App() {
               <Webhook className="w-4 h-4 text-indigo-400" />
               <span>Webhooks CI/CD</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab('email')}
+              className={`px-4 py-2 rounded-xl flex items-center gap-2 transition-all duration-300 cursor-pointer ${
+                activeTab === 'email'
+                  ? 'bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 text-white font-bold shadow-lg shadow-cyan-500/25 ring-1 ring-white/20'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/50'
+              }`}
+            >
+              <Mail className="w-4 h-4 text-cyan-400" />
+              <span>Domain Email Panel</span>
+            </button>
           </div>
 
           <div className="hidden md:flex items-center gap-2 text-slate-400 text-[11px] bg-slate-900/60 border border-white/10 px-3 py-1.5 rounded-xl shadow-inner">
@@ -783,6 +796,10 @@ export default function App() {
 
         {activeTab === 'webhooks' && (
           <WebhookManager jwtToken={jwtToken} />
+        )}
+
+        {activeTab === 'email' && (
+          <EmailManager jwtToken={jwtToken} activeServer={activeServer} />
         )}
 
         {activeTab === 'deploy' && (

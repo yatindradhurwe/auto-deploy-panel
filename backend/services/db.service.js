@@ -181,3 +181,71 @@ export function getWebhookAuditLogs() {
   return db.webhookAuditLogs || []
 }
 
+/**
+ * Get all created professional email mailboxes
+ */
+export function getEmailAccounts() {
+  const db = readDb()
+  if (!db.emailAccounts) {
+    db.emailAccounts = [
+      {
+        id: 'mail-1',
+        email: 'admin@litigation.yjtechnosoft.com',
+        username: 'admin',
+        domain: 'litigation.yjtechnosoft.com',
+        quotaMb: 5000,
+        usedMb: 124,
+        status: 'active',
+        createdAt: new Date(Date.now() - 86400000 * 5).toISOString()
+      },
+      {
+        id: 'mail-2',
+        email: 'support@tip-crm.yjtechnosoft.com',
+        username: 'support',
+        domain: 'tip-crm.yjtechnosoft.com',
+        quotaMb: 2000,
+        usedMb: 45,
+        status: 'active',
+        createdAt: new Date(Date.now() - 86400000 * 2).toISOString()
+      }
+    ]
+    writeDb(db)
+  }
+  return db.emailAccounts
+}
+
+/**
+ * Save/Create a new email mailbox
+ */
+export function saveEmailAccount(accountData) {
+  const db = readDb()
+  if (!db.emailAccounts) db.emailAccounts = []
+
+  const newAccount = {
+    id: `mail-${Date.now()}`,
+    email: `${accountData.username}@${accountData.domain}`,
+    username: accountData.username,
+    domain: accountData.domain,
+    quotaMb: Number(accountData.quotaMb) || 1000,
+    usedMb: 0,
+    status: 'active',
+    createdAt: new Date().toISOString()
+  }
+
+  db.emailAccounts.unshift(newAccount)
+  writeDb(db)
+  return newAccount
+}
+
+/**
+ * Delete an email mailbox by ID
+ */
+export function deleteEmailAccount(emailId) {
+  const db = readDb()
+  if (!db.emailAccounts) db.emailAccounts = []
+  db.emailAccounts = db.emailAccounts.filter(a => a.id !== emailId && a.email !== emailId)
+  writeDb(db)
+  return true
+}
+
+
