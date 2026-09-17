@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Layers, Play, Square, RefreshCw, Cpu, Activity, Clock, Terminal, AlertCircle, CheckCircle2, ChevronRight, HardDrive, Code, DownloadCloud, X, Check, Globe } from 'lucide-react'
+import { Layers, Play, Square, RefreshCw, Cpu, Activity, Clock, Terminal, AlertCircle, CheckCircle2, ChevronRight, HardDrive, Code, DownloadCloud, X, Check, Globe, Trash2 } from 'lucide-react'
 
 export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio }) {
   const [processes, setProcesses] = useState([])
@@ -9,6 +9,9 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
   // Live Update Modal State
   const [updatingAppName, setUpdatingAppName] = useState(null)
   const [updateLogModal, setUpdateLogModal] = useState(null)
+
+  // Delete Project Confirmation Modal State
+  const [deleteModal, setDeleteModal] = useState(null)
 
   useEffect(() => {
     fetchMetrics()
@@ -103,6 +106,42 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
     }
   }
 
+  const handleConfirmDeleteProject = async () => {
+    if (!deleteModal) return
+    setDeleteModal((prev) => ({ ...prev, deleting: true }))
+    try {
+      const res = await fetch('/api/studio/projects/delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${jwtToken}`
+        },
+        body: JSON.stringify({
+          host: activeServer ? activeServer.host : '187.127.165.128',
+          appName: deleteModal.appName,
+          projectPath: deleteModal.projectPath,
+          domain: deleteModal.domain,
+          deletePm2: deleteModal.deletePm2,
+          deleteFiles: deleteModal.deleteFiles,
+          deleteNginx: deleteModal.deleteNginx
+        })
+      })
+
+      const data = await res.json()
+      if (data.success) {
+        alert(`Project '${deleteModal.appName}' deleted successfully from live server!`)
+        setDeleteModal(null)
+        fetchMetrics()
+      } else {
+        alert(`Delete Error: ${data.error}`)
+      }
+    } catch (err) {
+      alert(`Delete Request Failed: ${err.message}`)
+    } finally {
+      setDeleteModal((prev) => (prev ? { ...prev, deleting: false } : null))
+    }
+  }
+
   return (
     <div className="space-y-6 font-sans">
       {/* Header Banner - Apple Glassmorphism + AWS Telemetry */}
@@ -193,21 +232,34 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
                       <Code className="w-3.5 h-3.5" />
                       <span>Open in Studio</span>
                     </button>
+
                     <button
                       onClick={() => toggleProcessState(proc.pm_id)}
                       className={`px-3 py-1.5 rounded-xl border transition text-[11px] cursor-pointer font-semibold ${
                         proc.status === 'online'
-                          ? 'bg-rose-950/40 text-rose-300 border-rose-800/60 hover:bg-rose-900/40'
+                          ? 'bg-amber-950/40 text-amber-300 border-amber-800/60 hover:bg-amber-900/40'
                           : 'bg-emerald-950/40 text-emerald-300 border-emerald-800/60 hover:bg-emerald-900/40'
                       }`}
                     >
-                      {proc.status === 'online' ? 'Stop Service' : 'Start Service'}
+                      {proc.status === 'online' ? 'Stop' : 'Start'}
                     </button>
+
+                    {/* Delete Project / Duplicate Website Button */}
                     <button
-                      onClick={fetchMetrics}
-                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/10 rounded-xl text-[11px] transition cursor-pointer font-semibold"
+                      onClick={() => setDeleteModal({
+                        appName: proc.name,
+                        projectPath: proc.cwd || `/var/www/${proc.name}`,
+                        domain: proc.name.includes('.com') ? proc.name : `${proc.name}.yjtechnosoft.com`,
+                        deletePm2: true,
+                        deleteFiles: true,
+                        deleteNginx: true,
+                        deleting: false
+                      })}
+                      className="px-3 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/80 rounded-xl text-[11px] transition cursor-pointer font-bold inline-flex items-center gap-1 shadow-sm"
+                      title="Delete project, duplicate website directory, PM2 service and Nginx config from server"
                     >
-                      Restart
+                      <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                      <span>Delete</span>
                     </button>
                   </td>
                 </tr>
@@ -261,6 +313,86 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold transition"
               >
                 Close Window
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Project & Duplicate Website Modal */}
+      {deleteModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-rose-500/30 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                  <Trash2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-white text-sm">Delete Project / Duplicate Website</h3>
+                  <p className="text-[11px] text-slate-400 font-mono">Remove service & files from live server</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDeleteModal(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 bg-slate-950/80 p-4 rounded-2xl border border-white/5 text-xs">
+              <div className="font-semibold text-white">Target App: <span className="text-cyan-300 font-mono">{deleteModal.appName}</span></div>
+              <div className="text-slate-400 font-mono text-[11px]">Path: {deleteModal.projectPath}</div>
+
+              <div className="space-y-2 pt-2 border-t border-white/10 text-slate-300">
+                <label className="flex items-center space-x-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={deleteModal.deletePm2}
+                    onChange={(e) => setDeleteModal({ ...deleteModal, deletePm2: e.target.checked })}
+                    className="rounded border-white/10 text-rose-500 bg-slate-900"
+                  />
+                  <span>Stop & Delete PM2 Process (<code className="text-cyan-400">pm2 delete {deleteModal.appName}</code>)</span>
+                </label>
+
+                <label className="flex items-center space-x-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={deleteModal.deleteFiles}
+                    onChange={(e) => setDeleteModal({ ...deleteModal, deleteFiles: e.target.checked })}
+                    className="rounded border-white/10 text-rose-500 bg-slate-900"
+                  />
+                  <span>Delete Files & Directory (<code className="text-rose-400">rm -rf {deleteModal.projectPath}</code>)</span>
+                </label>
+
+                <label className="flex items-center space-x-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={deleteModal.deleteNginx}
+                    onChange={(e) => setDeleteModal({ ...deleteModal, deleteNginx: e.target.checked })}
+                    className="rounded border-white/10 text-rose-500 bg-slate-900"
+                  />
+                  <span>Delete Nginx Config & Reload Web Server</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-2">
+              <button
+                onClick={() => setDeleteModal(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={handleConfirmDeleteProject}
+                disabled={deleteModal.deleting}
+                className="px-5 py-2 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition shadow-lg shadow-rose-950/40 disabled:opacity-50"
+              >
+                {deleteModal.deleting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                <span>{deleteModal.deleting ? 'Deleting...' : 'Confirm Permanent Deletion'}</span>
               </button>
             </div>
           </div>

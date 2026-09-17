@@ -3,7 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { exec } from 'child_process'
 import { authenticateToken } from '../middleware/auth.middleware.js'
-import { updateExistingDeployment } from '../services/ssh.service.js'
+import { updateExistingDeployment, deleteServerProject } from '../services/ssh.service.js'
 import { getUserSettings } from '../services/db.service.js'
 
 const router = express.Router()
@@ -401,6 +401,49 @@ router.post('/git/pull-and-update', authenticateToken, async (req, res) => {
     })
   }
 })
+
+/**
+ * POST /api/studio/projects/delete
+ * Deletes a project/duplicate website, PM2 service, and Nginx config from live server.
+ */
+router.post('/projects/delete', authenticateToken, async (req, res) => {
+  const userId = req.user ? req.user.id : 'admin-001'
+  const userSettings = getUserSettings(userId)
+
+  const {
+    host = userSettings.host || '187.127.165.128',
+    port = userSettings.port || '22',
+    username = userSettings.username || 'root',
+    password = userSettings.password || 'Yatindra@1223',
+    appName,
+    projectPath,
+    domain,
+    deletePm2 = true,
+    deleteFiles = true,
+    deleteNginx = true
+  } = req.body
+
+  try {
+    const sshConfig = {
+      host,
+      port,
+      username,
+      password,
+      appName,
+      projectPath,
+      domain,
+      deletePm2,
+      deleteFiles,
+      deleteNginx
+    }
+
+    const result = await deleteServerProject(sshConfig)
+    res.json({ success: true, message: result.message, output: result.output })
+  } catch (err) {
+    res.status(500).json({ success: false, error: `Failed to delete project: ${err.message}` })
+  }
+})
+
 
 
 /**

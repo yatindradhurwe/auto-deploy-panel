@@ -401,9 +401,15 @@ export async function updateExistingDeployment(config, onLog) {
       if [ -d "${remoteDir}/.git" ]; then
         cd ${remoteDir}
         echo "Working Directory: ${remoteDir}"
-        git fetch --all
+        git fetch --all --tags
+        git stash --include-untracked 2>/dev/null || true
+        git checkout ${branch} 2>/dev/null || git checkout -b ${branch} origin/${branch} 2>/dev/null || true
         git reset --hard origin/${branch}
         git pull origin ${branch}
+      elif [ -n "${config.gitRepoUrl}" ]; then
+        echo "Repository directory missing .git. Re-cloning ${config.gitRepoUrl} into ${remoteDir}..."
+        mkdir -p ${remoteDir}
+        git clone ${config.gitRepoUrl} ${remoteDir}
       else
         echo "Error: Directory ${remoteDir} is not a git repository."
         exit 1
@@ -456,4 +462,57 @@ export async function updateExistingDeployment(config, onLog) {
     if (conn) conn.end()
   }
 }
+
+/**
+ * Deletes a project, duplicate website directory, PM2 service, and Nginx config from remote server.
+ */
+export async function deleteServerProject(config) {
+  let conn
+  try {
+    conn = await connectSsh(config)
+    const appName = (config.appName || '').trim()
+    const remoteDir = (config.projectPath || config.remoteDir || '').trim()
+    const domain = (config.domain || '').trim()
+    const deletePm2 = config.deletePm2 !== false
+    const deleteFiles = config.deleteFiles !== false
+    const deleteNginx = config.deleteNginx !== false
+
+    let cmd = 'echo "=== DELETING PROJECT / WEBSITE ==="\n'
+    if (deletePm2 && appName) {
+      cmd += `echo "Stopping & deleting PM2 process '${appName}'..."\n`
+      cmd += `pm2 delete ${appName} 2>/dev/null || true\n`
+      cmd += `pm2 save 2>/dev/null || true\n`
+    }
+    if (deleteNginx && domain) {
+      cmd += `echo "Removing Nginx site configs for '${domain}'..."\n`
+      cmd += `rm -f /etc/nginx/sites-available/${domain}.conf /etc/nginx/sites-enabled/${domain}.conf 2>/dev/null || true\n`
+      cmd += `rm -f /etc/nginx/sites-available/${domain} /etc/nginx/sites-enabled/${domain} 2>/dev/null || true\n`
+      cmd += `nginx -t 2>/dev/null && systemctl reload nginx 2>/dev/null || true\n`
+    }
+    if (deleteFiles && remoteDir && remoteDir.startsWith('/var/www/') && remoteDir !== '/var/www' && remoteDir !== '/var/www/html') {
+      cmd += `echo "Removing project directory '${remoteDir}'..."\n`
+      cmd += `rm -rf ${remoteDir}\n`
+    }
+    cmd += 'echo "=== DELETE COMPLETE ==="\n'
+
+    return new Promise((resolve, reject) => {
+      conn.exec(cmd, (err, stream) => {
+        if (err) {
+          conn.end()
+          return reject(err)
+        }
+        let output = ''
+        stream.on('data', d => output += d.toString())
+        stream.on('close', code => {
+          conn.end()
+          resolve({ success: true, message: `Successfully deleted project ${appName || remoteDir}`, output })
+        })
+      })
+    })
+  } catch (err) {
+    if (conn) conn.end()
+    throw err
+  }
+}
+
 
