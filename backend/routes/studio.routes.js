@@ -4,7 +4,14 @@ import path from 'path'
 import { exec } from 'child_process'
 import { authenticateToken } from '../middleware/auth.middleware.js'
 import { updateExistingDeployment, deleteServerProject } from '../services/ssh.service.js'
-import { getUserSettings } from '../services/db.service.js'
+import {
+  getUserSettings,
+  getProjectAutoUpdateConfig,
+  saveProjectAutoUpdateConfig,
+  getAllProjectAutoUpdateConfigs,
+  getWebhookAuditLogs
+} from '../services/db.service.js'
+import { executeProjectAutoUpdate } from '../services/autoupdate.service.js'
 
 const router = express.Router()
 
@@ -996,6 +1003,74 @@ router.post('/cron/save', authenticateToken, (req, res) => {
     }
     res.json({ success: true, message: `Cron job added: "${newEntry}"`, schedule, command })
   })
+})
+
+/**
+ * GET /api/studio/autoupdate/config/:appName
+ * Get Antigravity Auto-Update configuration for a project
+ */
+router.get('/autoupdate/config/:appName', authenticateToken, (req, res) => {
+  const { appName } = req.params
+  const config = getProjectAutoUpdateConfig(appName)
+  res.json({ success: true, config })
+})
+
+/**
+ * POST /api/studio/autoupdate/config
+ * Save Antigravity Auto-Update configuration for a project
+ */
+router.post('/autoupdate/config', authenticateToken, (req, res) => {
+  const { appName, enabled, autoSyncInterval, branch, gitRepoUrl, projectPath, host } = req.body
+  if (!appName) {
+    return res.status(400).json({ error: 'appName is required' })
+  }
+
+  const updated = saveProjectAutoUpdateConfig(appName, {
+    enabled: Boolean(enabled),
+    autoSyncInterval: Number(autoSyncInterval) || 5,
+    branch: branch || 'main',
+    gitRepoUrl: gitRepoUrl || '',
+    projectPath: projectPath || `/var/www/${appName}`,
+    host: host || '187.127.165.128'
+  })
+
+  res.json({ success: true, config: updated, message: `Antigravity Auto-Update config saved for project '${appName}'` })
+})
+
+/**
+ * POST /api/studio/autoupdate/trigger-now
+ * Manually trigger instant Antigravity Auto-Update for a project
+ */
+router.post('/autoupdate/trigger-now', authenticateToken, async (req, res) => {
+  const { appName } = req.body
+  if (!appName) {
+    return res.status(400).json({ error: 'appName is required' })
+  }
+
+  try {
+    const result = await executeProjectAutoUpdate(appName, 'manual', { pusher: 'Studio Admin' })
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+/**
+ * GET /api/studio/autoupdate/list
+ * List all configured project auto-updaters
+ */
+router.get('/autoupdate/list', authenticateToken, (req, res) => {
+  const configs = getAllProjectAutoUpdateConfigs()
+  res.json({ success: true, configs })
+})
+
+/**
+ * GET /api/studio/autoupdate/history
+ * Fetch audit trail logs for auto-updates and webhooks
+ */
+router.get('/autoupdate/history', authenticateToken, (req, res) => {
+  const history = getWebhookAuditLogs()
+  res.json({ success: true, history })
 })
 
 export default router

@@ -1,10 +1,17 @@
 import React, { useState, useEffect } from 'react'
-import { Layers, Play, Square, RefreshCw, Cpu, Activity, Clock, Terminal, AlertCircle, CheckCircle2, ChevronRight, HardDrive, Code, DownloadCloud, X, Check, Globe, Trash2 } from 'lucide-react'
+import { Layers, Play, Square, RefreshCw, Cpu, Activity, Clock, Terminal, AlertCircle, CheckCircle2, ChevronRight, HardDrive, Code, DownloadCloud, X, Check, Globe, Trash2, Zap, Copy, GitBranch, Webhook, Settings } from 'lucide-react'
 
 export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio }) {
   const [processes, setProcesses] = useState([])
   const [serverStats, setServerStats] = useState(null)
   const [loading, setLoading] = useState(true)
+
+  // Antigravity Auto-Update State
+  const [autoUpdateConfigs, setAutoUpdateConfigs] = useState({})
+  const [autoUpdateModal, setAutoUpdateModal] = useState(null)
+  const [copiedWebhook, setCopiedWebhook] = useState(false)
+  const [savingAutoUpdate, setSavingAutoUpdate] = useState(false)
+  const [triggeringAutoSync, setTriggeringAutoSync] = useState(false)
 
   // Live Update Modal State
   const [updatingAppName, setUpdatingAppName] = useState(null)
@@ -15,7 +22,22 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
 
   useEffect(() => {
     fetchMetrics()
+    fetchAutoUpdateConfigs()
   }, [activeServer])
+
+  const fetchAutoUpdateConfigs = async () => {
+    try {
+      const res = await fetch('/api/studio/autoupdate/list', {
+        headers: { 'Authorization': `Bearer ${jwtToken}` }
+      })
+      const data = await res.json()
+      if (data.success && data.configs) {
+        setAutoUpdateConfigs(data.configs)
+      }
+    } catch (e) {
+      console.warn('Failed to load auto-update configs:', e)
+    }
+  }
 
   const fetchMetrics = async () => {
     setLoading(true)
@@ -106,6 +128,78 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
     }
   }
 
+  const handleOpenAutoUpdateModal = async (appName, projectPath) => {
+    try {
+      const res = await fetch(`/api/studio/autoupdate/config/${appName}`, {
+        headers: { 'Authorization': `Bearer ${jwtToken}` }
+      })
+      const data = await res.json()
+      if (data.success && data.config) {
+        setAutoUpdateModal({
+          ...data.config,
+          appName,
+          projectPath: data.config.projectPath || projectPath || `/var/www/${appName}`
+        })
+      }
+    } catch (e) {
+      console.error('Failed to fetch auto-update modal data:', e)
+    }
+  }
+
+  const handleSaveAutoUpdateConfig = async () => {
+    if (!autoUpdateModal) return
+    setSavingAutoUpdate(true)
+    try {
+      const res = await fetch('/api/studio/autoupdate/config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${jwtToken}`
+        },
+        body: JSON.stringify(autoUpdateModal)
+      })
+      const data = await res.json()
+      if (data.success) {
+        fetchAutoUpdateConfigs()
+        alert(`Antigravity Auto-Update settings saved for '${autoUpdateModal.appName}'!`)
+      } else {
+        alert(`Save Error: ${data.error}`)
+      }
+    } catch (err) {
+      alert(`Save Failed: ${err.message}`)
+    } finally {
+      setSavingAutoUpdate(false)
+    }
+  }
+
+  const handleTriggerAutoSyncNow = async () => {
+    if (!autoUpdateModal) return
+    setTriggeringAutoSync(true)
+    try {
+      const res = await fetch('/api/studio/autoupdate/trigger-now', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${jwtToken}`
+        },
+        body: JSON.stringify({ appName: autoUpdateModal.appName })
+      })
+      const data = await res.json()
+      if (data.success) {
+        alert(`🎉 Antigravity Auto-Sync completed for '${autoUpdateModal.appName}'!`)
+        handleOpenAutoUpdateModal(autoUpdateModal.appName, autoUpdateModal.projectPath)
+        fetchMetrics()
+        fetchAutoUpdateConfigs()
+      } else {
+        alert(`Auto-Sync Error: ${data.error || 'Failed'}`)
+      }
+    } catch (err) {
+      alert(`Auto-Sync Request Failed: ${err.message}`)
+    } finally {
+      setTriggeringAutoSync(false)
+    }
+  }
+
   const handleConfirmDeleteProject = async () => {
     if (!deleteModal) return
     setDeleteModal((prev) => ({ ...prev, deleting: true }))
@@ -185,6 +279,7 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
               <tr>
                 <th className="py-3.5 px-5">ID</th>
                 <th className="py-3.5 px-5">Application Service & Path</th>
+                <th className="py-3.5 px-5">Antigravity Auto-Update</th>
                 <th className="py-3.5 px-5">Status</th>
                 <th className="py-3.5 px-5">CPU Load</th>
                 <th className="py-3.5 px-5">Memory Usage</th>
@@ -201,6 +296,27 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
                     <div className="text-[10px] text-slate-500 font-mono mt-0.5">{proc.cwd || `/var/www/${proc.name}`}</div>
                   </td>
                   <td className="py-4 px-5">
+                    {autoUpdateConfigs[proc.name]?.enabled ? (
+                      <span
+                        onClick={() => handleOpenAutoUpdateModal(proc.name, proc.cwd)}
+                        className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-cyan-950/80 text-cyan-300 border border-cyan-500/40 inline-flex items-center gap-1.5 cursor-pointer hover:bg-cyan-900/80 transition"
+                        title="Click to configure project-wise Antigravity Auto-Update settings"
+                      >
+                        <Zap className="w-3 h-3 text-cyan-400 animate-pulse" />
+                        <span>⚡ Auto-Update ON</span>
+                      </span>
+                    ) : (
+                      <span
+                        onClick={() => handleOpenAutoUpdateModal(proc.name, proc.cwd)}
+                        className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-950/80 text-slate-400 border border-slate-800 inline-flex items-center gap-1.5 cursor-pointer hover:bg-slate-900 transition"
+                        title="Click to enable project-wise Antigravity Auto-Update settings"
+                      >
+                        <Zap className="w-3 h-3 text-slate-500" />
+                        <span>⏸ OFF</span>
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-4 px-5">
                     <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border inline-flex items-center gap-1.5 shadow-sm ${
                       proc.status === 'online'
                         ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800/80'
@@ -214,6 +330,16 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
                   <td className="py-4 px-5 text-blue-300 font-bold">{proc.memory} MB</td>
                   <td className="py-4 px-5 text-purple-300 font-bold">{proc.restarts}</td>
                   <td className="py-4 px-5 text-right space-x-2">
+                    {/* Antigravity Auto-Update Settings Button */}
+                    <button
+                      onClick={() => handleOpenAutoUpdateModal(proc.name, proc.cwd)}
+                      className="px-3 py-1.5 bg-gradient-to-r from-amber-600/30 to-orange-600/30 hover:from-amber-600/50 hover:to-orange-600/50 text-amber-200 border border-amber-500/40 rounded-xl text-[11px] transition cursor-pointer font-bold inline-flex items-center gap-1.5 shadow-md shadow-amber-950/40"
+                      title="Configure Antigravity Auto-Update interval, repo branch, and GitHub Webhooks for this project"
+                    >
+                      <Zap className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Auto-Update Settings</span>
+                    </button>
+
                     {/* 1-Click Pull & Update Live Server Button */}
                     <button
                       onClick={() => handlePullAndUpdate(proc.name, proc.cwd)}
@@ -394,6 +520,181 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
                 {deleteModal.deleting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                 <span>{deleteModal.deleting ? 'Deleting...' : 'Confirm Permanent Deletion'}</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Antigravity Auto-Update Project Settings Modal */}
+      {autoUpdateModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-cyan-500/40 rounded-3xl max-w-xl w-full p-6 space-y-5 shadow-2xl shadow-cyan-950/50 animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 rounded-2xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 shadow-inner">
+                  <Zap className="h-6 w-6 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-white text-base flex items-center gap-2">
+                    Antigravity Auto-Update Settings
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800 font-mono">
+                      {autoUpdateModal.appName}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400 font-mono mt-0.5">
+                    Automatically pull latest changes from GitHub and deploy on live server
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setAutoUpdateModal(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Toggle Switch Card */}
+            <div className="bg-slate-950 p-4 rounded-2xl border border-white/10 flex items-center justify-between">
+              <div>
+                <div className="text-xs font-bold text-white flex items-center gap-2">
+                  <span>Enable Antigravity Auto-Update for this Project</span>
+                  {autoUpdateModal.enabled ? (
+                    <span className="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.2 rounded-full font-bold">ACTIVE</span>
+                  ) : (
+                    <span className="text-[9px] bg-slate-800 text-slate-400 px-2 py-0.2 rounded-full font-bold">DISABLED</span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-400 font-mono mt-0.5">
+                  When enabled, live server syncs automatically on GitHub push or periodic interval
+                </p>
+              </div>
+
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={Boolean(autoUpdateModal.enabled)}
+                  onChange={(e) => setAutoUpdateModal({ ...autoUpdateModal, enabled: e.target.checked })}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-500"></div>
+              </label>
+            </div>
+
+            {/* GitHub Webhook URL Card */}
+            <div className="space-y-2 bg-slate-950/80 p-4 rounded-2xl border border-white/10">
+              <div className="flex items-center justify-between text-xs">
+                <label className="font-bold text-white font-mono flex items-center gap-1.5">
+                  <Webhook className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Project GitHub Webhook URL</span>
+                </label>
+                <span className="text-[10px] text-slate-400 font-mono">1-Click Auto-Deploy on Push</span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Paste this Webhook URL into your GitHub repository settings (<code className="text-cyan-300">Settings -&gt; Webhooks -&gt; Add webhook</code>):
+              </p>
+              <div className="bg-slate-900 border border-white/10 rounded-xl p-2.5 flex items-center justify-between gap-2">
+                <span className="text-xs font-mono text-cyan-300 truncate select-all">
+                  {`${window.location.origin}/api/webhooks/github/${autoUpdateModal.appName}`}
+                </span>
+                <button
+                  onClick={() => {
+                    const url = `${window.location.origin}/api/webhooks/github/${autoUpdateModal.appName}`
+                    navigator.clipboard.writeText(url)
+                    setCopiedWebhook(true)
+                    setTimeout(() => setCopiedWebhook(false), 2000)
+                  }}
+                  className="px-3 py-1 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 rounded-lg text-xs font-mono flex items-center space-x-1 transition cursor-pointer shrink-0"
+                >
+                  {copiedWebhook ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-cyan-300" />}
+                  <span>{copiedWebhook ? 'Copied!' : 'Copy URL'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Frequency & Git Options */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">Sync Frequency</label>
+                <select
+                  value={autoUpdateModal.autoSyncInterval || 5}
+                  onChange={(e) => setAutoUpdateModal({ ...autoUpdateModal, autoSyncInterval: Number(e.target.value) })}
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-cyan-400"
+                >
+                  <option value={0}>Webhook Push Event Only</option>
+                  <option value={5}>Every 5 Minutes (Auto-Check)</option>
+                  <option value={15}>Every 15 Minutes (Auto-Check)</option>
+                  <option value={60}>Every 1 Hour (Auto-Check)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">Target Branch</label>
+                <input
+                  type="text"
+                  value={autoUpdateModal.branch || 'main'}
+                  onChange={(e) => setAutoUpdateModal({ ...autoUpdateModal, branch: e.target.value })}
+                  placeholder="main"
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-cyan-400"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">Git Repository URL</label>
+              <input
+                type="text"
+                value={autoUpdateModal.gitRepoUrl || ''}
+                onChange={(e) => setAutoUpdateModal({ ...autoUpdateModal, gitRepoUrl: e.target.value })}
+                placeholder="https://github.com/yatindradhurwe/repo.git"
+                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-cyan-400"
+              />
+            </div>
+
+            {/* Last Sync Telemetry */}
+            {autoUpdateModal.lastAutoUpdate && (
+              <div className="bg-slate-950 p-3 rounded-2xl border border-white/10 space-y-1 font-mono text-xs">
+                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <span>Last Antigravity Sync:</span>
+                  <span className="text-cyan-300 font-bold">{new Date(autoUpdateModal.lastAutoUpdate).toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <span>Sync Result:</span>
+                  <span className={`font-bold ${autoUpdateModal.lastStatus === 'success' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {autoUpdateModal.lastStatus === 'success' ? '✓ SUCCESSFUL' : '❌ FAILED'}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Footer Buttons */}
+            <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+              <button
+                onClick={handleTriggerAutoSyncNow}
+                disabled={triggeringAutoSync}
+                className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md disabled:opacity-50 cursor-pointer"
+              >
+                <Zap className={`w-3.5 h-3.5 ${triggeringAutoSync ? 'animate-spin' : ''}`} />
+                <span>{triggeringAutoSync ? 'Syncing Now...' : 'Trigger Sync Now'}</span>
+              </button>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setAutoUpdateModal(null)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveAutoUpdateConfig}
+                  disabled={savingAutoUpdate}
+                  className="px-5 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-extrabold rounded-xl text-xs flex items-center gap-1.5 transition shadow-lg shadow-cyan-950/40 disabled:opacity-50 cursor-pointer"
+                >
+                  {savingAutoUpdate ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-950" /> : <Check className="w-3.5 h-3.5" />}
+                  <span>{savingAutoUpdate ? 'Saving...' : 'Save Settings'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

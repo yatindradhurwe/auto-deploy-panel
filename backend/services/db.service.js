@@ -98,3 +98,86 @@ export function saveUserSettings(userId, newSettings) {
   writeDb(db)
   return db.users[userId].settings
 }
+
+/**
+ * Get Antigravity Auto-Update config for a specific project appName
+ */
+export function getProjectAutoUpdateConfig(appName) {
+  if (!appName) return null
+  const db = readDb()
+  const configs = db.projectAutoUpdates || {}
+  return configs[appName] || {
+    appName,
+    enabled: false,
+    autoSyncInterval: 5, // minutes (0 = Webhook only, 5, 15, 60)
+    branch: 'main',
+    gitRepoUrl: '',
+    projectPath: `/var/www/${appName}`,
+    host: '187.127.165.128',
+    webhookSecret: `sec_${appName}_${Math.random().toString(36).substring(2, 8)}`,
+    lastAutoUpdate: null,
+    lastStatus: 'never',
+    lastLog: ''
+  }
+}
+
+/**
+ * Save/update Antigravity Auto-Update config for a specific project appName
+ */
+export function saveProjectAutoUpdateConfig(appName, config) {
+  if (!appName) return null
+  const db = readDb()
+  if (!db.projectAutoUpdates) db.projectAutoUpdates = {}
+  
+  const existing = db.projectAutoUpdates[appName] || {}
+  const updated = {
+    ...existing,
+    ...config,
+    appName,
+    updatedAt: new Date().toISOString()
+  }
+
+  db.projectAutoUpdates[appName] = updated
+  writeDb(db)
+  return updated
+}
+
+/**
+ * Get all configured project Antigravity Auto-Update settings
+ */
+export function getAllProjectAutoUpdateConfigs() {
+  const db = readDb()
+  return db.projectAutoUpdates || {}
+}
+
+/**
+ * Record a Webhook / Auto-Update audit trail log
+ */
+export function recordWebhookAuditLog(logData) {
+  const db = readDb()
+  if (!db.webhookAuditLogs) db.webhookAuditLogs = []
+  
+  const logEntry = {
+    id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    timestamp: new Date().toISOString(),
+    ...logData
+  }
+
+  db.webhookAuditLogs.unshift(logEntry)
+  // Keep last 100 logs
+  if (db.webhookAuditLogs.length > 100) {
+    db.webhookAuditLogs = db.webhookAuditLogs.slice(0, 100)
+  }
+
+  writeDb(db)
+  return logEntry
+}
+
+/**
+ * Get Webhook audit trail logs
+ */
+export function getWebhookAuditLogs() {
+  const db = readDb()
+  return db.webhookAuditLogs || []
+}
+

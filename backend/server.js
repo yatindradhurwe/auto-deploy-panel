@@ -4,6 +4,7 @@ import authRoutes from './routes/auth.routes.js'
 import deployRoutes from './routes/deploy.routes.js'
 import studioRoutes from './routes/studio.routes.js'
 import { authenticateToken } from './middleware/auth.middleware.js'
+import { initAutoUpdateService, executeProjectAutoUpdate } from './services/autoupdate.service.js'
 
 const app = express()
 const PORT = process.env.PORT || 4000
@@ -24,6 +25,28 @@ app.get('/api/health', (req, res) => {
   })
 })
 
+// Public GitHub Webhook Endpoint (Called automatically on git push)
+app.post('/api/webhooks/github/:appName', (req, res) => {
+  const { appName } = req.params
+  const payload = req.body || {}
+  const pusherName = payload.pusher ? payload.pusher.name : (payload.sender ? payload.sender.login : 'GitHub Webhook')
+  const commitMsg = payload.head_commit ? payload.head_commit.message : 'GitHub Push Event Received'
+
+  console.log(`[GITHUB WEBHOOK RECEIVED] Triggering live server auto-update for project '${appName}'...`)
+
+  // Asynchronously trigger Antigravity Auto-Update
+  executeProjectAutoUpdate(appName, 'webhook', { pusher: pusherName, commitMsg })
+    .catch(err => console.error(`[GITHUB WEBHOOK FAILED] for '${appName}':`, err.message))
+
+  res.json({
+    success: true,
+    message: `Antigravity Auto-Update triggered for project '${appName}' via GitHub push event`,
+    appName,
+    pusher: pusherName,
+    timestamp: new Date().toISOString()
+  })
+})
+
 // Authentication Routes (Public Endpoint)
 app.use('/api/auth', authRoutes)
 
@@ -33,4 +56,6 @@ app.use('/api/studio', authenticateToken, studioRoutes)
 
 app.listen(PORT, () => {
   console.log(`[AUTODEPLOY-STUDIO-BACKEND] Listening on http://localhost:${PORT}`)
+  initAutoUpdateService()
 })
+
