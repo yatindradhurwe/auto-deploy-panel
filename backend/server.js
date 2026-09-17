@@ -19,6 +19,8 @@ app.get('/api/health', (req, res) => {
     status: 'online',
     service: 'AutoDeploy Console & AI Studio Backend Engine',
     version: '2.0.0',
+    lastUpdated: '2026-09-17 15:06:00 IST',
+    commit: 'b068867',
     authEnabled: true,
     studioEnabled: true,
     timestamp: new Date().toISOString(),
