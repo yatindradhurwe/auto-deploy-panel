@@ -40,7 +40,7 @@ export default function App() {
     domain: 'automate-deployment.yjtechnosoft.com'
   })
   const [targetProjectInStudio, setTargetProjectInStudio] = useState('')
-  const [lastPanelUpdate, setLastPanelUpdate] = useState('17 Sep 2026, 03:06 PM IST')
+  const [lastPanelUpdate, setLastPanelUpdate] = useState('18 Sep 2026, 11:12 AM IST')
 
   useEffect(() => {
     fetch('/api/health')
