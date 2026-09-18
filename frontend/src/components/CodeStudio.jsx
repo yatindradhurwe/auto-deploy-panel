@@ -548,7 +548,10 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${jwtToken}`
         },
-        body: JSON.stringify({ filePath: fileItem.fullPath || fileItem.path })
+        body: JSON.stringify({
+          filePath: fileItem.fullPath || fileItem.path,
+          projectPath: selectedProject ? selectedProject.path : undefined
+        })
       })
       const data = await res.json()
       if (data.success) {
@@ -594,6 +597,7 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
         },
         body: JSON.stringify({
           filePath: activeFile.fullPath || activeFile.path,
+          projectPath: selectedProject ? selectedProject.path : undefined,
           content: fileContent
         })
       })
@@ -1039,6 +1043,18 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
               <textarea
                 value={fileContent}
                 onChange={(e) => setFileContent(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Tab') {
+                    e.preventDefault()
+                    const start = e.target.selectionStart
+                    const end = e.target.selectionEnd
+                    const updated = fileContent.substring(0, start) + '  ' + fileContent.substring(end)
+                    setFileContent(updated)
+                    setTimeout(() => {
+                      e.target.selectionStart = e.target.selectionEnd = start + 2
+                    }, 0)
+                  }
+                }}
                 placeholder="// Code Editor..."
                 spellCheck={false}
                 className="w-full h-full bg-[#07090E] text-slate-100 font-mono text-xs p-4 focus:outline-none resize-none leading-relaxed selection:bg-cyan-500/30 selection:text-cyan-200"

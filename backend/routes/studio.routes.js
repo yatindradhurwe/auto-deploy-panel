@@ -575,15 +575,19 @@ router.post('/files/tree', authenticateToken, (req, res) => {
  * POST /api/studio/files/read
  */
 router.post('/files/read', authenticateToken, (req, res) => {
-  const { filePath } = req.body
+  const { filePath, projectPath } = req.body
   if (!filePath) {
     return res.status(400).json({ error: 'filePath parameter is required' })
   }
 
   try {
-    const normalizedPath = path.normalize(filePath)
+    let targetPath = filePath
+    if (!path.isAbsolute(targetPath) && projectPath) {
+      targetPath = path.resolve(projectPath, filePath)
+    }
+    const normalizedPath = path.normalize(targetPath)
     if (!fs.existsSync(normalizedPath)) {
-      return res.status(404).json({ error: 'File not found' })
+      return res.status(404).json({ error: `File not found: ${filePath}` })
     }
     const content = fs.readFileSync(normalizedPath, 'utf-8')
     res.json({ success: true, filePath: normalizedPath.replace(/\\/g, '/'), content })
@@ -596,13 +600,21 @@ router.post('/files/read', authenticateToken, (req, res) => {
  * POST /api/studio/files/save
  */
 router.post('/files/save', authenticateToken, (req, res) => {
-  const { filePath, content } = req.body
+  const { filePath, projectPath, content } = req.body
   if (!filePath || content === undefined) {
     return res.status(400).json({ error: 'filePath and content are required' })
   }
 
   try {
-    const normalizedPath = path.normalize(filePath)
+    let targetPath = filePath
+    if (!path.isAbsolute(targetPath) && projectPath) {
+      targetPath = path.resolve(projectPath, filePath)
+    }
+    const normalizedPath = path.normalize(targetPath)
+    const parentDir = path.dirname(normalizedPath)
+    if (!fs.existsSync(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true })
+    }
     fs.writeFileSync(normalizedPath, content, 'utf-8')
     res.json({ success: true, message: 'File saved successfully', filePath: normalizedPath.replace(/\\/g, '/') })
   } catch (err) {
