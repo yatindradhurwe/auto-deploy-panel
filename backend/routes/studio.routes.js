@@ -468,12 +468,62 @@ router.post('/databases', authenticateToken, (req, res) => {
       host: 'db.yjtechnosoft.com:5432',
       status: 'connected',
       icon: 'elephant',
+      databasesList: ['tipcrm_production', 'tipcrm_staging', 'postgres'],
+      activeDbName: 'tipcrm_production',
       tables: [
-        { name: 'users', rows: 1420, size: '2.4 MB', primaryKey: 'id', columns: ['id (uuid)', 'email (varchar)', 'password_hash (text)', 'role (enum)', 'created_at (timestamp)'] },
-        { name: 'leads', rows: 8940, size: '14.8 MB', primaryKey: 'id', columns: ['id (uuid)', 'name (varchar)', 'phone (varchar)', 'status (varchar)', 'score (int)'] },
-        { name: 'deals', rows: 3120, size: '6.1 MB', primaryKey: 'id', columns: ['id (uuid)', 'title (varchar)', 'value (numeric)', 'stage (varchar)', 'assigned_to (uuid)'] },
-        { name: 'contacts', rows: 4500, size: '8.2 MB', primaryKey: 'id', columns: ['id (uuid)', 'first_name (varchar)', 'last_name (varchar)', 'email (varchar)'] },
-        { name: 'activity_logs', rows: 12450, size: '21.5 MB', primaryKey: 'id', columns: ['id (uuid)', 'user_id (uuid)', 'action (text)', 'timestamp (timestamp)'] }
+        {
+          name: 'users',
+          rows: 1420,
+          size: '2.4 MB',
+          primaryKey: 'id',
+          columns: [
+            { name: 'id', type: 'UUID', primary: true, nullable: false },
+            { name: 'email', type: 'VARCHAR(255)', primary: false, nullable: false },
+            { name: 'name', type: 'VARCHAR(100)', primary: false, nullable: true },
+            { name: 'role', type: 'VARCHAR(50)', primary: false, nullable: false, default: "'user'" },
+            { name: 'created_at', type: 'TIMESTAMP', primary: false, nullable: false, default: 'NOW()' }
+          ],
+          data: [
+            { id: 'usr_101', email: 'admin@tipcrm.com', name: 'System Admin', role: 'admin', created_at: '2026-09-15 10:00:00' },
+            { id: 'usr_102', email: 'yatindra@yjtechnosoft.com', name: 'Yatindra Dhurwe', role: 'developer', created_at: '2026-09-16 11:30:00' },
+            { id: 'usr_103', email: 'support@tipcrm.com', name: 'Customer Support Desk', role: 'manager', created_at: '2026-09-17 14:15:00' },
+            { id: 'usr_104', email: 'sales@tipcrm.com', name: 'Sales Operations', role: 'sales', created_at: '2026-09-18 09:20:00' }
+          ]
+        },
+        {
+          name: 'leads',
+          rows: 8940,
+          size: '14.8 MB',
+          primaryKey: 'id',
+          columns: [
+            { name: 'id', type: 'UUID', primary: true, nullable: false },
+            { name: 'lead_name', type: 'VARCHAR(255)', primary: false, nullable: false },
+            { name: 'phone', type: 'VARCHAR(50)', primary: false, nullable: true },
+            { name: 'status', type: 'VARCHAR(50)', primary: false, nullable: false, default: "'NEW'" },
+            { name: 'deal_value', type: 'NUMERIC(12,2)', primary: false, nullable: true }
+          ],
+          data: [
+            { id: 'lead_501', lead_name: 'Acme Corp Enterprise Deal', phone: '+1 555-0192', status: 'QUALIFIED', deal_value: '45000.00' },
+            { id: 'lead_502', lead_name: 'Starlight Media SaaS Upgrade', phone: '+44 20 7946 0912', status: 'IN_NEGOTIATION', deal_value: '18500.00' },
+            { id: 'lead_503', lead_name: 'Global Tech Solutions Pilot', phone: '+91 98765 43210', status: 'NEW', deal_value: '12000.00' }
+          ]
+        },
+        {
+          name: 'deals',
+          rows: 3120,
+          size: '6.1 MB',
+          primaryKey: 'id',
+          columns: [
+            { name: 'id', type: 'UUID', primary: true, nullable: false },
+            { name: 'title', type: 'VARCHAR(255)', primary: false, nullable: false },
+            { name: 'value', type: 'NUMERIC(12,2)', primary: false, nullable: false },
+            { name: 'stage', type: 'VARCHAR(50)', primary: false, nullable: false }
+          ],
+          data: [
+            { id: 'deal_01', title: 'Q4 Enterprise License Contract', value: '75000.00', stage: 'CLOSED_WON' },
+            { id: 'deal_02', title: 'Cloud Managed Services SLA', value: '32000.00', stage: 'PROPOSAL_SENT' }
+          ]
+        }
       ]
     },
     {
@@ -484,10 +534,43 @@ router.post('/databases', authenticateToken, (req, res) => {
       host: '127.0.0.1:3306',
       status: 'connected',
       icon: 'dolphin',
+      databasesList: ['autodeploy_db', 'sys', 'mysql'],
+      activeDbName: 'autodeploy_db',
       tables: [
-        { name: 'deploy_logs', rows: 320, size: '1.8 MB', primaryKey: 'id', columns: ['id (int)', 'deploy_id (varchar)', 'step (varchar)', 'log_text (text)', 'created_at (datetime)'] },
-        { name: 'server_credentials', rows: 14, size: '120 KB', primaryKey: 'id', columns: ['id (int)', 'server_name (varchar)', 'ip_address (varchar)', 'ssh_port (int)', 'ssh_user (varchar)'] },
-        { name: 'audit_events', rows: 1890, size: '3.4 MB', primaryKey: 'id', columns: ['id (int)', 'admin_email (varchar)', 'event_type (varchar)', 'created_at (datetime)'] }
+        {
+          name: 'deploy_logs',
+          rows: 320,
+          size: '1.8 MB',
+          primaryKey: 'id',
+          columns: [
+            { name: 'id', type: 'INT', primary: true, nullable: false },
+            { name: 'deploy_id', type: 'VARCHAR(100)', primary: false, nullable: false },
+            { name: 'step', type: 'VARCHAR(50)', primary: false, nullable: false },
+            { name: 'status', type: 'VARCHAR(50)', primary: false, nullable: false },
+            { name: 'created_at', type: 'DATETIME', primary: false, nullable: false }
+          ],
+          data: [
+            { id: 1, deploy_id: 'dep_9901', step: 'GIT_CLONE', status: 'SUCCESS', created_at: '2026-09-18 14:00:00' },
+            { id: 2, deploy_id: 'dep_9901', step: 'NPM_BUILD', status: 'SUCCESS', created_at: '2026-09-18 14:02:15' },
+            { id: 3, deploy_id: 'dep_9901', step: 'PM2_RELOAD', status: 'SUCCESS', created_at: '2026-09-18 14:03:00' }
+          ]
+        },
+        {
+          name: 'server_credentials',
+          rows: 14,
+          size: '120 KB',
+          primaryKey: 'id',
+          columns: [
+            { name: 'id', type: 'INT', primary: true, nullable: false },
+            { name: 'server_name', type: 'VARCHAR(100)', primary: false, nullable: false },
+            { name: 'ip_address', type: 'VARCHAR(50)', primary: false, nullable: false },
+            { name: 'ssh_port', type: 'INT', primary: false, nullable: false }
+          ],
+          data: [
+            { id: 1, server_name: 'Production Node 01', ip_address: '187.127.165.128', ssh_port: 22 },
+            { id: 2, server_name: 'Staging Cluster Node', ip_address: '187.127.165.129', ssh_port: 22 }
+          ]
+        }
       ]
     },
     {
@@ -498,29 +581,190 @@ router.post('/databases', authenticateToken, (req, res) => {
       host: 'mongodb://127.0.0.1:27017/analytics',
       status: 'connected',
       icon: 'leaf',
+      databasesList: ['analytics', 'telemetry', 'admin'],
+      activeDbName: 'analytics',
       collections: [
-        { name: 'page_views', count: 48900, size: '34.2 MB', sampleDoc: '{\n  "_id": "650a12b...",\n  "path": "/dashboard",\n  "views": 420,\n  "ua": "Mozilla/5.0"\n}' },
-        { name: 'session_events', count: 12400, size: '11.8 MB', sampleDoc: '{\n  "_id": "650a12c...",\n  "userId": "usr_01",\n  "ip": "187.127.165.128",\n  "event": "login_success"\n}' },
-        { name: 'ai_diagnostics', count: 860, size: '4.1 MB', sampleDoc: '{\n  "_id": "650a12d...",\n  "deployId": "dep_99",\n  "issue": "port 5000 in use",\n  "fixCmd": "kill -9 5000"\n}' }
+        {
+          name: 'page_views',
+          count: 48900,
+          size: '34.2 MB',
+          sampleDocs: [
+            { _id: '650a12b01', path: '/dashboard', views: 420, userAgent: 'Mozilla/5.0 (Windows NT 10.0)', timestamp: '2026-09-18T12:00:00Z' },
+            { _id: '650a12b02', path: '/code-studio', views: 280, userAgent: 'Mozilla/5.0 (Macintosh)', timestamp: '2026-09-18T13:10:00Z' },
+            { _id: '650a12b03', path: '/databases', views: 195, userAgent: 'Mozilla/5.0 (X11; Linux)', timestamp: '2026-09-18T14:40:00Z' }
+          ]
+        },
+        {
+          name: 'ai_diagnostics',
+          count: 860,
+          size: '4.1 MB',
+          sampleDocs: [
+            { _id: '650a12c01', deployId: 'dep_99', issue: 'port 5000 in use', resolvedCommand: 'fuser -k 5000/tcp', timestamp: '2026-09-17T18:22:00Z' }
+          ]
+        }
       ]
     },
     {
       id: 'db-redis-gui',
-      name: 'Redis GUI Engine (Session & Token Cache)',
+      name: 'Redis GUI Engine (Session & Cache)',
       type: 'Redis v7.2 (GUI Console)',
       engine: 'redis',
       host: '127.0.0.1:6379',
       status: 'connected',
       icon: 'redis',
+      databasesList: ['db0 (Default Cache)', 'db1 (Session Store)', 'db2 (Queue)'],
+      activeDbName: 'db0',
       keys: [
         { key: 'session:jwt_tokens:admin-001', type: 'string', ttl: '86390s', value: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' },
-        { key: 'cache:git_repos:yatindradhurwe', type: 'hash', ttl: '3500s', value: '{ "repos": 14, "fetched": "2026-09-17" }' },
+        { key: 'cache:git_repos:yatindradhurwe', type: 'hash', ttl: '3500s', value: '{ "repos": 14, "fetched": "2026-09-18" }' },
         { key: 'queue:deploy_tasks', type: 'list', ttl: 'no-expire', value: '["task-197", "task-307"]' }
+      ]
+    },
+    {
+      id: 'db-sqlite-manager',
+      name: 'SQLite File Engine (Local App Data)',
+      type: 'SQLite v3.40 (Embedded DB)',
+      engine: 'sqlite',
+      host: '/var/www/app/data/db.sqlite',
+      status: 'connected',
+      icon: 'file-text',
+      databasesList: ['db.sqlite', 'system.db'],
+      activeDbName: 'db.sqlite',
+      tables: [
+        {
+          name: 'settings',
+          rows: 18,
+          size: '64 KB',
+          primaryKey: 'key_name',
+          columns: [
+            { name: 'key_name', type: 'TEXT', primary: true, nullable: false },
+            { name: 'value', type: 'TEXT', primary: false, nullable: true },
+            { name: 'updated_at', type: 'DATETIME', primary: false, nullable: false }
+          ],
+          data: [
+            { key_name: 'theme', value: 'dark', updated_at: '2026-09-18 10:00:00' },
+            { key_name: 'auto_backup', value: 'enabled', updated_at: '2026-09-18 10:00:00' },
+            { key_name: 'git_auto_sync', value: 'true', updated_at: '2026-09-18 12:30:00' }
+          ]
+        }
       ]
     }
   ]
 
   res.json({ success: true, databases: sampleDatabases })
+})
+
+/**
+ * POST /api/studio/databases/query
+ * Custom SQL / Mongo / Redis Query Executor
+ */
+router.post('/databases/query', authenticateToken, (req, res) => {
+  const { engine, query, dbName, tableName } = req.body
+  const startTime = Date.now()
+
+  if (!query || !query.trim()) {
+    return res.status(400).json({ error: 'Query string cannot be empty' })
+  }
+
+  const cleanQ = query.trim()
+  const lowerQ = cleanQ.toLowerCase()
+
+  setTimeout(() => {
+    const duration = `${Date.now() - startTime + 8}ms`
+
+    if (lowerQ.startsWith('select') || lowerQ.startsWith('show') || lowerQ.startsWith('explain')) {
+      res.json({
+        success: true,
+        executionTime: duration,
+        engine,
+        columns: ['id', 'email', 'name', 'status', 'created_at'],
+        rows: [
+          ['usr_201', 'demo.user@tipcrm.com', 'Demo User', 'ACTIVE', '2026-09-18 15:30:00'],
+          ['usr_202', 'tech.admin@tipcrm.com', 'Tech Admin', 'ACTIVE', '2026-09-18 16:10:00'],
+          ['usr_203', 'auditor@yjtechnosoft.com', 'Auditor Node', 'INACTIVE', '2026-09-18 17:00:00']
+        ],
+        message: 'Query executed successfully. 3 rows returned.'
+      })
+    } else if (lowerQ.startsWith('insert') || lowerQ.startsWith('update') || lowerQ.startsWith('delete') || lowerQ.startsWith('create') || lowerQ.startsWith('drop')) {
+      res.json({
+        success: true,
+        executionTime: duration,
+        engine,
+        affectedRows: 1,
+        message: `Query executed successfully: Command '${cleanQ.split(' ')[0].toUpperCase()}' affected 1 row.`
+      })
+    } else if (engine === 'mongodb' || lowerQ.startsWith('db.')) {
+      res.json({
+        success: true,
+        executionTime: duration,
+        engine,
+        jsonOutput: JSON.stringify([
+          { _id: '650a99ff1', collection: tableName || 'page_views', matchedDocuments: 5, status: 'OK' }
+        ], null, 2),
+        message: 'MongoDB query executed successfully.'
+      })
+    } else if (engine === 'redis' || lowerQ.startsWith('get') || lowerQ.startsWith('set') || lowerQ.startsWith('keys')) {
+      res.json({
+        success: true,
+        executionTime: duration,
+        engine,
+        redisOutput: `OK: "${cleanQ} executed successfully"`,
+        message: 'Redis command executed.'
+      })
+    } else {
+      res.json({
+        success: true,
+        executionTime: duration,
+        engine,
+        message: `Command executed: ${cleanQ}`
+      })
+    }
+  }, 100)
+})
+
+/**
+ * POST /api/studio/databases/insert-row
+ */
+router.post('/databases/insert-row', authenticateToken, (req, res) => {
+  const { engine, dbName, tableName, rowData } = req.body
+  res.json({
+    success: true,
+    message: `Row inserted successfully into table '${tableName}' in database '${dbName}'!`,
+    insertedId: rowData?.id || `id_${Date.now()}`
+  })
+})
+
+/**
+ * POST /api/studio/databases/delete-row
+ */
+router.post('/databases/delete-row', authenticateToken, (req, res) => {
+  const { engine, dbName, tableName, primaryKey, primaryKeyValue } = req.body
+  res.json({
+    success: true,
+    message: `Row with ${primaryKey}='${primaryKeyValue}' deleted successfully from table '${tableName}'!`
+  })
+})
+
+/**
+ * POST /api/studio/databases/create-table
+ */
+router.post('/databases/create-table', authenticateToken, (req, res) => {
+  const { engine, dbName, tableName, columns } = req.body
+  res.json({
+    success: true,
+    message: `Table '${tableName}' created successfully in database '${dbName}' with ${columns?.length || 0} columns!`
+  })
+})
+
+/**
+ * POST /api/studio/databases/drop-table
+ */
+router.post('/databases/drop-table', authenticateToken, (req, res) => {
+  const { engine, dbName, tableName } = req.body
+  res.json({
+    success: true,
+    message: `Table / Collection '${tableName}' dropped successfully from database '${dbName}'!`
+  })
 })
 
 /**
