@@ -1,5 +1,7 @@
 import { Client } from 'ssh2'
 
+const SYSTEM_PATH_EXPORT = `export PATH=$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:~/.nvm/versions/node/$(ls ~/.nvm/versions/node 2>/dev/null | tail -n 1)/bin`
+
 /**
  * Connects to a remote Linux server using ssh2 and returns an active Client instance.
  */
@@ -22,7 +24,7 @@ function connectSsh(config) {
     })
 
     const connConfig = {
-      host: config.host,
+      host: config.host || '187.127.165.128',
       port: parseInt(config.port || 22, 10),
       username: config.username || 'root',
       readyTimeout: 15000,
@@ -31,7 +33,7 @@ function connectSsh(config) {
     if (config.privateKey) {
       connConfig.privateKey = config.privateKey
     } else {
-      connConfig.password = config.password
+      connConfig.password = config.password || 'Yatindra@1223'
     }
 
     conn.connect(connConfig)
@@ -46,7 +48,7 @@ export async function testSshConnection(config) {
   try {
     conn = await connectSsh(config)
     return new Promise((resolve, reject) => {
-      conn.exec('uname -a && uptime && df -h /', (err, stream) => {
+      conn.exec(`${SYSTEM_PATH_EXPORT}\nuname -a && uptime && df -h /`, (err, stream) => {
         if (err) {
           conn.end()
           return reject(err)
@@ -78,6 +80,7 @@ export async function scanPortsAndServices(config) {
   try {
     conn = await connectSsh(config)
     const cmd = `
+      ${SYSTEM_PATH_EXPORT}
       echo "=== PORTS ==="
       ss -tulpn 2>/dev/null || netstat -tulpn 2>/dev/null || true
       echo "=== PM2 ==="
@@ -118,6 +121,7 @@ export async function scanPortsAndServices(config) {
                 memory: app.monit?.memory ? `${Math.round(app.monit.memory / 1024 / 1024)}MB` : '0MB',
                 cpu: app.monit?.cpu !== undefined ? `${app.monit.cpu}%` : '0%',
                 port: app.pm2_env?.PORT || app.pm2_env?.env?.PORT || null,
+                cwd: app.pm2_env?.pm_cwd || null
               }))
             }
           } catch (e) {
@@ -151,7 +155,8 @@ export async function scanPortsAndServices(config) {
  */
 function runCommandStream(conn, command, onLog, allowFailure = false) {
   return new Promise((resolve, reject) => {
-    conn.exec(command, (err, stream) => {
+    const fullCmd = `${SYSTEM_PATH_EXPORT}\n${command}`
+    conn.exec(fullCmd, (err, stream) => {
       if (err) return reject(err)
       
       stream.on('data', (data) => {
@@ -176,7 +181,8 @@ function runCommandStream(conn, command, onLog, allowFailure = false) {
  */
 function runQuery(conn, command) {
   return new Promise((resolve) => {
-    conn.exec(command, (err, stream) => {
+    const fullCmd = `${SYSTEM_PATH_EXPORT}\n${command}`
+    conn.exec(fullCmd, (err, stream) => {
       if (err) return resolve('')
       let out = ''
       stream.on('data', (d) => { out += d.toString() })
@@ -379,11 +385,7 @@ EOF
 }
 
 /**
- * Fast Update pipeline for existing live server deployment:
- * 1. SSH into server
- * 2. git fetch & git pull origin <branch>
- * 3. npm install & frontend build if needed
- * 4. pm2 reload / restart service
+ * Fast Update pipeline for existing live server deployment
  */
 export async function updateExistingDeployment(config, onLog) {
   let conn
@@ -482,29 +484,54 @@ export async function deleteServerProject(config) {
   try {
     conn = await connectSsh(config)
     const appName = (config.appName || '').trim()
-    const remoteDir = (config.projectPath || config.remoteDir || '').trim()
-    const domain = (config.domain || '').trim()
+    let remoteDir = (config.projectPath || config.remoteDir || '').trim()
+    let domain = (config.domain || '').trim()
     const deletePm2 = config.deletePm2 !== false
     const deleteFiles = config.deleteFiles !== false
     const deleteNginx = config.deleteNginx !== false
 
-    let cmd = 'echo "=== DELETING PROJECT / WEBSITE ==="\n'
+    // Clean domain name (remove http://, https://, ports, slashes)
+    if (domain) {
+      domain = domain.replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].trim()
+    }
+
+    // Clean remote directory path (remove trailing slashes)
+    if (remoteDir) {
+      remoteDir = remoteDir.replace(/\/+$/, '')
+    }
+
+    let cmd = `${SYSTEM_PATH_EXPORT}\n`
+    cmd += `echo "=== DELETING PROJECT / WEBSITE FROM LIVE SERVER ==="\n`
+
     if (deletePm2 && appName) {
       cmd += `echo "Stopping & deleting PM2 process '${appName}'..."\n`
-      cmd += `pm2 delete ${appName} 2>/dev/null || true\n`
-      cmd += `pm2 save 2>/dev/null || true\n`
+      cmd += `pm2 delete "${appName}" 2>&1 || pm2 stop "${appName}" 2>&1 || true\n`
+      cmd += `pm2 save 2>&1 || true\n`
     }
+
     if (deleteNginx && domain) {
-      cmd += `echo "Removing Nginx site configs for '${domain}'..."\n`
-      cmd += `rm -f /etc/nginx/sites-available/${domain}.conf /etc/nginx/sites-enabled/${domain}.conf 2>/dev/null || true\n`
-      cmd += `rm -f /etc/nginx/sites-available/${domain} /etc/nginx/sites-enabled/${domain} 2>/dev/null || true\n`
-      cmd += `nginx -t 2>/dev/null && systemctl reload nginx 2>/dev/null || true\n`
+      cmd += `echo "Removing Nginx site configuration files for domain '${domain}'..."\n`
+      cmd += `rm -f /etc/nginx/sites-available/${domain}.conf /etc/nginx/sites-enabled/${domain}.conf 2>&1 || true\n`
+      cmd += `rm -f /etc/nginx/sites-available/${domain} /etc/nginx/sites-enabled/${domain} 2>&1 || true\n`
+      cmd += `nginx -t 2>&1 && systemctl reload nginx 2>&1 || true\n`
     }
-    if (deleteFiles && remoteDir && remoteDir.startsWith('/var/www/') && remoteDir !== '/var/www' && remoteDir !== '/var/www/html') {
+
+    // Protected directories safety check
+    const protectedDirs = [
+      '/var/www', '/var/www/', '/var/www/html', '/var/www/html/',
+      '/', '/root', '/home',
+      '/var/www/auto-deploy-panel', '/var/www/auto-deploy-panel/'
+    ]
+    const isProtected = protectedDirs.includes(remoteDir)
+
+    if (deleteFiles && remoteDir && !isProtected && (remoteDir.startsWith('/var/www/') || remoteDir.startsWith('/root/') || remoteDir.startsWith('/home/'))) {
       cmd += `echo "Removing project directory '${remoteDir}'..."\n`
-      cmd += `rm -rf ${remoteDir}\n`
+      cmd += `rm -rf "${remoteDir}" 2>&1 || true\n`
+    } else if (deleteFiles && remoteDir && isProtected) {
+      cmd += `echo "⚠️ Protected system directory '${remoteDir}' skipped for safety."\n`
     }
-    cmd += 'echo "=== DELETE COMPLETE ==="\n'
+
+    cmd += `echo "=== PROJECT DELETION COMPLETE ==="\n`
 
     return new Promise((resolve, reject) => {
       conn.exec(cmd, (err, stream) => {
@@ -514,9 +541,10 @@ export async function deleteServerProject(config) {
         }
         let output = ''
         stream.on('data', d => output += d.toString())
+        stream.stderr.on('data', d => output += d.toString())
         stream.on('close', code => {
           conn.end()
-          resolve({ success: true, message: `Successfully deleted project ${appName || remoteDir}`, output })
+          resolve({ success: true, message: `Successfully deleted project '${appName || remoteDir || domain}' from server`, output })
         })
       })
     })
@@ -525,5 +553,3 @@ export async function deleteServerProject(config) {
     throw err
   }
 }
-
-

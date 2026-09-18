@@ -425,18 +425,11 @@ router.post('/projects/delete', authenticateToken, async (req, res) => {
   const userId = req.user ? req.user.id : 'admin-001'
   const userSettings = getUserSettings(userId)
 
-  const {
-    host = userSettings.host || '187.127.165.128',
-    port = userSettings.port || '22',
-    username = userSettings.username || 'root',
-    password = userSettings.password || 'Yatindra@1223',
-    appName,
-    projectPath,
-    domain,
-    deletePm2 = true,
-    deleteFiles = true,
-    deleteNginx = true
-  } = req.body
+  const host = (req.body.host || userSettings.host || '187.127.165.128').trim()
+  const port = (req.body.port || userSettings.port || '22').toString().trim()
+  const username = (req.body.username || userSettings.username || 'root').trim()
+  const password = req.body.password || userSettings.password || 'Yatindra@1223'
+  const { appName, projectPath, domain, deletePm2 = true, deleteFiles = true, deleteNginx = true } = req.body
 
   try {
     const sshConfig = {
