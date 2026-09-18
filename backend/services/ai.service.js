@@ -362,26 +362,29 @@ Ensure the updated code is complete, valid, syntactically correct, and contains 
     verificationLog = (err.stdout || '') + '\n' + (err.stderr || err.message)
   }
 
-  // Auto Git Commit & Push
+  // Auto Git Commit & Push (with 10s safety timeout)
   let gitLog = ''
   if (autoCommit && filesModified.length > 0) {
     try {
-      execSync('git add .', { cwd: targetDir })
-      execSync(`git commit -m "feat(ai-agent): ${userPrompt.replace(/"/g, "'")}"`, { cwd: targetDir })
-      gitLog = execSync('git push origin main', { cwd: targetDir, encoding: 'utf8' })
+      execSync('git add .', { cwd: targetDir, timeout: 5000 })
+      execSync(`git commit -m "feat(ai-agent): ${userPrompt.replace(/"/g, "'")}"`, { cwd: targetDir, timeout: 5000 })
+      gitLog = execSync('git push origin main', { cwd: targetDir, encoding: 'utf8', timeout: 10000 })
     } catch (gitErr) {
       gitLog = gitErr.stdout || gitErr.stderr || gitErr.message
     }
   }
 
-  // Auto Deploy Trigger
+  // Auto Deploy Trigger (Scheduled asynchronously so response is delivered cleanly first)
   let deployLog = ''
   if (autoDeploy) {
-    try {
-      deployLog = execSync('pm2 reload all || true', { cwd: targetDir, encoding: 'utf8' })
-    } catch (dErr) {
-      deployLog = dErr.message
-    }
+    deployLog = 'PM2 zero-downtime service reload scheduled.'
+    setTimeout(() => {
+      try {
+        execSync('pm2 reload all || true', { cwd: targetDir })
+      } catch (dErr) {
+        console.error('[ASYNC PM2 RELOAD NOTICE]:', dErr.message)
+      }
+    }, 1500)
   }
 
   const responseMarkdown = `
