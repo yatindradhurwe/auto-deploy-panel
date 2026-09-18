@@ -928,6 +928,18 @@ export default function EmailManager({ jwtToken, activeServer }) {
                 </div>
               </div>
 
+              <div className="bg-slate-950 p-4 rounded-2xl border border-emerald-500/30 space-y-2">
+                <div className="font-bold text-emerald-300 flex items-center justify-between">
+                  <span>🌐 DNS Records for Google, Yahoo & External Email Deliverability</span>
+                  <span className="text-[10px] bg-emerald-950 text-emerald-400 px-2 py-0.5 rounded border border-emerald-800 font-bold">REQUIRED FOR INTERNET MAIL</span>
+                </div>
+                <div className="text-[11px] text-slate-300 space-y-1 pt-1">
+                  <div>1. <strong>MX Record:</strong> Type: <code className="text-cyan-300">MX</code> | Host: <code className="text-cyan-300">@</code> | Points to: <code className="text-cyan-300">187.127.165.128</code> (Priority 10)</div>
+                  <div>2. <strong>SPF Record:</strong> Type: <code className="text-cyan-300">TXT</code> | Host: <code className="text-cyan-300">@</code> | Value: <code className="text-emerald-300">v=spf1 ip4:187.127.165.128 ~all</code></div>
+                  <div>3. <strong>DMARC Record:</strong> Type: <code className="text-cyan-300">TXT</code> | Host: <code className="text-cyan-300">_dmarc</code> | Value: <code className="text-indigo-300">v=DMARC1; p=none; sp=none</code></div>
+                </div>
+              </div>
+
               <div className="pt-2 flex items-center justify-between">
                 <a
                   href={clientConfig.webmailUrl}

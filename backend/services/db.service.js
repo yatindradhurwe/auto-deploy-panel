@@ -1,6 +1,19 @@
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import nodemailer from 'nodemailer'
+
+// Outbound Internet Mail MTA Transporter (Postfix / Local Sendmail)
+let mailTransporter = null
+try {
+  mailTransporter = nodemailer.createTransport({
+    sendmail: true,
+    newline: 'unix',
+    path: '/usr/sbin/sendmail'
+  })
+} catch (e) {
+  console.warn('[NODEMAILER INIT NOTICE]:', e.message)
+}
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -349,6 +362,20 @@ export function sendEmailMessage({ from, to, subject, body }) {
 
   db.emailMessages.unshift(sentMsg, inboxMsg)
   writeDb(db)
+
+  // Dispatch real outbound email over Internet MTA (Google, Yahoo, Outlook, custom domains)
+  if (mailTransporter) {
+    mailTransporter.sendMail({
+      from,
+      to,
+      subject: subject || '(No Subject)',
+      text: body || ''
+    }).then((info) => {
+      console.log(`[OUTBOUND INTERNET EMAIL DISPATCHED] From: ${from} -> To: ${to} | ID: ${info.messageId}`)
+    }).catch((err) => {
+      console.error(`[MTA SENDMAIL DISPATCH FAILED] From: ${from} -> To: ${to}:`, err.message)
+    })
+  }
 
   return { success: true, sentMsg }
 }
