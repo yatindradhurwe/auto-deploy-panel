@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import {
   Mail, Globe, ShieldCheck, Key, Plus, Trash2, Copy, Check,
-  RefreshCw, Server, ExternalLink, HardDrive, CheckCircle2, Lock, Eye, EyeOff, Info, HelpCircle
+  RefreshCw, Server, ExternalLink, HardDrive, CheckCircle2, Lock, Eye, EyeOff, Info, HelpCircle,
+  X, Send, SendHorizontal, Inbox, FileText, User, Paperclip, CheckCheck, Clock
 } from 'lucide-react'
 
 export default function EmailManager({ jwtToken, activeServer }) {
@@ -24,6 +25,23 @@ export default function EmailManager({ jwtToken, activeServer }) {
 
   // Setup Guide Modal State
   const [showGuideModal, setShowGuideModal] = useState(false)
+
+  // Webmail Inbox Client State
+  const [selectedMailbox, setSelectedMailbox] = useState('')
+  const [activeFolder, setActiveFolder] = useState('inbox')
+  const [messages, setMessages] = useState([])
+  const [selectedMessage, setSelectedMessage] = useState(null)
+  const [loadingMessages, setLoadingMessages] = useState(false)
+
+  // Webmail Compose Modal State
+  const [showComposeModal, setShowComposeModal] = useState(false)
+  const [composeForm, setComposeForm] = useState({
+    from: '',
+    to: '',
+    subject: '',
+    body: ''
+  })
+  const [sendingEmail, setSendingEmail] = useState(false)
 
   useEffect(() => {
     fetchEmailData()
@@ -50,6 +68,9 @@ export default function EmailManager({ jwtToken, activeServer }) {
       }
       if (accData.success && accData.accounts) {
         setAccounts(accData.accounts)
+        if (accData.accounts.length > 0 && !selectedMailbox) {
+          setSelectedMailbox(accData.accounts[0].email)
+        }
       }
       if (cfgData.success && cfgData.settings) {
         setClientConfig(cfgData.settings)
@@ -58,6 +79,89 @@ export default function EmailManager({ jwtToken, activeServer }) {
       console.error('Failed to load email panel data:', e)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Fetch Webmail Messages when selectedMailbox or activeFolder changes
+  useEffect(() => {
+    if (selectedMailbox) {
+      fetchMessages(selectedMailbox, activeFolder)
+    }
+  }, [selectedMailbox, activeFolder, jwtToken])
+
+  const fetchMessages = async (mailbox, folder) => {
+    setLoadingMessages(true)
+    try {
+      const res = await fetch(`/api/studio/email/messages?mailbox=${encodeURIComponent(mailbox)}&folder=${folder}`, {
+        headers: { 'Authorization': `Bearer ${jwtToken}` }
+      })
+      const data = await res.json()
+      if (data.success && data.messages) {
+        setMessages(data.messages)
+        if (data.messages.length > 0 && !selectedMessage) {
+          setSelectedMessage(data.messages[0])
+        } else if (data.messages.length === 0) {
+          setSelectedMessage(null)
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch email messages:', err)
+    } finally {
+      setLoadingMessages(false)
+    }
+  }
+
+  const handleSelectMessage = async (msg) => {
+    setSelectedMessage(msg)
+    if (!msg.read) {
+      msg.read = true
+      try {
+        await fetch('/api/studio/email/read-mark', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${jwtToken}`
+          },
+          body: JSON.stringify({ messageId: msg.id })
+        })
+      } catch (err) {
+        console.error('Failed to mark read:', err)
+      }
+    }
+  }
+
+  const handleSendEmail = async (e) => {
+    e.preventDefault()
+    if (!composeForm.from || !composeForm.to) {
+      alert('Please select sender mailbox and specify recipient email address.')
+      return
+    }
+
+    setSendingEmail(true)
+    try {
+      const res = await fetch('/api/studio/email/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${jwtToken}`
+        },
+        body: JSON.stringify(composeForm)
+      })
+
+      const data = await res.json()
+      if (data.success) {
+        alert(`📧 ${data.message}`)
+        setShowComposeModal(false)
+        setComposeForm({ from: selectedMailbox || accounts[0]?.email || '', to: '', subject: '', body: '' })
+        // Refresh inbox/sent folder
+        fetchMessages(selectedMailbox, activeFolder)
+      } else {
+        alert(`Send Error: ${data.error}`)
+      }
+    } catch (err) {
+      alert(`Send Failed: ${err.message}`)
+    } finally {
+      setSendingEmail(false)
     }
   }
 
@@ -117,6 +221,9 @@ export default function EmailManager({ jwtToken, activeServer }) {
       })
       const data = await res.json()
       if (data.success) {
+        if (selectedMailbox === emailAddress) {
+          setSelectedMailbox('')
+        }
         fetchEmailData()
       } else {
         alert(`Delete Error: ${data.error}`)
@@ -125,6 +232,8 @@ export default function EmailManager({ jwtToken, activeServer }) {
       alert(`Delete Failed: ${err.message}`)
     }
   }
+
+  const unreadCount = messages.filter((m) => !m.read && m.folder === 'inbox').length
 
   return (
     <div className="space-y-6 text-slate-100 font-sans">
@@ -263,7 +372,7 @@ export default function EmailManager({ jwtToken, activeServer }) {
                             setCopiedAccountEmail(acc.email)
                             setTimeout(() => setCopiedAccountEmail(null), 2000)
                           }}
-                          className="p-1 text-slate-400 hover:text-cyan-300 transition"
+                          className="p-1 text-slate-400 hover:text-cyan-300 transition cursor-pointer"
                           title="Copy Email Address"
                         >
                           {copiedAccountEmail === acc.email ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
@@ -285,6 +394,18 @@ export default function EmailManager({ jwtToken, activeServer }) {
                       {new Date(acc.createdAt).toLocaleDateString()}
                     </td>
                     <td className="py-4 px-5 text-right space-x-2">
+                      <button
+                        onClick={() => {
+                          setSelectedMailbox(acc.email)
+                          document.getElementById('webmail-client-section')?.scrollIntoView({ behavior: 'smooth' })
+                        }}
+                        className="px-3 py-1.5 bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border border-cyan-800/80 rounded-xl text-[11px] transition cursor-pointer font-bold inline-flex items-center gap-1 shadow-sm"
+                        title="Open Webmail Inbox for this address"
+                      >
+                        <Inbox className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Open Inbox</span>
+                      </button>
+
                       <button
                         onClick={() => setShowGuideModal(true)}
                         className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/10 rounded-xl text-[11px] transition cursor-pointer font-bold inline-flex items-center gap-1 shadow-sm"
@@ -311,11 +432,334 @@ export default function EmailManager({ jwtToken, activeServer }) {
         </div>
       </div>
 
-      {/* Create Professional Email Account Modal */}
+      {/* EMBEDDED GMAIL-STYLE WEBMAIL CLIENT & INBOX CONSOLE */}
+      <div id="webmail-client-section" className="bg-slate-900/90 border border-cyan-500/30 rounded-3xl overflow-hidden shadow-2xl space-y-0">
+        {/* Webmail Top Toolbar */}
+        <div className="p-4 bg-slate-950 border-b border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center space-x-3">
+            <div className="p-2.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400">
+              <Mail className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-white text-base tracking-tight flex items-center gap-2">
+                Interactive Webmail Console
+                {unreadCount > 0 && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-rose-500 text-white font-mono font-bold animate-pulse">
+                    {unreadCount} Unread
+                  </span>
+                )}
+              </h3>
+              <p className="text-xs text-slate-400 font-mono">Send & receive emails live from your custom server mailboxes</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Mailbox Picker */}
+            <div className="flex items-center space-x-2">
+              <label className="text-[10px] font-mono text-slate-400 font-bold uppercase">Select Mailbox:</label>
+              <select
+                value={selectedMailbox}
+                onChange={(e) => setSelectedMailbox(e.target.value)}
+                className="bg-slate-900 border border-cyan-500/40 rounded-xl px-3 py-1.5 text-xs font-mono text-cyan-300 font-bold focus:outline-none focus:border-cyan-400"
+              >
+                {accounts.length === 0 ? (
+                  <option value="">No mailboxes created</option>
+                ) : (
+                  accounts.map((acc) => (
+                    <option key={acc.id} value={acc.email}>
+                      {acc.email}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+
+            {/* Refresh Messages */}
+            <button
+              onClick={() => selectedMailbox && fetchMessages(selectedMailbox, activeFolder)}
+              className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition cursor-pointer text-xs font-mono"
+              title="Refresh Messages"
+            >
+              <RefreshCw className={`w-4 h-4 ${loadingMessages ? 'animate-spin' : ''}`} />
+            </button>
+
+            {/* Compose Button */}
+            <button
+              onClick={() => {
+                setComposeForm({
+                  from: selectedMailbox || accounts[0]?.email || '',
+                  to: '',
+                  subject: '',
+                  body: ''
+                })
+                setShowComposeModal(true)
+              }}
+              className="px-4 py-2 bg-gradient-to-r from-emerald-500 via-teal-600 to-cyan-600 hover:from-emerald-400 hover:to-cyan-500 text-white font-extrabold rounded-xl transition cursor-pointer text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-950/40"
+            >
+              <SendHorizontal className="w-4 h-4" />
+              <span>Compose Email</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Webmail Body: Left Sidebar + Mail List + Message Reader */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 min-h-[480px]">
+          {/* Left Folder Nav */}
+          <div className="lg:col-span-3 bg-slate-950/60 border-r border-white/10 p-4 space-y-4 font-mono text-xs">
+            <div className="space-y-1">
+              <button
+                onClick={() => {
+                  setActiveFolder('inbox')
+                  setSelectedMessage(null)
+                }}
+                className={`w-full text-left px-3.5 py-2.5 rounded-xl font-bold transition flex items-center justify-between ${
+                  activeFolder === 'inbox'
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                    : 'text-slate-400 hover:bg-slate-800/60 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center space-x-2.5">
+                  <Inbox className="w-4 h-4" />
+                  <span>Inbox</span>
+                </div>
+                {unreadCount > 0 && (
+                  <span className="px-2 py-0.5 rounded-full bg-cyan-950 border border-cyan-800 text-cyan-300 text-[10px] font-bold">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => {
+                  setActiveFolder('sent')
+                  setSelectedMessage(null)
+                }}
+                className={`w-full text-left px-3.5 py-2.5 rounded-xl font-bold transition flex items-center justify-between ${
+                  activeFolder === 'sent'
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                    : 'text-slate-400 hover:bg-slate-800/60 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center space-x-2.5">
+                  <Send className="w-4 h-4" />
+                  <span>Sent Items</span>
+                </div>
+              </button>
+            </div>
+
+            <div className="pt-4 border-t border-white/10 text-[11px] text-slate-500 space-y-2">
+              <div className="font-bold text-slate-400 uppercase tracking-wider text-[9px]">Mailbox Telemetry</div>
+              <div>Connected: <span className="text-emerald-400 font-bold">{selectedMailbox || 'None'}</span></div>
+              <div>Folder: <span className="text-cyan-300 font-bold">{activeFolder.toUpperCase()}</span></div>
+              <div>Messages Total: <span className="text-white font-bold">{messages.length}</span></div>
+            </div>
+          </div>
+
+          {/* Middle: Mail List */}
+          <div className="lg:col-span-4 border-r border-white/10 bg-slate-900/50 overflow-y-auto max-h-[520px]">
+            {loadingMessages ? (
+              <div className="p-8 text-center text-slate-400 font-mono text-xs flex flex-col items-center gap-2">
+                <RefreshCw className="w-5 h-5 animate-spin text-cyan-400" />
+                <span>Loading messages...</span>
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="p-8 text-center text-slate-500 font-mono text-xs space-y-2">
+                <Inbox className="w-8 h-8 text-slate-600 mx-auto" />
+                <div>No messages in <strong className="text-slate-400">{activeFolder}</strong></div>
+                <div className="text-[10px] text-slate-600">Click "Compose Email" to send out your first message!</div>
+              </div>
+            ) : (
+              <div className="divide-y divide-white/5">
+                {messages.map((msg) => {
+                  const isSelected = selectedMessage?.id === msg.id
+                  return (
+                    <div
+                      key={msg.id}
+                      onClick={() => handleSelectMessage(msg)}
+                      className={`p-3.5 transition cursor-pointer ${
+                        isSelected
+                          ? 'bg-cyan-950/70 border-l-4 border-cyan-400'
+                          : msg.read
+                          ? 'hover:bg-slate-800/40 opacity-85'
+                          : 'bg-slate-800/80 hover:bg-slate-800 font-semibold'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-[11px] font-mono mb-1">
+                        <span className={`truncate max-w-[170px] ${!msg.read ? 'text-white font-extrabold' : 'text-slate-300'}`}>
+                          {activeFolder === 'inbox' ? `From: ${msg.from}` : `To: ${msg.to}`}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+
+                      <div className="text-xs font-bold text-cyan-200 truncate">{msg.subject}</div>
+
+                      <div className="text-[11px] text-slate-400 truncate mt-1 line-clamp-1 font-sans">
+                        {msg.body}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Right: Selected Message Content Reader */}
+          <div className="lg:col-span-5 bg-slate-950/90 p-5 overflow-y-auto max-h-[520px]">
+            {selectedMessage ? (
+              <div className="space-y-4">
+                <div className="border-b border-white/10 pb-4 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <h4 className="text-base font-extrabold text-white tracking-tight">{selectedMessage.subject}</h4>
+                    <span className="text-[10px] font-mono text-slate-400 bg-slate-900 border border-white/10 px-2 py-1 rounded-lg">
+                      {new Date(selectedMessage.timestamp).toLocaleString()}
+                    </span>
+                  </div>
+
+                  <div className="text-xs font-mono space-y-1 text-slate-300">
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-500 uppercase text-[10px] font-bold w-10">From:</span>
+                      <span className="text-cyan-300 font-bold bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-800">{selectedMessage.from}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-500 uppercase text-[10px] font-bold w-10">To:</span>
+                      <span className="text-slate-200 bg-slate-900 px-2 py-0.5 rounded border border-white/10">{selectedMessage.to}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-xs text-slate-200 whitespace-pre-wrap leading-relaxed font-sans bg-slate-900/60 p-4 rounded-2xl border border-white/5">
+                  {selectedMessage.body}
+                </div>
+
+                <div className="pt-4 border-t border-white/10 flex items-center justify-between font-mono text-xs">
+                  <span className="text-slate-500 text-[10px]">Message ID: {selectedMessage.id}</span>
+                  <button
+                    onClick={() => {
+                      setComposeForm({
+                        from: selectedMessage.to || selectedMailbox,
+                        to: selectedMessage.from,
+                        subject: `Re: ${selectedMessage.subject}`,
+                        body: `\n\n--- Original Message ---\nFrom: ${selectedMessage.from}\nDate: ${selectedMessage.timestamp}\nSubject: ${selectedMessage.subject}\n\n${selectedMessage.body}`
+                      })
+                      setShowComposeModal(true)
+                    }}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-xl transition text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Reply to Message</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center p-8 text-slate-500 space-y-3 min-h-[300px]">
+                <FileText className="w-10 h-10 text-slate-600" />
+                <div className="font-mono text-xs">Select an email message from the list to view full content</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* COMPOSE EMAIL MODAL */}
+      {showComposeModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl max-w-xl w-full p-6 space-y-5 shadow-2xl shadow-emerald-950/50 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                  <SendHorizontal className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-white text-base">Compose Professional Email</h3>
+                  <p className="text-xs text-slate-400 font-mono">Send email from your custom domain mailbox</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowComposeModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSendEmail} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">From Mailbox</label>
+                <select
+                  value={composeForm.from}
+                  onChange={(e) => setComposeForm({ ...composeForm, from: e.target.value })}
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-400"
+                >
+                  {accounts.map((acc) => (
+                    <option key={acc.id} value={acc.email}>{acc.email}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">Recipient Email (To)</label>
+                <input
+                  type="email"
+                  value={composeForm.to}
+                  onChange={(e) => setComposeForm({ ...composeForm, to: e.target.value })}
+                  placeholder="recipient@domain.com"
+                  required
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-400"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">Subject Line</label>
+                <input
+                  type="text"
+                  value={composeForm.subject}
+                  onChange={(e) => setComposeForm({ ...composeForm, subject: e.target.value })}
+                  placeholder="Enter email subject"
+                  required
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-400"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">Email Body</label>
+                <textarea
+                  rows={6}
+                  value={composeForm.body}
+                  onChange={(e) => setComposeForm({ ...composeForm, body: e.target.value })}
+                  placeholder="Write your email message here..."
+                  required
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl p-3.5 text-xs text-white font-sans focus:outline-none focus:border-emerald-400 leading-relaxed"
+                />
+              </div>
+
+              <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowComposeModal(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={sendingEmail}
+                  className="px-5 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-extrabold rounded-xl text-xs flex items-center gap-1.5 transition shadow-lg shadow-emerald-950/40 disabled:opacity-50"
+                >
+                  {sendingEmail ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-950" /> : <SendHorizontal className="w-3.5 h-3.5" />}
+                  <span>{sendingEmail ? 'Sending...' : 'Send Email Now'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CREATE PROFESSIONAL EMAIL ACCOUNT MODAL */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-cyan-500/40 rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl shadow-cyan-950/50 animate-in zoom-in-95 duration-200">
-            {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center space-x-3">
                 <div className="p-2.5 rounded-2xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
@@ -335,7 +779,6 @@ export default function EmailManager({ jwtToken, activeServer }) {
             </div>
 
             <form onSubmit={handleCreateEmail} className="space-y-4">
-              {/* Select Registered Domain */}
               <div className="space-y-1.5">
                 <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">Target Registered Domain</label>
                 <select
@@ -349,7 +792,6 @@ export default function EmailManager({ jwtToken, activeServer }) {
                 </select>
               </div>
 
-              {/* Email Username & Preview */}
               <div className="space-y-1.5">
                 <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">Email Username Prefix</label>
                 <div className="flex items-center space-x-2">
@@ -364,7 +806,6 @@ export default function EmailManager({ jwtToken, activeServer }) {
                 </div>
               </div>
 
-              {/* Generated Email Address Card */}
               {newEmailForm.username && (
                 <div className="bg-slate-950 p-3 rounded-xl border border-cyan-500/30 text-xs font-mono text-cyan-300 flex items-center justify-between">
                   <span>Full Email: <strong className="text-white font-bold">{newEmailForm.username}@{newEmailForm.domain}</strong></span>
@@ -372,7 +813,6 @@ export default function EmailManager({ jwtToken, activeServer }) {
                 </div>
               )}
 
-              {/* Password & Generator */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">Mailbox Password</label>
@@ -402,7 +842,6 @@ export default function EmailManager({ jwtToken, activeServer }) {
                 </div>
               </div>
 
-              {/* Mailbox Quota */}
               <div className="space-y-1.5">
                 <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">Storage Quota</label>
                 <select
@@ -418,7 +857,6 @@ export default function EmailManager({ jwtToken, activeServer }) {
                 </select>
               </div>
 
-              {/* Modal Buttons */}
               <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-800">
                 <button
                   type="button"
@@ -441,7 +879,7 @@ export default function EmailManager({ jwtToken, activeServer }) {
         </div>
       )}
 
-      {/* SMTP / IMAP Client Connection Guide Modal */}
+      {/* SMTP / IMAP CLIENT CONNECTION GUIDE MODAL */}
       {showGuideModal && clientConfig && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-xl w-full p-6 space-y-5 shadow-2xl animate-in zoom-in-95 duration-200">
@@ -464,7 +902,6 @@ export default function EmailManager({ jwtToken, activeServer }) {
             </div>
 
             <div className="space-y-4 font-mono text-xs">
-              {/* Incoming Server */}
               <div className="bg-slate-950 p-4 rounded-2xl border border-white/10 space-y-2">
                 <div className="font-bold text-cyan-300 flex items-center justify-between">
                   <span>📥 Incoming Mail Server (IMAP / POP3)</span>
@@ -478,7 +915,6 @@ export default function EmailManager({ jwtToken, activeServer }) {
                 </div>
               </div>
 
-              {/* Outgoing Server */}
               <div className="bg-slate-950 p-4 rounded-2xl border border-white/10 space-y-2">
                 <div className="font-bold text-indigo-300 flex items-center justify-between">
                   <span>📤 Outgoing Mail Server (SMTP)</span>
@@ -492,7 +928,6 @@ export default function EmailManager({ jwtToken, activeServer }) {
                 </div>
               </div>
 
-              {/* Webmail Client Button */}
               <div className="pt-2 flex items-center justify-between">
                 <a
                   href={clientConfig.webmailUrl}

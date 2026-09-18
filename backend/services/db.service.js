@@ -221,11 +221,21 @@ export function saveEmailAccount(accountData) {
   const db = readDb()
   if (!db.emailAccounts) db.emailAccounts = []
 
+  const cleanUser = (accountData.username || '').trim().toLowerCase()
+  const cleanDomain = (accountData.domain || '').trim().toLowerCase()
+  const fullEmail = `${cleanUser}@${cleanDomain}`
+
+  // Check if already exists
+  const existing = db.emailAccounts.find(a => a.email === fullEmail)
+  if (existing) {
+    return existing
+  }
+
   const newAccount = {
     id: `mail-${Date.now()}`,
-    email: `${accountData.username}@${accountData.domain}`,
-    username: accountData.username,
-    domain: accountData.domain,
+    email: fullEmail,
+    username: cleanUser,
+    domain: cleanDomain,
     quotaMb: Number(accountData.quotaMb) || 1000,
     usedMb: 0,
     status: 'active',
@@ -233,6 +243,21 @@ export function saveEmailAccount(accountData) {
   }
 
   db.emailAccounts.unshift(newAccount)
+
+  // Auto-seed welcome message in new mailbox inbox
+  if (!db.emailMessages) db.emailMessages = []
+  db.emailMessages.unshift({
+    id: `msg-welcome-${Date.now()}`,
+    mailbox: fullEmail,
+    folder: 'inbox',
+    from: 'system@yjtechnosoft.com',
+    to: fullEmail,
+    subject: `Welcome to Your New Domain Mailbox (${fullEmail})!`,
+    body: `Congratulations! Your professional email mailbox '${fullEmail}' has been successfully provisioned.\n\nYou can read incoming emails, compose new messages, and manage your outbox directly inside this Webmail Console.`,
+    timestamp: new Date().toISOString(),
+    read: false
+  })
+
   writeDb(db)
   return newAccount
 }
@@ -247,5 +272,102 @@ export function deleteEmailAccount(emailId) {
   writeDb(db)
   return true
 }
+
+/**
+ * Get webmail messages for a specific mailbox and folder
+ */
+export function getEmailMessages(mailbox, folder = 'inbox') {
+  const db = readDb()
+  if (!db.emailMessages) {
+    db.emailMessages = [
+      {
+        id: 'msg-welcome-1',
+        mailbox: 'admin@litigation.yjtechnosoft.com',
+        folder: 'inbox',
+        from: 'system@yjtechnosoft.com',
+        to: 'admin@litigation.yjtechnosoft.com',
+        subject: 'Welcome to Your Litigation CRM Domain Mailbox!',
+        body: 'Your professional domain mailbox admin@litigation.yjtechnosoft.com is active.\n\nYou can compose and receive emails directly from this Webmail Console.',
+        timestamp: new Date(Date.now() - 3600000 * 2).toISOString(),
+        read: false
+      },
+      {
+        id: 'msg-welcome-2',
+        mailbox: 'support@tip-crm.yjtechnosoft.com',
+        folder: 'inbox',
+        from: 'system@yjtechnosoft.com',
+        to: 'support@tip-crm.yjtechnosoft.com',
+        subject: 'TOP Income Producer CRM Support Mailbox Activated',
+        body: 'Your support@tip-crm.yjtechnosoft.com mailbox is online.\n\nUse this webmail client to manage customer inquiries.',
+        timestamp: new Date(Date.now() - 3600000 * 5).toISOString(),
+        read: true
+      }
+    ]
+    writeDb(db)
+  }
+
+  return db.emailMessages.filter(
+    (m) => (!mailbox || m.mailbox === mailbox || m.to === mailbox) && m.folder === folder
+  )
+}
+
+/**
+ * Send an email message (saves in sent for sender, and in inbox for recipient)
+ */
+export function sendEmailMessage({ from, to, subject, body }) {
+  const db = readDb()
+  if (!db.emailMessages) db.emailMessages = []
+
+  const msgId = `msg-${Date.now()}`
+  const now = new Date().toISOString()
+
+  // Save in sender's 'sent' folder
+  const sentMsg = {
+    id: `${msgId}-sent`,
+    mailbox: from,
+    folder: 'sent',
+    from,
+    to,
+    subject: subject || '(No Subject)',
+    body: body || '',
+    timestamp: now,
+    read: true
+  }
+
+  // Save in recipient's 'inbox' folder
+  const inboxMsg = {
+    id: `${msgId}-inbox`,
+    mailbox: to,
+    folder: 'inbox',
+    from,
+    to,
+    subject: subject || '(No Subject)',
+    body: body || '',
+    timestamp: now,
+    read: false
+  }
+
+  db.emailMessages.unshift(sentMsg, inboxMsg)
+  writeDb(db)
+
+  return { success: true, sentMsg }
+}
+
+/**
+ * Mark a message as read
+ */
+export function markEmailAsRead(messageId) {
+  const db = readDb()
+  if (!db.emailMessages) return false
+
+  const msg = db.emailMessages.find((m) => m.id === messageId)
+  if (msg) {
+    msg.read = true
+    writeDb(db)
+    return true
+  }
+  return false
+}
+
 
 

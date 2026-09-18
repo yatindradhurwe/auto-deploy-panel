@@ -12,7 +12,10 @@ import {
   getWebhookAuditLogs,
   getEmailAccounts,
   saveEmailAccount,
-  deleteEmailAccount
+  deleteEmailAccount,
+  getEmailMessages,
+  sendEmailMessage,
+  markEmailAsRead
 } from '../services/db.service.js'
 import { executeProjectAutoUpdate } from '../services/autoupdate.service.js'
 
@@ -1215,6 +1218,46 @@ router.get('/email/client-config', authenticateToken, (req, res) => {
       webmailUrl: 'https://mail.yjtechnosoft.com'
     }
   })
+/**
+ * GET /api/studio/email/messages
+ * Retrieves webmail inbox/sent messages for a mailbox
+ */
+router.get('/email/messages', authenticateToken, (req, res) => {
+  const { mailbox, folder = 'inbox' } = req.query
+  const messages = getEmailMessages(mailbox, folder)
+  res.json({ success: true, messages })
+})
+
+/**
+ * POST /api/studio/email/send
+ * Sends an email from a domain mailbox
+ */
+router.post('/email/send', authenticateToken, (req, res) => {
+  const { from, to, subject, body } = req.body
+  if (!from || !to) {
+    return res.status(400).json({ error: 'Sender (from) and recipient (to) are required' })
+  }
+
+  const result = sendEmailMessage({ from, to, subject, body })
+  res.json({
+    success: true,
+    message: `Email successfully sent to ${to}!`,
+    sentMsg: result.sentMsg
+  })
+})
+
+/**
+ * POST /api/studio/email/read-mark
+ * Marks an email message as read
+ */
+router.post('/email/read-mark', authenticateToken, (req, res) => {
+  const { messageId } = req.body
+  if (!messageId) {
+    return res.status(400).json({ error: 'messageId is required' })
+  }
+
+  markEmailAsRead(messageId)
+  res.json({ success: true })
 })
 
 export default router
