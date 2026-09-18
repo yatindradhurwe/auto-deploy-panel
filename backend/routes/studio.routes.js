@@ -18,6 +18,7 @@ import {
   markEmailAsRead
 } from '../services/db.service.js'
 import { executeProjectAutoUpdate } from '../services/autoupdate.service.js'
+import { runAutonomousCodeAgent } from '../services/ai.service.js'
 
 const router = express.Router()
 
@@ -1260,6 +1261,35 @@ router.post('/email/read-mark', authenticateToken, (req, res) => {
 
   markEmailAsRead(messageId)
   res.json({ success: true })
+})
+
+/**
+ * POST /api/studio/agent/execute
+ * Autonomous AI Coding Agent endpoint: executes code changes, verification tests, git commit, and live deploy.
+ */
+router.post('/agent/execute', authenticateToken, async (req, res) => {
+  try {
+    const { userPrompt, projectPath, filePath, codeContent, provider, apiKey, autoCommit, autoDeploy } = req.body
+    if (!userPrompt) {
+      return res.status(400).json({ error: 'userPrompt is required for AI Agent execution' })
+    }
+
+    const result = await runAutonomousCodeAgent({
+      userPrompt,
+      projectPath,
+      filePath,
+      codeContent,
+      provider,
+      apiKey,
+      autoCommit: Boolean(autoCommit),
+      autoDeploy: Boolean(autoDeploy)
+    })
+
+    res.json(result)
+  } catch (err) {
+    console.error('[AI AGENT EXECUTION ERROR]:', err)
+    res.status(500).json({ error: err.message || 'AI Agent execution failed' })
+  }
 })
 
 export default router

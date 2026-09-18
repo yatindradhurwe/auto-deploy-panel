@@ -895,6 +895,21 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
           </div>
         </div>
       )}
+
+      {/* AI Agent Studio Drawer */}
+      <AIAgentStudioDrawer
+        isOpen={showAgentDrawer}
+        onClose={() => setShowAgentDrawer(false)}
+        activeFile={activeFile}
+        fileContent={fileContent}
+        projectPath={selectedProject?.path}
+        jwtToken={jwtToken}
+        onApplyCodeFix={(newCode) => {
+          setFileContent(newCode)
+          setSaveMessage('AI Agent code changes applied to active editor! Click "Save File" or "Git Commit" to apply.')
+          setTimeout(() => setSaveMessage(null), 5000)
+        }}
+      />
     </div>
   )
 }
