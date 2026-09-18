@@ -1218,6 +1218,8 @@ router.get('/email/client-config', authenticateToken, (req, res) => {
       webmailUrl: 'https://mail.yjtechnosoft.com'
     }
   })
+})
+
 /**
  * GET /api/studio/email/messages
  * Retrieves webmail inbox/sent messages for a mailbox
