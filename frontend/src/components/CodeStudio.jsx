@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
-  Folder, FileCode, ChevronRight, ChevronDown, Save, RefreshCw, Code, Terminal, FileText, CheckCircle2, Play, Search, X, GitBranch, Download, Upload, AlertCircle, Sparkles, FolderGit2, Bot, RotateCcw, History, DownloadCloud, Trash2, Plus, FolderPlus, FilePlus, CornerDownRight, Check, Maximize2, Minimize2, Sliders, Command, Layers, ExternalLink
+  Folder, FileCode, ChevronRight, ChevronDown, Save, RefreshCw, Code, Terminal, FileText, CheckCircle2, Play, Search, X, GitBranch, Download, Upload, AlertCircle, Sparkles, FolderGit2, Bot, RotateCcw, History, DownloadCloud, Trash2, Plus, FolderPlus, FilePlus, CornerDownRight, Check, Maximize2, Minimize2, Sliders, Command, Layers, ExternalLink, FolderTree
 } from 'lucide-react'
 import AIAgentStudioDrawer from './AIAgentStudioDrawer'
 
