@@ -242,7 +242,11 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
       })
       const data = await res.json()
       if (data.success) {
-        setGitLogModal({ title: 'Git Commit & Push Successful', output: data.output || data.message })
+        setGitLogModal({
+          title: '🎉 Git Commit & Push to GitHub Successful!',
+          output: (data.output || data.message) + '\n\n✅ Changes have been committed and pushed to GitHub repository successfully!',
+          canDeployLive: true
+        })
         fetchGitStatus(selectedProject.path)
       } else {
         alert(`Git Push Error: ${data.error}`)
@@ -803,10 +807,11 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
           {/* Git Commit & Push */}
           <button
             onClick={() => setShowCommitModal(true)}
-            className="bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/40 text-xs px-3 py-2 rounded-xl font-semibold flex items-center space-x-1 transition cursor-pointer"
+            className="bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/40 text-xs px-3 py-2 rounded-xl font-semibold flex items-center space-x-1.5 transition cursor-pointer"
+            title="Commit local changes and push directly to GitHub"
           >
             <GitBranch className="h-3.5 w-3.5 text-purple-400" />
-            <span>Commit ({gitStatus.modifiedCount})</span>
+            <span>Commit & Push ({gitStatus.modifiedCount})</span>
           </button>
 
           {/* Pull & Update Live Server */}
@@ -1411,7 +1416,19 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
               {gitLogModal.output}
             </div>
 
-            <div className="flex justify-end pt-2">
+            <div className="flex items-center justify-end space-x-2 pt-2">
+              {gitLogModal.canDeployLive && (
+                <button
+                  onClick={() => {
+                    setGitLogModal(null)
+                    handlePullAndUpdateLiveServer()
+                  }}
+                  className="px-5 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition shadow-lg shadow-purple-950/40 cursor-pointer"
+                >
+                  <DownloadCloud className="w-4 h-4 text-purple-200" />
+                  <span>Update Live Server Now</span>
+                </button>
+              )}
               <button
                 onClick={() => setGitLogModal(null)}
                 className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold transition"
