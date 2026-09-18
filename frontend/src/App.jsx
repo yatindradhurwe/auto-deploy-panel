@@ -4,10 +4,12 @@ import {
   XCircle, AlertTriangle, Play, RefreshCw, Copy, Check, Lock, HardDrive, Code,
   Github, Search, X, ChevronRight, ChevronLeft, ChevronDown, Sparkles, FolderGit2, Bot, LogOut, UserCheck,
   Layers, Database, FolderTree, LayoutDashboard, Key, Activity, Clock, Webhook, Save, Trash2, DownloadCloud, Mail,
-  Command, Sliders, CheckSquare, Menu, Maximize2, Minimize2, Filter, Info, ExternalLink
+  Command, Sliders, CheckSquare, Menu, Maximize2, Minimize2, Filter, Info, ExternalLink, CreditCard, Users, Crown
 } from 'lucide-react'
 import AICopilotDrawer from './components/AICopilotDrawer'
 import LoginPage from './components/LoginPage'
+import SaaSAuthPages from './components/SaaSAuthPages'
+import ServerSelectorDropdown from './components/ServerSelectorDropdown'
 import ServerManager from './components/ServerManager'
 import ProjectExplorer from './components/ProjectExplorer'
 import DatabaseManager from './components/DatabaseManager'
@@ -18,6 +20,10 @@ import DomainSSLManager from './components/DomainSSLManager'
 import CronManager from './components/CronManager'
 import WebhookManager from './components/WebhookManager'
 import EmailManager from './components/EmailManager'
+import BillingManager from './components/BillingManager'
+import TeamManager from './components/TeamManager'
+import AuditLogViewer from './components/AuditLogViewer'
+import SuperAdminPortal from './components/SuperAdminPortal'
 
 const DEFAULT_CONFIG = {
   host: '187.127.165.128',
@@ -567,6 +573,17 @@ export default function App() {
       ]
     },
     {
+      title: 'ORGANIZATION SAAS',
+      items: [
+        { id: 'billing', label: 'Billing & Quotas', icon: CreditCard },
+        { id: 'team', label: 'Team & Roles', icon: Users },
+        { id: 'audit-logs', label: 'Audit Trail Logs', icon: ShieldCheck },
+        ...(currentUser?.id === 'admin-001' || currentUser?.role === 'admin'
+          ? [{ id: 'admin', label: 'Super Admin Portal', icon: Crown, badge: 'SAAS' }]
+          : [])
+      ]
+    },
+    {
       title: 'MONITORING',
       items: [
         { id: 'logs', label: 'Logs & Telemetry', icon: Activity },
@@ -590,6 +607,10 @@ export default function App() {
     { id: 'databases', title: 'Database Manager (MySQL / PostgreSQL / Mongo)', category: 'Navigation', icon: Database },
     { id: 'code', title: 'Open Code Studio IDE & File Editor', category: 'Navigation', icon: FolderTree },
     { id: 'env', title: 'Manage Environment (.env) Variables', category: 'Navigation', icon: Key },
+    { id: 'billing', title: 'SaaS Billing & Quotas', category: 'Organization', icon: CreditCard },
+    { id: 'team', title: 'Manage Team Members & RBAC Roles', category: 'Organization', icon: Users },
+    { id: 'audit-logs', title: 'View Organization Audit Trail Logs', category: 'Organization', icon: ShieldCheck },
+    { id: 'admin', title: 'Super Admin Control Portal', category: 'Organization', icon: Crown },
     { id: 'logs', title: 'View System Logs & Performance Telemetry', category: 'Navigation', icon: Activity },
     { id: 'ssl', title: 'Manage SSL Certificates & Domain Routing', category: 'Navigation', icon: Globe },
     { id: 'cron', title: 'Configure Automated Cron Tasks', category: 'Navigation', icon: Clock },
@@ -639,7 +660,7 @@ export default function App() {
   }
 
   if (!jwtToken || !currentUser) {
-    return <LoginPage onLoginSuccess={handleLoginSuccess} />
+    return <SaaSAuthPages onAuthSuccess={(token, user) => handleLoginSuccess(user, token)} />
   }
 
   return (
@@ -687,6 +708,14 @@ export default function App() {
 
           {/* Right Header Actions */}
           <div className="flex items-center space-x-2.5">
+            {/* Top Bar Server Selector Dropdown */}
+            <ServerSelectorDropdown
+              activeServerId={activeServer.id || 'srv-default'}
+              onServerSelect={(srvId) => {
+                setActiveServer((prev) => ({ ...prev, id: srvId }))
+              }}
+            />
+
             {/* AI Copilot Drawer Trigger */}
             <button
               onClick={() => setShowAiDrawer(true)}
@@ -889,6 +918,22 @@ export default function App() {
 
           {activeTab === 'email' && (
             <EmailManager jwtToken={jwtToken} activeServer={activeServer} />
+          )}
+
+          {activeTab === 'billing' && (
+            <BillingManager />
+          )}
+
+          {activeTab === 'team' && (
+            <TeamManager />
+          )}
+
+          {activeTab === 'audit-logs' && (
+            <AuditLogViewer />
+          )}
+
+          {activeTab === 'admin' && (
+            <SuperAdminPortal />
           )}
 
           {activeTab === 'deploy' && (

@@ -3,6 +3,10 @@ import cors from 'cors'
 import authRoutes from './routes/auth.routes.js'
 import deployRoutes from './routes/deploy.routes.js'
 import studioRoutes from './routes/studio.routes.js'
+import billingRoutes from './routes/billing.routes.js'
+import agentRoutes from './routes/agent.routes.js'
+import teamRoutes from './routes/team.routes.js'
+import adminRoutes from './routes/admin.routes.js'
 import { authenticateToken } from './middleware/auth.middleware.js'
 import { initAutoUpdateService, executeProjectAutoUpdate } from './services/autoupdate.service.js'
 
@@ -13,16 +17,18 @@ app.use(cors())
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
+// Direct route for install.sh agent installer script
+app.use('/', agentRoutes)
+
 // Health Check (Public Endpoint)
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'online',
-    service: 'AutoDeploy Console & AI Studio Backend Engine',
-    version: '2.0.0',
-    lastUpdated: '2026-09-18 11:12:28 IST',
-    commit: 'b87596e',
+    service: 'AutoDeploy Multi-Tenant SaaS Engine',
+    version: '3.0.0-saas',
     authEnabled: true,
     studioEnabled: true,
+    multiTenant: true,
     timestamp: new Date().toISOString(),
   })
 })
@@ -36,7 +42,6 @@ app.post('/api/webhooks/github/:appName', (req, res) => {
 
   console.log(`[GITHUB WEBHOOK RECEIVED] Triggering live server auto-update for project '${appName}'...`)
 
-  // Asynchronously trigger Antigravity Auto-Update
   executeProjectAutoUpdate(appName, 'webhook', { pusher: pusherName, commitMsg })
     .catch(err => console.error(`[GITHUB WEBHOOK FAILED] for '${appName}':`, err.message))
 
@@ -49,15 +54,26 @@ app.post('/api/webhooks/github/:appName', (req, res) => {
   })
 })
 
-// Authentication Routes (Public Endpoint)
+// Public Authentication & Onboarding Routes
 app.use('/api/auth', authRoutes)
+
+// Agent Management Routes
+app.use('/api/agent', agentRoutes)
+
+// Protected SaaS Subscriptions & Billing Routes
+app.use('/api/billing', billingRoutes)
+
+// Protected Team Management & RBAC Routes
+app.use('/api/team', teamRoutes)
+
+// Super Admin Platform Monitoring Routes
+app.use('/api/admin', adminRoutes)
 
 // Protected Deployment & Studio Routes (Requires valid JWT Token)
 app.use('/api/deploy', authenticateToken, deployRoutes)
 app.use('/api/studio', authenticateToken, studioRoutes)
 
 app.listen(PORT, () => {
-  console.log(`[AUTODEPLOY-STUDIO-BACKEND] Listening on http://localhost:${PORT}`)
+  console.log(`[AUTODEPLOY-STUDIO-BACKEND] Multi-Tenant Engine Listening on http://localhost:${PORT}`)
   initAutoUpdateService()
 })
-
