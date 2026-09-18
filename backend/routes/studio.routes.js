@@ -610,6 +610,119 @@ router.post('/files/save', authenticateToken, (req, res) => {
   }
 })
 
+/**
+ * POST /api/studio/files/create
+ * Creates a file or directory inside project
+ */
+router.post('/files/create', authenticateToken, (req, res) => {
+  const { projectPath, relativePath, type = 'file' } = req.body
+  if (!projectPath || !relativePath) {
+    return res.status(400).json({ error: 'projectPath and relativePath are required' })
+  }
+
+  try {
+    const fullPath = path.resolve(projectPath, relativePath)
+    if (type === 'folder' || type === 'directory') {
+      fs.mkdirSync(fullPath, { recursive: true })
+      res.json({ success: true, message: `Directory '${relativePath}' created successfully`, fullPath: fullPath.replace(/\\/g, '/') })
+    } else {
+      const parentDir = path.dirname(fullPath)
+      if (!fs.existsSync(parentDir)) {
+        fs.mkdirSync(parentDir, { recursive: true })
+      }
+      if (!fs.existsSync(fullPath)) {
+        fs.writeFileSync(fullPath, '', 'utf-8')
+      }
+      res.json({ success: true, message: `File '${relativePath}' created successfully`, fullPath: fullPath.replace(/\\/g, '/') })
+    }
+  } catch (err) {
+    res.status(500).json({ error: `Failed to create ${type}: ${err.message}` })
+  }
+})
+
+/**
+ * POST /api/studio/files/delete
+ * Deletes a file or directory inside project
+ */
+router.post('/files/delete', authenticateToken, (req, res) => {
+  const { filePath } = req.body
+  if (!filePath) {
+    return res.status(400).json({ error: 'filePath is required' })
+  }
+
+  try {
+    const normalizedPath = path.normalize(filePath)
+    if (!fs.existsSync(normalizedPath)) {
+      return res.status(404).json({ error: 'File or directory not found' })
+    }
+    fs.rmSync(normalizedPath, { recursive: true, force: true })
+    res.json({ success: true, message: 'Item deleted successfully' })
+  } catch (err) {
+    res.status(500).json({ error: `Failed to delete item: ${err.message}` })
+  }
+})
+
+/**
+ * POST /api/studio/files/upload
+ * Uploads one or multiple files/directories into project
+ */
+router.post('/files/upload', authenticateToken, (req, res) => {
+  const { projectPath, targetDir = '', files = [] } = req.body
+  if (!projectPath || !Array.isArray(files) || files.length === 0) {
+    return res.status(400).json({ error: 'projectPath and non-empty files array are required' })
+  }
+
+  try {
+    const baseDir = targetDir ? path.resolve(projectPath, targetDir) : path.resolve(projectPath)
+    let uploadedCount = 0
+
+    for (const f of files) {
+      if (!f.relativePath) continue
+      const targetFile = path.resolve(baseDir, f.relativePath)
+      const parentDir = path.dirname(targetFile)
+      if (!fs.existsSync(parentDir)) {
+        fs.mkdirSync(parentDir, { recursive: true })
+      }
+
+      let contentBuffer
+      if (f.contentBase64) {
+        contentBuffer = Buffer.from(f.contentBase64, 'base64')
+      } else {
+        contentBuffer = Buffer.from(f.content || '', 'utf-8')
+      }
+      fs.writeFileSync(targetFile, contentBuffer)
+      uploadedCount++
+    }
+
+    res.json({ success: true, message: `Successfully uploaded ${uploadedCount} file(s) into project`, uploadedCount })
+  } catch (err) {
+    res.status(500).json({ error: `Upload failed: ${err.message}` })
+  }
+})
+
+/**
+ * POST /api/studio/terminal/exec
+ * Executes a shell command inside project directory
+ */
+router.post('/terminal/exec', authenticateToken, (req, res) => {
+  const { projectPath, command } = req.body
+  if (!command || !command.trim()) {
+    return res.status(400).json({ error: 'Command is required' })
+  }
+
+  const targetDir = projectPath && fs.existsSync(projectPath) ? projectPath : path.resolve(process.cwd(), '..')
+  const safeCmd = command.trim()
+
+  exec(safeCmd, { cwd: targetDir, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+    res.json({
+      success: !error,
+      output: (stdout || '') + (stderr ? `\nSTDERR:\n${stderr}` : ''),
+      error: error ? error.message : null,
+      exitCode: error ? error.code || 1 : 0
+    })
+  })
+})
+
 
 /**
  * POST /api/studio/env/get
