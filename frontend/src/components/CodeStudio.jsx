@@ -729,26 +729,26 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
     <div className="space-y-4 font-sans">
 
       {/* Code Studio Top Bar Header */}
-      <div className="bg-slate-900/80 backdrop-blur-2xl border border-white/10 rounded-3xl p-5 shadow-2xl shadow-slate-950/50 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="flex items-center space-x-3.5">
-          <div className="p-3 rounded-2xl bg-gradient-to-tr from-cyan-500/20 to-blue-600/20 text-cyan-400 border border-cyan-500/30 ring-1 ring-cyan-500/20 shadow-inner">
-            <FolderTree className="h-6 w-6 text-cyan-400" />
+      <div className="bg-slate-900/80 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 sm:p-5 shadow-2xl shadow-slate-950/50 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="flex items-center space-x-3">
+          <div className="p-2.5 sm:p-3 rounded-2xl bg-gradient-to-tr from-cyan-500/20 to-blue-600/20 text-cyan-400 border border-cyan-500/30 ring-1 ring-cyan-500/20 shadow-inner shrink-0">
+            <FolderTree className="h-5 w-5 sm:h-6 sm:w-6 text-cyan-400" />
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <h1 className="text-lg font-extrabold text-white">Code Studio IDE</h1>
-              <span className="text-[10px] bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full font-mono font-bold">
+              <h1 className="text-base sm:text-lg font-extrabold text-white">Code Studio IDE</h1>
+              <span className="text-[9px] sm:text-[10px] bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full font-mono font-bold">
                 VS CODE MODE
               </span>
             </div>
-            <p className="text-xs text-slate-400 font-mono mt-0.5">
+            <p className="text-[11px] sm:text-xs text-slate-400 font-mono mt-0.5">
               Multi-file editor, integrated terminal execution, file uploads, and AI Agent code modifications.
             </p>
           </div>
         </div>
 
         {/* Project Selector & Actions */}
-        <div className="flex items-center space-x-2 overflow-x-auto">
+        <div className="flex flex-wrap items-center gap-2 max-w-full overflow-x-auto pb-1 lg:pb-0">
           {/* Project Dropdown */}
           <select
             value={selectedProject ? selectedProject.id : ''}
@@ -762,7 +762,7 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
                 setSelectedTreeNode(null)
               }
             }}
-            className="bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-cyan-400 shadow-inner"
+            className="bg-slate-950 border border-white/10 rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 text-[11px] sm:text-xs text-white font-mono focus:outline-none focus:border-cyan-400 shadow-inner shrink-0"
           >
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
@@ -774,22 +774,22 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
           {/* AI Agent Studio Drawer Trigger */}
           <button
             onClick={() => setShowAgentDrawer(true)}
-            className="bg-gradient-to-r from-cyan-500/20 via-blue-500/20 to-indigo-500/20 hover:from-cyan-500/30 hover:to-indigo-500/30 text-cyan-300 border border-cyan-500/40 text-xs px-3.5 py-2 rounded-xl font-bold flex items-center space-x-1.5 transition shadow-md shadow-cyan-950/40 cursor-pointer"
+            className="bg-gradient-to-r from-cyan-500/20 via-blue-500/20 to-indigo-500/20 hover:from-cyan-500/30 hover:to-indigo-500/30 text-cyan-300 border border-cyan-500/40 text-[11px] sm:text-xs px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-xl font-bold flex items-center space-x-1.5 transition shadow-md shadow-cyan-950/40 cursor-pointer shrink-0"
           >
-            <Sparkles className="h-3.5 w-3.5 text-cyan-400 animate-pulse" />
+            <Sparkles className="h-3.5 w-3.5 text-cyan-400 animate-pulse shrink-0" />
             <span>AI Code Agent</span>
           </button>
 
           {/* Terminal Drawer Toggle */}
           <button
             onClick={() => setShowTerminal(!showTerminal)}
-            className={`text-xs px-3 py-2 rounded-xl flex items-center space-x-1.5 transition font-semibold cursor-pointer border ${
+            className={`text-[11px] sm:text-xs px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl flex items-center space-x-1.5 transition font-semibold cursor-pointer border shrink-0 ${
               showTerminal
                 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-md shadow-emerald-950/40'
                 : 'bg-slate-950/80 hover:bg-slate-800 text-slate-300 border-white/10'
             }`}
           >
-            <Terminal className="h-3.5 w-3.5 text-emerald-400" />
+            <Terminal className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
             <span>Terminal</span>
           </button>
 
@@ -797,20 +797,20 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
           <button
             onClick={handleGitPull}
             disabled={pullingGit}
-            className="bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-xs px-3 py-2 rounded-xl font-semibold flex items-center space-x-1.5 transition cursor-pointer disabled:opacity-50"
+            className="bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-[11px] sm:text-xs px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl font-semibold flex items-center space-x-1.5 transition cursor-pointer disabled:opacity-50 shrink-0"
             title="Pull latest code from GitHub repository into Code Studio"
           >
-            <Download className={`h-3.5 w-3.5 text-blue-400 ${pullingGit ? 'animate-spin' : ''}`} />
-            <span>{pullingGit ? 'Pulling...' : 'Pull from GitHub'}</span>
+            <Download className={`h-3.5 w-3.5 text-blue-400 shrink-0 ${pullingGit ? 'animate-spin' : ''}`} />
+            <span>{pullingGit ? 'Pulling...' : 'Pull'}</span>
           </button>
 
           {/* Git Commit & Push */}
           <button
             onClick={() => setShowCommitModal(true)}
-            className="bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/40 text-xs px-3 py-2 rounded-xl font-semibold flex items-center space-x-1.5 transition cursor-pointer"
+            className="bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/40 text-[11px] sm:text-xs px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl font-semibold flex items-center space-x-1.5 transition cursor-pointer shrink-0"
             title="Commit local changes and push directly to GitHub"
           >
-            <GitBranch className="h-3.5 w-3.5 text-purple-400" />
+            <GitBranch className="h-3.5 w-3.5 text-purple-400 shrink-0" />
             <span>Commit & Push ({gitStatus.modifiedCount})</span>
           </button>
 
@@ -818,11 +818,11 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
           <button
             onClick={handlePullAndUpdateLiveServer}
             disabled={updatingLive}
-            className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white font-bold px-3.5 py-2 rounded-xl text-xs flex items-center space-x-1.5 transition shadow-lg shadow-purple-950/40 cursor-pointer"
+            className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white font-bold px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-[11px] sm:text-xs flex items-center space-x-1.5 transition shadow-lg shadow-purple-950/40 cursor-pointer shrink-0"
             title="Pull latest GitHub code and redeploy PM2 app on live server"
           >
-            <DownloadCloud className={`h-3.5 w-3.5 text-purple-200 ${updatingLive ? 'animate-bounce' : ''}`} />
-            <span>{updatingLive ? 'Updating...' : 'Update Live Server'}</span>
+            <DownloadCloud className={`h-3.5 w-3.5 text-purple-200 shrink-0 ${updatingLive ? 'animate-bounce' : ''}`} />
+            <span>{updatingLive ? 'Updating...' : 'Update Live'}</span>
           </button>
 
           {/* Delete Project */}
@@ -838,10 +838,10 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
                 deleteNginx: true,
                 deleting: false
               })}
-              className="p-2 bg-rose-950/50 hover:bg-rose-900/80 text-rose-300 border border-rose-800/80 rounded-xl text-xs transition cursor-pointer"
+              className="p-1.5 sm:p-2 bg-rose-950/50 hover:bg-rose-900/80 text-rose-300 border border-rose-800/80 rounded-xl text-xs transition cursor-pointer shrink-0"
               title="Delete this project from live server"
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </button>
           )}
         </div>
@@ -851,7 +851,7 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 items-start">
         
         {/* Left Explorer File Tree Sidebar */}
-        <div className="bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 space-y-3 shadow-2xl shadow-slate-950/50 flex flex-col h-[650px] overflow-hidden">
+        <div className="bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl p-3.5 sm:p-4 space-y-3 shadow-2xl shadow-slate-950/50 flex flex-col h-[320px] sm:h-[400px] lg:h-[650px] overflow-hidden">
           
           {/* Tree Header & Action Toolbar */}
           <div className="space-y-2 border-b border-white/10 pb-3">
@@ -960,13 +960,13 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
         </div>
 
         {/* Right VS Code File Editor Workspace */}
-        <div className="lg:col-span-3 bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl overflow-hidden shadow-2xl shadow-slate-950/50 flex flex-col h-[650px]">
+        <div className="lg:col-span-3 bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl overflow-hidden shadow-2xl shadow-slate-950/50 flex flex-col h-[480px] sm:h-[580px] lg:h-[650px]">
           
           {/* Tab Bar across top of editor */}
-          <div className="bg-slate-950 border-b border-white/10 flex items-center overflow-x-auto select-none">
+          <div className="bg-slate-950 border-b border-white/10 flex items-center overflow-x-auto select-none no-scrollbar">
             {openFiles.length === 0 ? (
-              <div className="px-4 py-2.5 text-xs text-slate-500 font-mono flex items-center gap-2">
-                <Code className="w-4 h-4 text-slate-600" />
+              <div className="px-3 sm:px-4 py-2 sm:py-2.5 text-[11px] sm:text-xs text-slate-500 font-mono flex items-center gap-2">
+                <Code className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-600 shrink-0" />
                 <span>No files open. Click a file from Explorer to edit.</span>
               </div>
             ) : (
@@ -976,14 +976,14 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
                   <div
                     key={file.path}
                     onClick={() => handleOpenFile(file)}
-                    className={`px-3 py-2 border-r border-white/10 flex items-center space-x-2 text-xs font-mono cursor-pointer transition ${
+                    className={`px-2.5 py-1.5 sm:px-3 sm:py-2 border-r border-white/10 flex items-center space-x-1.5 sm:space-x-2 text-[11px] sm:text-xs font-mono cursor-pointer transition shrink-0 ${
                       isActive
                         ? 'bg-slate-900 text-cyan-300 font-bold border-t-2 border-t-cyan-400'
                         : 'bg-slate-950 text-slate-400 hover:bg-slate-900/60 hover:text-slate-200'
                     }`}
                   >
                     {getFileIcon(file.name)}
-                    <span className="truncate max-w-[140px] text-[11px]">{file.name}</span>
+                    <span className="truncate max-w-[90px] sm:max-w-[140px] text-[10px] sm:text-[11px]">{file.name}</span>
                     <button
                       onClick={(e) => handleCloseTab(file.path, e)}
                       className="p-0.5 rounded text-slate-500 hover:text-white hover:bg-slate-800 transition"
@@ -998,20 +998,20 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
 
           {/* Breadcrumbs Header */}
           {activeFile && (
-            <div className="bg-slate-900/90 border-b border-white/10 px-4 py-1.5 flex items-center justify-between text-[11px] font-mono text-slate-400 select-none">
-              <div className="flex items-center space-x-1.5 truncate">
-                <span className="text-cyan-400 font-bold">{selectedProject ? selectedProject.name : 'Project'}</span>
+            <div className="bg-slate-900/90 border-b border-white/10 px-3 sm:px-4 py-1.5 flex flex-wrap items-center justify-between text-[10px] sm:text-[11px] font-mono text-slate-400 select-none gap-2">
+              <div className="flex items-center space-x-1 truncate max-w-full overflow-x-auto">
+                <span className="text-cyan-400 font-bold shrink-0">{selectedProject ? selectedProject.name : 'Project'}</span>
                 {activeFile.path.split('/').map((part, idx) => (
                   <React.Fragment key={idx}>
                     <ChevronRight className="w-3 h-3 text-slate-600 shrink-0" />
-                    <span className={idx === activeFile.path.split('/').length - 1 ? 'text-white font-bold' : 'text-slate-400'}>
+                    <span className={idx === activeFile.path.split('/').length - 1 ? 'text-white font-bold shrink-0' : 'text-slate-400 shrink-0'}>
                       {part}
                     </span>
                   </React.Fragment>
                 ))}
               </div>
 
-              <div className="flex items-center space-x-3">
+              <div className="flex items-center space-x-2 sm:space-x-3 shrink-0">
                 {isModified && (
                   <span className="text-[10px] text-amber-400 font-bold flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
@@ -1027,7 +1027,7 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
                 <button
                   onClick={handleSaveFile}
                   disabled={savingFile}
-                  className="bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-slate-950 font-bold px-3 py-1 rounded-lg text-xs flex items-center space-x-1 transition cursor-pointer shadow-sm"
+                  className="bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-slate-950 font-bold px-2.5 py-1 sm:px-3 sm:py-1 rounded-lg text-[11px] sm:text-xs flex items-center space-x-1 transition cursor-pointer shadow-sm"
                 >
                   <Save className={`w-3.5 h-3.5 ${savingFile ? 'animate-spin' : ''}`} />
                   <span>{savingFile ? 'Saving...' : 'Save (⌘S)'}</span>
@@ -1045,14 +1045,14 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
               </div>
             ) : !activeFile ? (
               <div className="w-full h-full flex flex-col items-center justify-center text-slate-600 space-y-3 p-6 text-center font-mono">
-                <FileCode className="w-12 h-12 text-slate-700" />
+                <FileCode className="w-10 h-10 sm:w-12 sm:h-12 text-slate-700" />
                 <div>
-                  <p className="text-sm font-bold text-slate-400">Visual Studio Code Editor</p>
-                  <p className="text-xs text-slate-500 mt-1 max-w-sm">
+                  <p className="text-xs sm:text-sm font-bold text-slate-400">Visual Studio Code Editor</p>
+                  <p className="text-[11px] sm:text-xs text-slate-500 mt-1 max-w-sm">
                     Select a file from the explorer sidebar on the left to edit code, or create new files and upload folders.
                   </p>
                 </div>
-                <kbd className="bg-slate-900 border border-slate-800 text-slate-400 text-xs px-3 py-1 rounded-lg font-mono">
+                <kbd className="bg-slate-900 border border-slate-800 text-slate-400 text-[10px] sm:text-xs px-2.5 py-1 rounded-lg font-mono">
                   ⌘S to Save File
                 </kbd>
               </div>
@@ -1074,7 +1074,7 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
                 }}
                 placeholder="// Code Editor..."
                 spellCheck={false}
-                className="w-full h-full bg-[#07090E] text-slate-100 font-mono text-xs p-4 focus:outline-none resize-none leading-relaxed selection:bg-cyan-500/30 selection:text-cyan-200"
+                className="w-full h-full bg-[#07090E] text-slate-100 font-mono text-[11px] sm:text-xs lg:text-sm p-3 sm:p-4 focus:outline-none resize-none leading-relaxed selection:bg-cyan-500/30 selection:text-cyan-200"
               />
             )}
           </div>
