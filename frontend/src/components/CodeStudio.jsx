@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react'
-import { Folder, FileCode, ChevronRight, ChevronDown, Save, RefreshCw, Code, Terminal, FileText, CheckCircle2, Play, Search, X, GitBranch, Download, Upload, AlertCircle, Sparkles, FolderGit2, Bot, RotateCcw, History, DownloadCloud } from 'lucide-react'
+import { Folder, FileCode, ChevronRight, ChevronDown, Save, RefreshCw, Code, Terminal, FileText, CheckCircle2, Play, Search, X, GitBranch, Download, Upload, AlertCircle, Sparkles, FolderGit2, Bot, RotateCcw, History, DownloadCloud, Trash2 } from 'lucide-react'
 import AIAgentStudioDrawer from './AIAgentStudioDrawer'
 
 export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
   const [projects, setProjects] = useState([])
   const [selectedProject, setSelectedProject] = useState(null)
+  const [deleteStudioModal, setDeleteStudioModal] = useState(null)
 
   const [fileTree, setFileTree] = useState([])
   const [openFiles, setOpenFiles] = useState([])
@@ -259,6 +260,48 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
     }
   }
 
+  const handleConfirmDeleteStudioProject = async () => {
+    if (!deleteStudioModal) return
+    setDeleteStudioModal((prev) => ({ ...prev, deleting: true }))
+    try {
+      const res = await fetch('/api/studio/projects/delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${jwtToken}`
+        },
+        body: JSON.stringify({
+          host: activeServer ? activeServer.host : '187.127.165.128',
+          appName: deleteStudioModal.appName,
+          projectPath: deleteStudioModal.projectPath,
+          domain: deleteStudioModal.domain,
+          deletePm2: deleteStudioModal.deletePm2,
+          deleteFiles: deleteStudioModal.deleteFiles,
+          deleteNginx: deleteStudioModal.deleteNginx
+        })
+      })
+      const data = await res.json()
+      if (data.success) {
+        alert(`Project '${deleteStudioModal.appName}' deleted successfully from live server!`)
+        setDeleteStudioModal(null)
+        const updatedProjects = projects.filter((p) => p.id !== deleteStudioModal.id && p.repoName !== deleteStudioModal.appName)
+        setProjects(updatedProjects)
+        if (updatedProjects.length > 0) {
+          setSelectedProject(updatedProjects[0])
+        } else {
+          setSelectedProject(null)
+          setFileTree([])
+        }
+      } else {
+        alert(`Delete Error: ${data.error}`)
+      }
+    } catch (err) {
+      alert(`Delete Request Failed: ${err.message}`)
+    } finally {
+      setDeleteStudioModal((prev) => (prev ? { ...prev, deleting: false } : null))
+    }
+  }
+
   const handleOpenFile = async (fileItem) => {
     if (fileItem.type === 'directory') {
       setExpandedFolders((prev) => ({ ...prev, [fileItem.path]: !prev[fileItem.path] }))
@@ -415,6 +458,30 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
                   </option>
                 ))}
               </select>
+
+              {/* Delete Project from Server Button */}
+              {selectedProject && (
+                <button
+                  onClick={() => {
+                    const appName = selectedProject.repoName || selectedProject.name
+                    setDeleteStudioModal({
+                      id: selectedProject.id,
+                      appName,
+                      projectPath: selectedProject.path,
+                      domain: appName.includes('.com') ? appName : `${appName}.yjtechnosoft.com`,
+                      deletePm2: true,
+                      deleteFiles: true,
+                      deleteNginx: true,
+                      deleting: false
+                    })
+                  }}
+                  className="px-2.5 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/80 rounded-xl text-xs transition cursor-pointer font-bold inline-flex items-center gap-1 shadow-sm"
+                  title="Delete this project, directory, PM2 process, and Nginx config from server"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Delete Project</span>
+                </button>
+              )}
             </div>
             <p className="text-xs text-slate-400 flex items-center gap-2">
               <span className="font-mono text-slate-300 text-[11px] bg-slate-950/60 px-2.5 py-0.5 rounded-lg border border-white/5">{selectedProject?.path}</span>
@@ -749,6 +816,85 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
           setShowAgentDrawer(false)
         }}
       />
+      {/* Delete Project Modal */}
+      {deleteStudioModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-rose-500/40 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                  <Trash2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-white text-sm">Delete Project from Server</h3>
+                  <p className="text-[11px] text-slate-400 font-mono">Permanently remove service & files from live server</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDeleteStudioModal(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 bg-slate-950/80 p-4 rounded-2xl border border-white/5 text-xs">
+              <div className="font-semibold text-white">Target App: <span className="text-cyan-300 font-mono">{deleteStudioModal.appName}</span></div>
+              <div className="text-slate-400 font-mono text-[11px]">Path: {deleteStudioModal.projectPath}</div>
+
+              <div className="space-y-2 pt-2 border-t border-white/10 text-slate-300">
+                <label className="flex items-center space-x-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={deleteStudioModal.deletePm2}
+                    onChange={(e) => setDeleteStudioModal({ ...deleteStudioModal, deletePm2: e.target.checked })}
+                    className="rounded border-white/10 text-rose-500 bg-slate-900"
+                  />
+                  <span>Stop & Delete PM2 Process (<code className="text-cyan-400">pm2 delete {deleteStudioModal.appName}</code>)</span>
+                </label>
+
+                <label className="flex items-center space-x-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={deleteStudioModal.deleteFiles}
+                    onChange={(e) => setDeleteStudioModal({ ...deleteStudioModal, deleteFiles: e.target.checked })}
+                    className="rounded border-white/10 text-rose-500 bg-slate-900"
+                  />
+                  <span>Delete Files & Directory (<code className="text-rose-400">rm -rf {deleteStudioModal.projectPath}</code>)</span>
+                </label>
+
+                <label className="flex items-center space-x-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={deleteStudioModal.deleteNginx}
+                    onChange={(e) => setDeleteStudioModal({ ...deleteStudioModal, deleteNginx: e.target.checked })}
+                    className="rounded border-white/10 text-rose-500 bg-slate-900"
+                  />
+                  <span>Delete Nginx Config & Reload Web Server</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-2">
+              <button
+                onClick={() => setDeleteStudioModal(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={handleConfirmDeleteStudioProject}
+                disabled={deleteStudioModal.deleting}
+                className="px-5 py-2 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition shadow-lg shadow-rose-950/40 disabled:opacity-50 cursor-pointer"
+              >
+                {deleteStudioModal.deleting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                <span>{deleteStudioModal.deleting ? 'Deleting...' : 'Confirm Permanent Deletion'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

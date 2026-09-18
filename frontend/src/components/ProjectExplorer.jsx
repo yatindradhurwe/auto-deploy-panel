@@ -283,6 +283,23 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
 
         <div className="flex items-center space-x-2">
           <button
+            onClick={() => setDeleteModal({
+              appName: '',
+              projectPath: '/var/www/',
+              domain: '',
+              deletePm2: true,
+              deleteFiles: true,
+              deleteNginx: true,
+              deleting: false
+            })}
+            className="px-4 py-2 bg-rose-950/70 hover:bg-rose-900/90 text-rose-200 border border-rose-800/80 rounded-2xl transition cursor-pointer flex items-center gap-1.5 text-xs font-bold shadow-md shadow-rose-950/40"
+            title="Delete any project, PM2 process, or website directory from the live server"
+          >
+            <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+            <span>Delete Project from Server</span>
+          </button>
+
+          <button
             onClick={handleRealTimeFetch}
             className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold border border-cyan-400/40 rounded-2xl transition cursor-pointer flex items-center gap-2 text-xs shadow-md shadow-cyan-950/40"
             title="Scan live server /var/www directories, active PM2 processes, Nginx configs, and GitHub commits in real time"
@@ -503,8 +520,27 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
             </div>
 
             <div className="space-y-3 bg-slate-950/80 p-4 rounded-2xl border border-white/5 text-xs">
-              <div className="font-semibold text-white">Target App: <span className="text-cyan-300 font-mono">{deleteModal.appName}</span></div>
-              <div className="text-slate-400 font-mono text-[11px]">Path: {deleteModal.projectPath}</div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest">PM2 Process Name to Delete</label>
+                <input
+                  type="text"
+                  value={deleteModal.appName || ''}
+                  onChange={(e) => setDeleteModal({ ...deleteModal, appName: e.target.value })}
+                  placeholder="e.g. my-app-backend"
+                  className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-rose-400"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest">Remote Server Directory Path</label>
+                <input
+                  type="text"
+                  value={deleteModal.projectPath || ''}
+                  onChange={(e) => setDeleteModal({ ...deleteModal, projectPath: e.target.value })}
+                  placeholder="e.g. /var/www/my-app"
+                  className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-rose-400"
+                />
+              </div>
 
               <div className="space-y-2 pt-2 border-t border-white/10 text-slate-300">
                 <label className="flex items-center space-x-2.5 cursor-pointer">
