@@ -789,6 +789,17 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
             <span>Terminal</span>
           </button>
 
+          {/* Git Pull from GitHub */}
+          <button
+            onClick={handleGitPull}
+            disabled={pullingGit}
+            className="bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-xs px-3 py-2 rounded-xl font-semibold flex items-center space-x-1.5 transition cursor-pointer disabled:opacity-50"
+            title="Pull latest code from GitHub repository into Code Studio"
+          >
+            <Download className={`h-3.5 w-3.5 text-blue-400 ${pullingGit ? 'animate-spin' : ''}`} />
+            <span>{pullingGit ? 'Pulling...' : 'Pull from GitHub'}</span>
+          </button>
+
           {/* Git Commit & Push */}
           <button
             onClick={() => setShowCommitModal(true)}
@@ -803,6 +814,7 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
             onClick={handlePullAndUpdateLiveServer}
             disabled={updatingLive}
             className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white font-bold px-3.5 py-2 rounded-xl text-xs flex items-center space-x-1.5 transition shadow-lg shadow-purple-950/40 cursor-pointer"
+            title="Pull latest GitHub code and redeploy PM2 app on live server"
           >
             <DownloadCloud className={`h-3.5 w-3.5 text-purple-200 ${updatingLive ? 'animate-bounce' : ''}`} />
             <span>{updatingLive ? 'Updating...' : 'Update Live Server'}</span>
