@@ -154,12 +154,13 @@ async function runAutomatedIdempotencyTests() {
 
   // TEST 07: Agent Registration Retry Idempotency
   test('07. Agent Registration Retry - Returns existing server node on retry', () => {
-    const token = `agent_token_${Date.now()}`
+    const uniqueIp = `192.168.${Math.floor(Math.random() * 100) + 1}.${Math.floor(Math.random() * 200) + 1}`
+    const token = `agent_token_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`
     const reg1 = registerAgentServer({
       organizationId: 'org-test-agent',
       token,
       hostname: 'node-01.vps',
-      ipAddress: '192.168.1.100',
+      ipAddress: uniqueIp,
       os: 'Ubuntu 22.04'
     })
 
@@ -167,7 +168,7 @@ async function runAutomatedIdempotencyTests() {
       organizationId: 'org-test-agent',
       token,
       hostname: 'node-01.vps',
-      ipAddress: '192.168.1.100',
+      ipAddress: uniqueIp,
       os: 'Ubuntu 22.04'
     })
 

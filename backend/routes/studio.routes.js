@@ -19,6 +19,13 @@ import {
 } from '../services/db.service.js'
 import { executeProjectAutoUpdate } from '../services/autoupdate.service.js'
 import { runAutonomousCodeAgent } from '../services/ai.service.js'
+import {
+  getRealHostMetrics,
+  getRealPm2Processes,
+  getRealSslCertificates,
+  getRealCronJobs,
+  getRealDatabases
+} from '../services/server.service.js'
 
 const router = express.Router()
 
@@ -154,42 +161,67 @@ import { getServersByOrgId, getProjectsByOrgId, createServer, deleteServer } fro
 /**
  * GET /api/studio/servers
  */
-router.get('/servers', (req, res) => {
-  if (req.tenant && req.tenant.organizationId) {
-    const orgServers = getServersByOrgId(req.tenant.organizationId)
-    return res.json({ success: true, servers: orgServers })
+router.get('/servers', async (req, res) => {
+  try {
+    const hostMetrics = await getRealHostMetrics()
+    const pm2Procs = await getRealPm2Processes()
+
+    if (req.tenant && req.tenant.organizationId) {
+      const orgServers = getServersByOrgId(req.tenant.organizationId)
+      // Enrich connected servers with live telemetry
+      const enriched = orgServers.map(s => ({
+        ...s,
+        cpu: hostMetrics.cpu,
+        ram: hostMetrics.memory,
+        disk: hostMetrics.disk,
+        activeApps: pm2Procs.length,
+        status: s.status || 'online',
+        lastSeen: new Date().toISOString()
+      }))
+      return res.json({ success: true, servers: enriched })
+    }
+
+    res.json({ success: true, servers: DEFAULT_SERVERS })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
   }
-  res.json({ success: true, servers: DEFAULT_SERVERS })
 })
 
 /**
  * POST /api/studio/servers/scan
  * Real-time Server Node scan
  */
-router.post('/servers/scan', (req, res) => {
-  const host = req.body.host || req.tenant?.server?.ipAddress || '187.127.165.128'
+router.post('/servers/scan', async (req, res) => {
+  try {
+    const hostMetrics = await getRealHostMetrics()
+    const pm2Procs = await getRealPm2Processes()
+    const host = req.body.host || req.tenant?.server?.ipAddress || '187.127.165.128'
 
-  const liveNode = {
-    id: req.tenant?.server?.id || 'srv-001',
-    name: req.tenant?.server?.name || 'Production Server Node 01',
-    host: host,
-    port: req.tenant?.server?.port || 22,
-    username: req.tenant?.server?.username || 'root',
-    status: 'online',
-    os: req.tenant?.server?.os || 'Ubuntu 22.04.4 LTS (x86_64)',
-    cpuUsage: Math.floor(Math.random() * 12) + 4,
-    ramUsage: Math.floor(Math.random() * 15) + 42,
-    diskUsage: 36,
-    activeApps: 6,
-    domain: req.tenant?.server?.domain || 'automate-deployment.yjtechnosoft.com',
-    lastConnected: new Date().toISOString()
+    const liveNode = {
+      id: req.tenant?.server?.id || 'srv-001',
+      name: req.tenant?.server?.name || 'Production Server Node 01',
+      host: host,
+      port: req.tenant?.server?.port || 22,
+      username: req.tenant?.server?.username || 'root',
+      status: 'online',
+      os: hostMetrics.osType || 'Ubuntu 22.04 LTS (x86_64)',
+      cpuUsage: hostMetrics.cpu,
+      ramUsage: hostMetrics.memory,
+      diskUsage: hostMetrics.disk,
+      activeApps: pm2Procs.length,
+      domain: req.tenant?.server?.domain || 'automate-deployment.yjtechnosoft.com',
+      lastConnected: new Date().toISOString()
+    }
+
+    res.json({
+      success: true,
+      message: `Real-Time SSH scan completed for ${host}. Hardware load & PM2 services synchronized.`,
+      server: liveNode,
+      processes: pm2Procs
+    })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
   }
-
-  res.json({
-    success: true,
-    message: `Real-Time SSH scan completed for ${host}. Hardware load & PM2 services synchronized.`,
-    server: liveNode
-  })
 })
 
 /**
@@ -228,48 +260,31 @@ router.post('/servers/add', authenticateToken, (req, res) => {
  * GET /api/studio/ssl/certificates
  * Real-time Let's Encrypt SSL Certificates Discovery
  */
-router.get('/ssl/certificates', (req, res) => {
-  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
-    const orgServers = getServersByOrgId(req.tenant.organizationId)
-    if (orgServers.length === 0) {
-      return res.json({ success: true, certificates: [] })
+router.get('/ssl/certificates', async (req, res) => {
+  try {
+    if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
+      const orgServers = getServersByOrgId(req.tenant.organizationId)
+      if (orgServers.length === 0) {
+        return res.json({ success: true, certificates: [] })
+      }
+      const certs = orgServers.filter(s => s.domain).map((s, idx) => ({
+        id: `cert-${s.id}`,
+        name: s.domain,
+        domain: s.domain,
+        issuer: "Let's Encrypt Authority X3",
+        status: 'valid',
+        expiresInDays: 90,
+        expiresAt: new Date(Date.now() + 90 * 86400000).toISOString(),
+        autoRenew: true
+      }))
+      return res.json({ success: true, certificates: certs })
     }
-    const certs = orgServers.filter(s => s.domain).map((s, idx) => ({
-      id: `cert-${s.id}`,
-      name: s.domain,
-      domain: s.domain,
-      issuer: "Let's Encrypt Authority X3",
-      status: 'valid',
-      expiresInDays: 90,
-      expiresAt: new Date(Date.now() + 90 * 86400000).toISOString(),
-      autoRenew: true
-    }))
-    return res.json({ success: true, certificates: certs })
-  }
 
-  const certs = [
-    {
-      id: 'cert-01',
-      name: 'automate-deployment.yjtechnosoft.com',
-      domain: 'automate-deployment.yjtechnosoft.com',
-      issuer: "Let's Encrypt Authority X3",
-      status: 'valid',
-      expiresInDays: 84,
-      expiresAt: '2026-12-12T00:00:00Z',
-      autoRenew: true
-    },
-    {
-      id: 'cert-02',
-      name: 'tip-crm.yjtechnosoft.com',
-      domain: 'tip-crm.yjtechnosoft.com',
-      issuer: "Let's Encrypt Authority X3",
-      status: 'valid',
-      expiresInDays: 79,
-      expiresAt: '2026-12-07T00:00:00Z',
-      autoRenew: true
-    }
-  ]
-  res.json({ success: true, certificates: certs })
+    const realCerts = await getRealSslCertificates()
+    res.json({ success: true, certificates: realCerts })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
 })
 
 /**
@@ -325,20 +340,20 @@ server {
 /**
  * GET /api/studio/cron/list
  */
-router.get('/cron/list', (req, res) => {
-  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
-    const orgServers = getServersByOrgId(req.tenant.organizationId)
-    if (orgServers.length === 0) {
-      return res.json({ success: true, cronJobs: [] })
+router.get('/cron/list', async (req, res) => {
+  try {
+    if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
+      const orgServers = getServersByOrgId(req.tenant.organizationId)
+      if (orgServers.length === 0) {
+        return res.json({ success: true, cronJobs: [], jobs: [] })
+      }
     }
-  }
 
-  const cronJobs = [
-    { id: 'cron-01', name: 'Database Auto-Backup', schedule: '0 2 * * *', command: 'pg_dump -U root tipcrm_db > /backups/db.sql', status: 'active', lastRun: '2026-09-18 02:00:00' },
-    { id: 'cron-02', name: 'Certbot SSL Auto-Renew', schedule: '0 0 * * 0', command: 'certbot renew --quiet && systemctl reload nginx', status: 'active', lastRun: '2026-09-15 00:00:00' },
-    { id: 'cron-03', name: 'PM2 Log Rotation', schedule: '0 4 * * *', command: 'pm2 flush', status: 'active', lastRun: '2026-09-18 04:00:00' }
-  ]
-  res.json({ success: true, cronJobs })
+    const realJobs = await getRealCronJobs()
+    res.json({ success: true, cronJobs: realJobs, jobs: realJobs })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
 })
 
 /**
@@ -404,81 +419,51 @@ router.get('/projects', (req, res) => {
  * POST /api/studio/server-metrics
  * Returns comprehensive telemetry and process list for ALL server projects & PM2 services
  */
-router.post('/server-metrics', (req, res) => {
-  // Check if tenant has any connected servers
-  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
-    const orgServers = getServersByOrgId(req.tenant.organizationId)
-    if (orgServers.length === 0) {
+router.post('/server-metrics', async (req, res) => {
+  try {
+    const hostMetrics = await getRealHostMetrics()
+    const pm2Processes = await getRealPm2Processes()
+
+    // Check if tenant has any connected servers
+    if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
+      const orgServers = getServersByOrgId(req.tenant.organizationId)
+      if (orgServers.length === 0) {
+        return res.json({
+          success: true,
+          server: null,
+          processes: []
+        })
+      }
+
+      const activeSrv = req.tenant.server || orgServers[0]
       return res.json({
         success: true,
-        server: null,
-        processes: []
+        server: {
+          host: activeSrv.ipAddress || activeSrv.hostname,
+          status: activeSrv.status || 'online',
+          cpu: hostMetrics.cpu,
+          memory: hostMetrics.memory,
+          disk: hostMetrics.disk,
+          nodeVersion: hostMetrics.nodeVersion,
+          uptimeSeconds: hostMetrics.uptimeSeconds
+        },
+        processes: pm2Processes
       })
     }
-    const orgProjects = getProjectsByOrgId(req.tenant.organizationId)
-    const processes = orgProjects.map((p, idx) => ({
-      pm_id: idx + 1,
-      name: p.name,
-      status: p.status || 'online',
-      cpu: 0,
-      memory: 45,
-      restarts: 0,
-      uptime: Date.now() - 3600000,
-      script: 'server.js',
-      cwd: p.path
-    }))
 
-    const activeSrv = req.tenant.server || orgServers[0]
-    return res.json({
-      success: true,
-      server: {
-        host: activeSrv.ipAddress || activeSrv.hostname,
-        status: activeSrv.status || 'online',
-        cpu: activeSrv.cpu || 0,
-        memory: activeSrv.ram || 0,
-        disk: activeSrv.disk || 0,
-        nodeVersion: 'v20.10.0',
-        uptimeSeconds: 86400
-      },
-      processes
-    })
-  }
-
-  const host = req.body.host || '187.127.165.128'
-
-  exec('pm2 jlist', (error, stdout) => {
-    let pm2Processes = []
-    if (!error && stdout) {
-      try {
-        const rawList = JSON.parse(stdout)
-        pm2Processes = rawList.map((proc) => ({
-          pm_id: proc.pm_id,
-          name: proc.name,
-          status: proc.pm2_env ? proc.pm2_env.status : 'unknown',
-          cpu: proc.monit ? proc.monit.cpu : 0,
-          memory: proc.monit ? Math.round(proc.monit.memory / (1024 * 1024)) : 0,
-          restarts: proc.pm2_env ? proc.pm2_env.restart_time : 0,
-          uptime: proc.pm2_env ? proc.pm2_env.pm_uptime : Date.now(),
-          script: proc.pm2_env ? proc.pm2_env.pm_exec_path : '',
-          cwd: (proc.pm2_env ? proc.pm2_env.pm_cwd : '').replace(/\\/g, '/')
-        }))
-      } catch (e) {}
-    }
+    const host = req.body.host || '187.127.165.128'
 
     res.json({
       success: true,
       server: {
-        host,
-        status: 'online',
-        cpu: Math.floor(Math.random() * 15) + 5,
-        memory: 48,
-        disk: 36,
-        nodeVersion: process.version,
-        uptimeSeconds: process.uptime()
+        ...hostMetrics,
+        host
       },
       processes: pm2Processes
     })
-  })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
 })
 
 /**
@@ -676,208 +661,20 @@ router.post('/projects/delete', authenticateToken, async (req, res) => {
  * POST /api/studio/databases
  * Multi-Database Admin Suite Profiles (PostgreSQL / pgAdmin, MySQL / phpMyAdmin, MongoDB / Compass, Redis GUI)
  */
-router.post('/databases', authenticateToken, (req, res) => {
-  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
-    const orgServers = getServersByOrgId(req.tenant.organizationId)
-    if (orgServers.length === 0) {
-      return res.json({ success: true, databases: [] })
+router.post('/databases', authenticateToken, async (req, res) => {
+  try {
+    if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
+      const orgServers = getServersByOrgId(req.tenant.organizationId)
+      if (orgServers.length === 0) {
+        return res.json({ success: true, databases: [] })
+      }
     }
-    return res.json({ success: true, databases: [] })
+
+    const realDbs = await getRealDatabases()
+    res.json({ success: true, databases: realDbs })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
   }
-
-  const sampleDatabases = [
-    {
-      id: 'db-postgres-pgadmin',
-      name: 'PostgreSQL / pgAdmin Engine (TIP-CRM)',
-      type: 'PostgreSQL 15 (pgAdmin)',
-      engine: 'postgresql',
-      host: 'db.yjtechnosoft.com:5432',
-      status: 'connected',
-      icon: 'elephant',
-      databasesList: ['tipcrm_production', 'tipcrm_staging', 'postgres'],
-      activeDbName: 'tipcrm_production',
-      tables: [
-        {
-          name: 'users',
-          rows: 1420,
-          size: '2.4 MB',
-          primaryKey: 'id',
-          columns: [
-            { name: 'id', type: 'UUID', primary: true, nullable: false },
-            { name: 'email', type: 'VARCHAR(255)', primary: false, nullable: false },
-            { name: 'name', type: 'VARCHAR(100)', primary: false, nullable: true },
-            { name: 'role', type: 'VARCHAR(50)', primary: false, nullable: false, default: "'user'" },
-            { name: 'created_at', type: 'TIMESTAMP', primary: false, nullable: false, default: 'NOW()' }
-          ],
-          data: [
-            { id: 'usr_101', email: 'admin@tipcrm.com', name: 'System Admin', role: 'admin', created_at: '2026-09-15 10:00:00' },
-            { id: 'usr_102', email: 'yatindra@yjtechnosoft.com', name: 'Yatindra Dhurwe', role: 'developer', created_at: '2026-09-16 11:30:00' },
-            { id: 'usr_103', email: 'support@tipcrm.com', name: 'Customer Support Desk', role: 'manager', created_at: '2026-09-17 14:15:00' },
-            { id: 'usr_104', email: 'sales@tipcrm.com', name: 'Sales Operations', role: 'sales', created_at: '2026-09-18 09:20:00' }
-          ]
-        },
-        {
-          name: 'leads',
-          rows: 8940,
-          size: '14.8 MB',
-          primaryKey: 'id',
-          columns: [
-            { name: 'id', type: 'UUID', primary: true, nullable: false },
-            { name: 'lead_name', type: 'VARCHAR(255)', primary: false, nullable: false },
-            { name: 'phone', type: 'VARCHAR(50)', primary: false, nullable: true },
-            { name: 'status', type: 'VARCHAR(50)', primary: false, nullable: false, default: "'NEW'" },
-            { name: 'deal_value', type: 'NUMERIC(12,2)', primary: false, nullable: true }
-          ],
-          data: [
-            { id: 'lead_501', lead_name: 'Acme Corp Enterprise Deal', phone: '+1 555-0192', status: 'QUALIFIED', deal_value: '45000.00' },
-            { id: 'lead_502', lead_name: 'Starlight Media SaaS Upgrade', phone: '+44 20 7946 0912', status: 'IN_NEGOTIATION', deal_value: '18500.00' },
-            { id: 'lead_503', lead_name: 'Global Tech Solutions Pilot', phone: '+91 98765 43210', status: 'NEW', deal_value: '12000.00' }
-          ]
-        },
-        {
-          name: 'deals',
-          rows: 3120,
-          size: '6.1 MB',
-          primaryKey: 'id',
-          columns: [
-            { name: 'id', type: 'UUID', primary: true, nullable: false },
-            { name: 'title', type: 'VARCHAR(255)', primary: false, nullable: false },
-            { name: 'value', type: 'NUMERIC(12,2)', primary: false, nullable: false },
-            { name: 'stage', type: 'VARCHAR(50)', primary: false, nullable: false }
-          ],
-          data: [
-            { id: 'deal_01', title: 'Q4 Enterprise License Contract', value: '75000.00', stage: 'CLOSED_WON' },
-            { id: 'deal_02', title: 'Cloud Managed Services SLA', value: '32000.00', stage: 'PROPOSAL_SENT' }
-          ]
-        }
-      ]
-    },
-    {
-      id: 'db-mysql-phpmyadmin',
-      name: 'MySQL / phpMyAdmin Engine (AutoDeploy Storage)',
-      type: 'MySQL v8.0 (phpMyAdmin)',
-      engine: 'mysql',
-      host: '127.0.0.1:3306',
-      status: 'connected',
-      icon: 'dolphin',
-      databasesList: ['autodeploy_db', 'sys', 'mysql'],
-      activeDbName: 'autodeploy_db',
-      tables: [
-        {
-          name: 'deploy_logs',
-          rows: 320,
-          size: '1.8 MB',
-          primaryKey: 'id',
-          columns: [
-            { name: 'id', type: 'INT', primary: true, nullable: false },
-            { name: 'deploy_id', type: 'VARCHAR(100)', primary: false, nullable: false },
-            { name: 'step', type: 'VARCHAR(50)', primary: false, nullable: false },
-            { name: 'status', type: 'VARCHAR(50)', primary: false, nullable: false },
-            { name: 'created_at', type: 'DATETIME', primary: false, nullable: false }
-          ],
-          data: [
-            { id: 1, deploy_id: 'dep_9901', step: 'GIT_CLONE', status: 'SUCCESS', created_at: '2026-09-18 14:00:00' },
-            { id: 2, deploy_id: 'dep_9901', step: 'NPM_BUILD', status: 'SUCCESS', created_at: '2026-09-18 14:02:15' },
-            { id: 3, deploy_id: 'dep_9901', step: 'PM2_RELOAD', status: 'SUCCESS', created_at: '2026-09-18 14:03:00' }
-          ]
-        },
-        {
-          name: 'server_credentials',
-          rows: 14,
-          size: '120 KB',
-          primaryKey: 'id',
-          columns: [
-            { name: 'id', type: 'INT', primary: true, nullable: false },
-            { name: 'server_name', type: 'VARCHAR(100)', primary: false, nullable: false },
-            { name: 'ip_address', type: 'VARCHAR(50)', primary: false, nullable: false },
-            { name: 'ssh_port', type: 'INT', primary: false, nullable: false }
-          ],
-          data: [
-            { id: 1, server_name: 'Production Node 01', ip_address: '187.127.165.128', ssh_port: 22 },
-            { id: 2, server_name: 'Staging Cluster Node', ip_address: '187.127.165.129', ssh_port: 22 }
-          ]
-        }
-      ]
-    },
-    {
-      id: 'db-mongodb-compass',
-      name: 'MongoDB Compass Engine (Analytics & Logs)',
-      type: 'MongoDB v7.0 (Compass)',
-      engine: 'mongodb',
-      host: 'mongodb://127.0.0.1:27017/analytics',
-      status: 'connected',
-      icon: 'leaf',
-      databasesList: ['analytics', 'telemetry', 'admin'],
-      activeDbName: 'analytics',
-      collections: [
-        {
-          name: 'page_views',
-          count: 48900,
-          size: '34.2 MB',
-          sampleDocs: [
-            { _id: '650a12b01', path: '/dashboard', views: 420, userAgent: 'Mozilla/5.0 (Windows NT 10.0)', timestamp: '2026-09-18T12:00:00Z' },
-            { _id: '650a12b02', path: '/code-studio', views: 280, userAgent: 'Mozilla/5.0 (Macintosh)', timestamp: '2026-09-18T13:10:00Z' },
-            { _id: '650a12b03', path: '/databases', views: 195, userAgent: 'Mozilla/5.0 (X11; Linux)', timestamp: '2026-09-18T14:40:00Z' }
-          ]
-        },
-        {
-          name: 'ai_diagnostics',
-          count: 860,
-          size: '4.1 MB',
-          sampleDocs: [
-            { _id: '650a12c01', deployId: 'dep_99', issue: 'port 5000 in use', resolvedCommand: 'fuser -k 5000/tcp', timestamp: '2026-09-17T18:22:00Z' }
-          ]
-        }
-      ]
-    },
-    {
-      id: 'db-redis-gui',
-      name: 'Redis GUI Engine (Session & Cache)',
-      type: 'Redis v7.2 (GUI Console)',
-      engine: 'redis',
-      host: '127.0.0.1:6379',
-      status: 'connected',
-      icon: 'redis',
-      databasesList: ['db0 (Default Cache)', 'db1 (Session Store)', 'db2 (Queue)'],
-      activeDbName: 'db0',
-      keys: [
-        { key: 'session:jwt_tokens:admin-001', type: 'string', ttl: '86390s', value: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' },
-        { key: 'cache:git_repos:yatindradhurwe', type: 'hash', ttl: '3500s', value: '{ "repos": 14, "fetched": "2026-09-18" }' },
-        { key: 'queue:deploy_tasks', type: 'list', ttl: 'no-expire', value: '["task-197", "task-307"]' }
-      ]
-    },
-    {
-      id: 'db-sqlite-manager',
-      name: 'SQLite File Engine (Local App Data)',
-      type: 'SQLite v3.40 (Embedded DB)',
-      engine: 'sqlite',
-      host: '/var/www/app/data/db.sqlite',
-      status: 'connected',
-      icon: 'file-text',
-      databasesList: ['db.sqlite', 'system.db'],
-      activeDbName: 'db.sqlite',
-      tables: [
-        {
-          name: 'settings',
-          rows: 18,
-          size: '64 KB',
-          primaryKey: 'key_name',
-          columns: [
-            { name: 'key_name', type: 'TEXT', primary: true, nullable: false },
-            { name: 'value', type: 'TEXT', primary: false, nullable: true },
-            { name: 'updated_at', type: 'DATETIME', primary: false, nullable: false }
-          ],
-          data: [
-            { key_name: 'theme', value: 'dark', updated_at: '2026-09-18 10:00:00' },
-            { key_name: 'auto_backup', value: 'enabled', updated_at: '2026-09-18 10:00:00' },
-            { key_name: 'git_auto_sync', value: 'true', updated_at: '2026-09-18 12:30:00' }
-          ]
-        }
-      ]
-    }
-  ]
-
-  res.json({ success: true, databases: sampleDatabases })
 })
 
 /**
@@ -1394,53 +1191,28 @@ router.post('/pm2/logs', authenticateToken, (req, res) => {
  * GET /api/studio/ssl/certificates
  * Returns active domain list and SSL certificate status
  */
-router.get('/ssl/certificates', authenticateToken, (req, res) => {
-  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
-    const orgServers = getServersByOrgId(req.tenant.organizationId)
-    if (orgServers.length === 0) {
-      return res.json({ success: true, certificates: [] })
+router.get('/ssl/certificates', authenticateToken, async (req, res) => {
+  try {
+    if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
+      const orgServers = getServersByOrgId(req.tenant.organizationId)
+      if (orgServers.length === 0) {
+        return res.json({ success: true, certificates: [] })
+      }
+      const certs = orgServers.filter(s => s.domain).map((s, idx) => ({
+        id: `cert-${s.id}`,
+        name: s.domain,
+        domains: s.domain,
+        expiry: '90 days (Let\'s Encrypt SSL)',
+        status: 'valid'
+      }))
+      return res.json({ success: true, certificates: certs })
     }
-    const certs = orgServers.filter(s => s.domain).map((s, idx) => ({
-      id: `cert-${s.id}`,
-      name: s.domain,
-      domains: s.domain,
-      expiry: '90 days (Let\'s Encrypt SSL)',
-      status: 'valid'
-    }))
-    return res.json({ success: true, certificates: certs })
+
+    const realCerts = await getRealSslCertificates()
+    res.json({ success: true, certificates: realCerts })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
   }
-
-  exec('certbot certificates', (error, stdout) => {
-    const certs = []
-    if (!error && stdout) {
-      const blocks = stdout.split('Certificate Name:')
-      blocks.forEach((block, idx) => {
-        if (idx === 0) return
-        const lines = block.split('\n')
-        const certName = lines[0].trim()
-        const domainsMatch = block.match(/Domains:\s*(.+)/)
-        const expiryMatch = block.match(/Expiry Date:\s*(.+)/)
-        certs.push({
-          id: `ssl-${idx}`,
-          name: certName,
-          domains: domainsMatch ? domainsMatch[1].trim() : certName,
-          expiry: expiryMatch ? expiryMatch[1].trim() : 'Active (Valid)',
-          status: 'valid'
-        })
-      })
-    }
-
-    if (certs.length === 0) {
-      // Fallback defaults / live server defaults
-      certs.push(
-        { id: 'ssl-1', name: 'automate-deployment.yjtechnosoft.com', domains: 'automate-deployment.yjtechnosoft.com', expiry: '2026-12-15 (Let\'s Encrypt SSL)', status: 'valid' },
-        { id: 'ssl-2', name: 'tip-crm.yjtechnosoft.com', domains: 'tip-crm.yjtechnosoft.com', expiry: '2026-11-20 (Let\'s Encrypt SSL)', status: 'valid' },
-        { id: 'ssl-3', name: 'api.yjtechnosoft.com', domains: 'api.yjtechnosoft.com', expiry: '2026-10-10 (Let\'s Encrypt SSL)', status: 'valid' }
-      )
-    }
-
-    res.json({ success: true, certificates: certs })
-  })
 })
 
 /**
@@ -1515,41 +1287,20 @@ server {
  * GET /api/studio/cron/list
  * Reads user crontab
  */
-router.get('/cron/list', authenticateToken, (req, res) => {
-  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
-    const orgServers = getServersByOrgId(req.tenant.organizationId)
-    if (orgServers.length === 0) {
-      return res.json({ success: true, cronJobs: [], jobs: [] })
+router.get('/cron/list', authenticateToken, async (req, res) => {
+  try {
+    if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
+      const orgServers = getServersByOrgId(req.tenant.organizationId)
+      if (orgServers.length === 0) {
+        return res.json({ success: true, cronJobs: [], jobs: [] })
+      }
     }
+
+    const realJobs = await getRealCronJobs()
+    res.json({ success: true, cronJobs: realJobs, jobs: realJobs })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
   }
-
-  exec('crontab -l', (error, stdout) => {
-    const jobs = []
-    if (!error && stdout) {
-      const lines = stdout.split('\n')
-      lines.forEach((line, idx) => {
-        const trimmed = line.trim()
-        if (trimmed && !trimmed.startsWith('#')) {
-          const parts = trimmed.split(/\s+/)
-          if (parts.length >= 6) {
-            const schedule = parts.slice(0, 5).join(' ')
-            const command = parts.slice(5).join(' ')
-            jobs.push({ id: `cron-${idx}`, schedule, command, status: 'active' })
-          }
-        }
-      })
-    }
-
-    if (jobs.length === 0) {
-      jobs.push(
-        { id: 'cron-1', schedule: '0 3 * * *', command: '/var/www/scripts/backup_db.sh', description: 'Daily Midnight Database Backup', status: 'active' },
-        { id: 'cron-2', schedule: '*/15 * * * *', command: 'pm2 reloadLogs', description: 'Purge PM2 Log Files', status: 'active' },
-        { id: 'cron-3', schedule: '0 0 1 * *', command: 'certbot renew --quiet', description: 'Monthly Let\'s Encrypt SSL Auto-Renewal', status: 'active' }
-      )
-    }
-
-    res.json({ success: true, jobs })
-  })
 })
 
 /**
@@ -1655,59 +1406,12 @@ router.post('/projects/realtime-fetch', authenticateToken, async (req, res) => {
       })
     }
 
-    const adminSettings = getUserSettings('admin-001')
-    const host = req.body.host || adminSettings.host || '187.127.165.128'
-
-    const realTimeData = [
-      {
-        id: 'proj-litigation',
-        appName: 'litigation',
-        domain: 'litigation.yjtechnosoft.com',
-        projectPath: '/var/www/litigation',
-        gitRepoUrl: 'https://github.com/yatindradhurwe/l.git',
-        branch: 'main',
-        pm2Status: 'online',
-        cpu: '0.4%',
-        memory: '64.2 MB',
-        restarts: 0,
-        lastCommit: '4d8b6a1 - feat: complete litigation CRM app implementation',
-        lastCommitTime: new Date().toISOString()
-      },
-      {
-        id: 'proj-autodeploy',
-        appName: 'auto-deploy-backend',
-        domain: 'automate-deployment.yjtechnosoft.com',
-        projectPath: '/var/www/auto-deploy-panel',
-        gitRepoUrl: 'https://github.com/yatindradhurwe/auto-deploy-panel.git',
-        branch: 'main',
-        pm2Status: 'online',
-        cpu: '0.2%',
-        memory: '78.5 MB',
-        restarts: 1,
-        lastCommit: '5707384 - feat: project-wise Antigravity Auto-Update system',
-        lastCommitTime: new Date().toISOString()
-      },
-      {
-        id: 'proj-tipcrm',
-        appName: 'tip-crm-backend',
-        domain: 'tip-crm.yjtechnosoft.com',
-        projectPath: '/var/www/tip-crm',
-        gitRepoUrl: 'https://github.com/yatindradhurwe/TOP-Income-Producer-CRM.git',
-        branch: 'main',
-        pm2Status: 'online',
-        cpu: '0.1%',
-        memory: '52.1 MB',
-        restarts: 0,
-        lastCommit: '9a31bc2 - feat: production server deployment configuration',
-        lastCommitTime: new Date().toISOString()
-      }
-    ]
-
+    const projects = discoverServerProjects()
     res.json({
       success: true,
-      host,
+      host: req.body.host || '187.127.165.128',
       timestamp: new Date().toISOString(),
-      projects: realTimeData
+      projects
     })
   } catch (err) {
     res.status(500).json({ success: false, error: err.message })
