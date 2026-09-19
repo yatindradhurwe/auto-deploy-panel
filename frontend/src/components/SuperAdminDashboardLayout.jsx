@@ -11,6 +11,16 @@ export default function SuperAdminDashboardLayout({ currentUser, jwtToken, onLog
   const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'users' | 'organizations' | 'servers' | 'subscriptions' | 'audit-logs' | 'idempotency'
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [impersonatingOrg, setImpersonatingOrg] = useState(null)
+  const [buildInfo, setBuildInfo] = useState(null)
+
+  useEffect(() => {
+    fetch(`${apiBaseUrl}/api/health`)
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.lastCodeUpdateFormatted) setBuildInfo(data)
+      })
+      .catch(() => {})
+  }, [apiBaseUrl])
 
   const adminNavSections = [
     {
@@ -39,7 +49,6 @@ export default function SuperAdminDashboardLayout({ currentUser, jwtToken, onLog
 
   const handleImpersonate = (orgId) => {
     setImpersonatingOrg(orgId)
-    // Redirect to customer dashboard with support banner
     window.location.hash = '#/app/dashboard'
   }
 
@@ -61,6 +70,14 @@ export default function SuperAdminDashboardLayout({ currentUser, jwtToken, onLog
           </div>
 
           <div className="flex items-center space-x-3">
+            {buildInfo?.lastCodeUpdateFormatted && (
+              <div className="hidden lg:flex items-center space-x-1.5 bg-slate-900/90 border border-purple-500/30 text-purple-300 px-3 py-1 rounded-xl text-[11px] font-mono shadow-inner" title={`Full Commit Timestamp: ${buildInfo.lastCodeUpdate}`}>
+                <Clock className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
+                <span className="text-[10px] text-slate-400">Code Updated:</span>
+                <span className="font-bold text-purple-300">{buildInfo.lastCodeUpdateFormatted}</span>
+              </div>
+            )}
+
             <a
               href="/app/dashboard"
               className="text-xs bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 px-3 py-1.5 rounded-xl font-bold flex items-center space-x-1.5"
@@ -124,7 +141,7 @@ export default function SuperAdminDashboardLayout({ currentUser, jwtToken, onLog
           {activeTab === 'idempotency' ? (
             <AdminIdempotencyPanel jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />
           ) : (
-            <SuperAdminPortal apiBaseUrl={apiBaseUrl} />
+            <SuperAdminPortal activeTab={activeTab} apiBaseUrl={apiBaseUrl} />
           )}
         </main>
       </div>

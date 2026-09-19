@@ -76,6 +76,38 @@ router.get('/servers', authenticateToken, requireSuperAdmin, (req, res) => {
   }
 })
 
+/**
+ * GET /api/admin/subscriptions
+ */
+router.get('/subscriptions', authenticateToken, requireSuperAdmin, (req, res) => {
+  try {
+    const db = readDb()
+    const subscriptions = Object.values(db.subscriptions || {})
+    res.json({ subscriptions })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+/**
+ * POST /api/admin/users/delete
+ */
+router.post('/users/delete', authenticateToken, requireSuperAdmin, (req, res) => {
+  try {
+    const { userId } = req.body
+    if (!userId || userId === 'admin-001') {
+      return res.status(400).json({ error: 'Cannot delete primary system admin account.' })
+    }
+    const db = readDb()
+    delete db.users[userId]
+    // Write db updates
+    fs.writeFileSync(path.resolve(process.cwd(), 'data/db.json'), JSON.stringify(db, null, 2))
+    res.json({ success: true, message: `User ${userId} deleted successfully.` })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 import { getIdempotencyStats, getAllIdempotencyRecords } from '../services/db.service.js'
 
 /**

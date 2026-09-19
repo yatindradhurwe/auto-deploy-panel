@@ -22,6 +22,12 @@ app.use('/', agentRoutes)
 
 // Health Check (Public Endpoint)
 app.get('/api/health', (req, res) => {
+  let lastGitCommitTime = new Date().toISOString()
+  try {
+    const gitLog = execSync('git log -1 --format=%cd', { encoding: 'utf8' }).trim()
+    if (gitLog) lastGitCommitTime = new Date(gitLog).toISOString()
+  } catch(e) {}
+
   res.json({
     status: 'online',
     service: 'AutoDeploy Multi-Tenant SaaS Engine',
@@ -29,6 +35,8 @@ app.get('/api/health', (req, res) => {
     authEnabled: true,
     studioEnabled: true,
     multiTenant: true,
+    lastCodeUpdate: lastGitCommitTime,
+    lastCodeUpdateFormatted: new Date(lastGitCommitTime).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }),
     timestamp: new Date().toISOString(),
   })
 })

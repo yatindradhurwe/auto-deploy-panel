@@ -44,6 +44,7 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
   const [connecting, setConnecting] = useState(false)
   const [agentToken, setAgentToken] = useState('')
   const [installCommand, setInstallCommand] = useState('')
+  const [buildInfo, setBuildInfo] = useState(null)
 
   const fetchTenantServers = async () => {
     setLoadingServers(true)
@@ -65,8 +66,19 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
     }
   }
 
+  const fetchBuildInfo = async () => {
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/health`)
+      const data = await res.json()
+      if (data && data.lastCodeUpdateFormatted) {
+        setBuildInfo(data)
+      }
+    } catch (e) {}
+  }
+
   useEffect(() => {
     fetchTenantServers()
+    fetchBuildInfo()
     const token = `tok_${Math.random().toString(36).substring(2, 15)}`
     setAgentToken(token)
     setInstallCommand(`curl -fsSL ${window.location.origin}/install.sh | sudo bash -s -- --token=${token}`)
@@ -179,6 +191,14 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
               onServerSelect={(id) => setActiveServerId(id)}
               apiBaseUrl={apiBaseUrl}
             />
+
+            {buildInfo?.lastCodeUpdateFormatted && (
+              <div className="hidden lg:flex items-center space-x-1.5 bg-slate-900/90 border border-cyan-500/30 text-cyan-300 px-2.5 py-1 rounded-xl text-[11px] font-mono shadow-inner" title={`Full Commit Timestamp: ${buildInfo.lastCodeUpdate}`}>
+                <Clock className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+                <span className="text-[10px] text-slate-400">Code Updated:</span>
+                <span className="font-bold text-cyan-300">{buildInfo.lastCodeUpdateFormatted}</span>
+              </div>
+            )}
 
             <button
               onClick={() => setShowAiDrawer(true)}
