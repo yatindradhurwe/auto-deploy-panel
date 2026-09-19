@@ -24,7 +24,8 @@ import {
   getRealPm2Processes,
   getRealSslCertificates,
   getRealCronJobs,
-  getRealDatabases
+  getRealDatabases,
+  getDatabaseSchema
 } from '../services/server.service.js'
 
 const router = express.Router()
@@ -663,6 +664,21 @@ router.all('/databases', async (req, res) => {
   try {
     const realDbs = await getRealDatabases()
     res.json({ success: true, databases: realDbs })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+/**
+ * POST /api/studio/databases/schema
+ * Fetch dynamic tables, schema structure, and record data for specific database
+ */
+router.all('/databases/schema', async (req, res) => {
+  try {
+    const engine = req.body?.engine || req.query?.engine || 'sqlite'
+    const dbName = req.body?.dbName || req.query?.dbName || 'db.json'
+    const schema = getDatabaseSchema(engine, dbName)
+    res.json({ success: true, schema })
   } catch (err) {
     res.status(500).json({ success: false, error: err.message })
   }

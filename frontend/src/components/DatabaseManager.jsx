@@ -12,6 +12,7 @@ export default function DatabaseManager({ jwtToken }) {
   const [selectedTable, setSelectedTable] = useState(null)
   const [activeSubTab, setActiveSubTab] = useState('data') // 'data' | 'structure' | 'console'
   const [tableSearchQuery, setTableSearchQuery] = useState('')
+  const [dataSearchQuery, setDataSearchQuery] = useState('')
 
   // Query Console State
   const [queryInput, setQueryInput] = useState('SELECT * FROM users LIMIT 10;')
@@ -33,28 +34,64 @@ export default function DatabaseManager({ jwtToken }) {
   const [showInsertRowModal, setShowInsertRowModal] = useState(false)
   const [insertRowData, setInsertRowData] = useState({})
 
+  const getToken = () => jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
+
   useEffect(() => {
     fetchDatabases()
   }, [])
 
+  const fetchDatabaseSchema = async (engine, dbName) => {
+    try {
+      const token = getToken()
+      const res = await fetch('/api/studio/databases/schema', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ engine, dbName })
+      })
+      const data = await res.json()
+      if (data.success && data.schema) {
+        setSelectedDb((prev) => ({
+          ...prev,
+          tables: data.schema.tables || prev?.tables,
+          collections: data.schema.collections || prev?.collections,
+          keys: data.schema.keys || prev?.keys
+        }))
+        const newTables = data.schema.tables || data.schema.collections || data.schema.keys || []
+        if (newTables.length > 0) {
+          setSelectedTable(newTables[0])
+        } else {
+          setSelectedTable(null)
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch db schema:', err)
+    }
+  }
+
   const fetchDatabases = async () => {
     setLoading(true)
     try {
+      const token = getToken()
       const res = await fetch('/api/studio/databases', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwtToken}`
+          'Authorization': `Bearer ${token}`
         }
       })
       const data = await res.json()
       if (data.success && data.databases.length > 0) {
         setDatabases(data.databases)
         const currentEng = data.databases.find((d) => d.engine === activeEngine) || data.databases[0]
+        const defaultDbName = currentEng.activeDbName || currentEng.databasesList?.[0] || ''
         setSelectedDb(currentEng)
-        setSelectedDbName(currentEng.activeDbName || currentEng.databasesList?.[0] || '')
-        const firstTable = currentEng.tables?.[0] || currentEng.collections?.[0] || null
-        setSelectedTable(firstTable)
+        setSelectedDbName(defaultDbName)
+        
+        // Fetch dynamic schema for default DB
+        fetchDatabaseSchema(currentEng.engine, defaultDbName)
       }
     } catch (e) {
       console.error('Failed to load databases', e)
@@ -63,14 +100,19 @@ export default function DatabaseManager({ jwtToken }) {
     }
   }
 
+  const handleSelectDbName = (dbName) => {
+    setSelectedDbName(dbName)
+    fetchDatabaseSchema(activeEngine, dbName)
+  }
+
   const handleEngineChange = (engine) => {
     setActiveEngine(engine)
     const matched = databases.find((d) => d.engine === engine)
     if (matched) {
+      const defaultDb = matched.activeDbName || matched.databasesList?.[0] || ''
       setSelectedDb(matched)
-      setSelectedDbName(matched.activeDbName || matched.databasesList?.[0] || '')
-      const firstTable = matched.tables?.[0] || matched.collections?.[0] || null
-      setSelectedTable(firstTable)
+      setSelectedDbName(defaultDb)
+      fetchDatabaseSchema(engine, defaultDb)
     }
     setQueryResult(null)
 
@@ -373,7 +415,7 @@ export default function DatabaseManager({ jwtToken }) {
                 <div className="pt-1">
                   <select
                     value={selectedDbName}
-                    onChange={(e) => setSelectedDbName(e.target.value)}
+                    onChange={(e) => handleSelectDbName(e.target.value)}
                     className="w-full bg-slate-900 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-cyan-300 font-mono focus:outline-none focus:border-cyan-400"
                   >
                     {selectedDb.databasesList.map((dbName) => (
@@ -589,12 +631,23 @@ export default function DatabaseManager({ jwtToken }) {
               ) : selectedTable.data ? (
                 <div className="flex-1 flex flex-col overflow-hidden space-y-3">
                   {/* Table Info Toolbar */}
-                  <div className="flex items-center justify-between text-xs font-mono text-slate-400 border-b border-white/10 pb-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-mono text-slate-400 border-b border-white/10 pb-2">
                     <div className="flex items-center space-x-2">
                       <span className="text-white font-bold">{selectedTable.name}</span>
-                      <span>({selectedTable.rows} total rows)</span>
+                      <span>({selectedTable.rows || selectedTable.data?.length || 0} total rows)</span>
+                      <span className="text-cyan-400 ml-2">PK: {selectedTable.primaryKey || 'id'}</span>
                     </div>
-                    <span className="text-cyan-400">Primary Key: {selectedTable.primaryKey || 'id'}</span>
+
+                    <div className="relative w-full sm:w-48">
+                      <input
+                        type="text"
+                        value={dataSearchQuery}
+                        onChange={(e) => setDataSearchQuery(e.target.value)}
+                        placeholder="Search rows..."
+                        className="w-full bg-slate-900 border border-white/10 rounded-xl pl-7 pr-2 py-1 text-[11px] text-slate-200 focus:outline-none focus:border-cyan-400"
+                      />
+                      <Search className="w-3 h-3 text-slate-500 absolute left-2.5 top-2" />
+                    </div>
                   </div>
 
                   {/* Data Rows Table */}
@@ -612,24 +665,41 @@ export default function DatabaseManager({ jwtToken }) {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/5 font-mono text-[11px]">
-                        {selectedTable.data.map((row, idx) => (
-                          <tr key={idx} className="hover:bg-slate-900/80 transition">
-                            <td className="py-2 px-3 border-r border-white/5 text-center">
-                              <button
-                                onClick={() => handleDeleteRow(row)}
-                                className="p-1 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded transition cursor-pointer"
-                                title="Delete row"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            </td>
-                            {selectedTable.columns?.map((col) => (
-                              <td key={col.name} className="py-2 px-3 border-r border-white/5 whitespace-nowrap text-slate-200">
-                                {String(row[col.name] ?? '')}
+                        {(() => {
+                          const rows = selectedTable.data || []
+                          const filtered = rows.filter(r => {
+                            if (!dataSearchQuery.trim()) return true
+                            const q = dataSearchQuery.toLowerCase()
+                            return Object.values(r).some(val => String(val || '').toLowerCase().includes(q))
+                          })
+                          if (filtered.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={(selectedTable.columns?.length || 0) + 1} className="py-8 text-center text-slate-500">
+                                  No records found matching "{dataSearchQuery}"
+                                </td>
+                              </tr>
+                            )
+                          }
+                          return filtered.map((row, idx) => (
+                            <tr key={idx} className="hover:bg-slate-900/80 transition">
+                              <td className="py-2 px-3 border-r border-white/5 text-center">
+                                <button
+                                  onClick={() => handleDeleteRow(row)}
+                                  className="p-1 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded transition cursor-pointer"
+                                  title="Delete row"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
                               </td>
-                            ))}
-                          </tr>
-                        ))}
+                              {selectedTable.columns?.map((col) => (
+                                <td key={col.name} className="py-2 px-3 border-r border-white/5 whitespace-nowrap text-slate-200">
+                                  {String(row[col.name] ?? '')}
+                                </td>
+                              ))}
+                            </tr>
+                          ))
+                        })()}
                       </tbody>
                     </table>
                   </div>
