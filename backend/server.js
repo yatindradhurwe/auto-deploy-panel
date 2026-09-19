@@ -69,9 +69,11 @@ app.use('/api/team', teamRoutes)
 // Super Admin Platform Monitoring Routes
 app.use('/api/admin', adminRoutes)
 
-// Protected Deployment & Studio Routes (Requires valid JWT Token)
-app.use('/api/deploy', authenticateToken, deployRoutes)
-app.use('/api/studio', authenticateToken, studioRoutes)
+import { requireTenant } from './middleware/tenant.middleware.js'
+
+// Protected Deployment & Studio Routes (Requires valid JWT Token & Tenant Context)
+app.use('/api/deploy', authenticateToken, requireTenant, deployRoutes)
+app.use('/api/studio', authenticateToken, requireTenant, studioRoutes)
 
 app.listen(PORT, () => {
   console.log(`[AUTODEPLOY-STUDIO-BACKEND] Multi-Tenant Engine Listening on http://localhost:${PORT}`)

@@ -218,10 +218,16 @@ function discoverServerProjects() {
   return projects
 }
 
+import { getServersByOrgId, getProjectsByOrgId, createServer, deleteServer } from '../services/db.service.js'
+
 /**
  * GET /api/studio/servers
  */
-router.get('/servers', authenticateToken, (req, res) => {
+router.get('/servers', (req, res) => {
+  if (req.tenant && req.tenant.organizationId) {
+    const orgServers = getServersByOrgId(req.tenant.organizationId)
+    return res.json({ success: true, servers: orgServers })
+  }
   res.json({ success: true, servers: DEFAULT_SERVERS })
 })
 
@@ -229,22 +235,22 @@ router.get('/servers', authenticateToken, (req, res) => {
  * POST /api/studio/servers/scan
  * Real-time Server Node scan
  */
-router.post('/servers/scan', authenticateToken, (req, res) => {
-  const { host = '187.127.165.128' } = req.body
+router.post('/servers/scan', (req, res) => {
+  const host = req.body.host || req.tenant?.server?.ipAddress || '187.127.165.128'
 
   const liveNode = {
-    id: 'srv-001',
-    name: 'Production Server Node 01',
+    id: req.tenant?.server?.id || 'srv-001',
+    name: req.tenant?.server?.name || 'Production Server Node 01',
     host: host,
-    port: 22,
-    username: 'root',
+    port: req.tenant?.server?.port || 22,
+    username: req.tenant?.server?.username || 'root',
     status: 'online',
-    os: 'Ubuntu 22.04.4 LTS (x86_64)',
+    os: req.tenant?.server?.os || 'Ubuntu 22.04.4 LTS (x86_64)',
     cpuUsage: Math.floor(Math.random() * 12) + 4,
     ramUsage: Math.floor(Math.random() * 15) + 42,
     diskUsage: 36,
     activeApps: 6,
-    domain: 'automate-deployment.yjtechnosoft.com',
+    domain: req.tenant?.server?.domain || 'automate-deployment.yjtechnosoft.com',
     lastConnected: new Date().toISOString()
   }
 
@@ -525,11 +531,19 @@ router.post('/server-metrics', authenticateToken, (req, res) => {
 })
 
 /**
- * POST /api/studio/projects/realtime-fetch
+ * GET & POST /api/studio/projects/realtime-fetch
  * Rescans server applications & PM2 services in real-time
  */
-router.post('/projects/realtime-fetch', authenticateToken, (req, res) => {
+router.all('/projects/realtime-fetch', (req, res) => {
   try {
+    if (req.tenant && req.tenant.organizationId) {
+      const orgProjects = getProjectsByOrgId(req.tenant.organizationId)
+      return res.json({
+        success: true,
+        message: `Retrieved ${orgProjects.length} organization projects.`,
+        projects: orgProjects
+      })
+    }
     const projects = discoverServerProjects()
     res.json({
       success: true,

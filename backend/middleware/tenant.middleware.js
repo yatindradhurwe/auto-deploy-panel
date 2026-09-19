@@ -58,8 +58,8 @@ export const requireTenant = (req, res, next) => {
         server = orgServers[0]
         serverId = server.id
       } else {
-        serverId = 'srv-default'
-        server = getServerById('srv-default')
+        serverId = null
+        server = null
       }
     }
 
@@ -99,3 +99,16 @@ export const requireRole = (allowedRoles = []) => {
     })
   }
 }
+
+/**
+ * Validates that target resource (e.g. server, project) belongs to requesting tenant organization
+ */
+export const validateResourceOwnership = (resource, req) => {
+  if (!resource) return false
+  if (req.user && (req.user.id === 'admin-001' || req.user.role === 'admin')) {
+    return true
+  }
+  if (!req.tenant || !req.tenant.organizationId) return false
+  return resource.organizationId === req.tenant.organizationId
+}
+
