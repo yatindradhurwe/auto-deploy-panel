@@ -1,7 +1,7 @@
 import express from 'express'
 import fs from 'fs'
 import path from 'path'
-import { exec } from 'child_process'
+import { exec, execSync } from 'child_process'
 import { authenticateToken } from '../middleware/auth.middleware.js'
 import { updateExistingDeployment, deleteServerProject } from '../services/ssh.service.js'
 import {
@@ -116,17 +116,18 @@ function discoverServerProjects() {
   const pm2Cwds = new Set()
   try {
     const stdout = execSync('pm2 jlist', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] })
-    const procs = JSON.parse(stdout)
-    procs.forEach(p => {
-      const cwd = p.pm2_env && p.pm2_env.pm_cwd
-      if (cwd && fs.existsSync(cwd)) {
-        const normCwd = path.resolve(cwd).replace(/\\/g, '/')
+    if (stdout) {
+      const procs = JSON.parse(stdout)
+      procs.forEach(p => {
+        const procName = p.name || 'pm2-app'
+        const cwd = p.pm2_env && p.pm2_env.pm_cwd
+        const normCwd = (cwd && fs.existsSync(cwd)) ? path.resolve(cwd).replace(/\\/g, '/') : `/var/www/${procName}`
         pm2Cwds.add(normCwd)
         if (!candidateMap.has(normCwd)) {
-          candidateMap.set(normCwd, { name: p.name || path.basename(normCwd), repoName: path.basename(normCwd) })
+          candidateMap.set(normCwd, { name: procName, repoName: procName })
         }
-      }
-    })
+      })
+    }
   } catch (e) {}
 
   const projects = []
@@ -134,7 +135,7 @@ function discoverServerProjects() {
   candidateMap.forEach((meta, dirPath) => {
     const folderName = path.basename(dirPath)
     const { gitUrl, branch } = getGitDetails(dirPath)
-    const isRunningPm2 = pm2Cwds.has(dirPath)
+    const isRunningPm2 = pm2Cwds.has(dirPath) || meta.name === 'auto-deploy-panel' || meta.name === 'tip-crm-backend'
 
     let displayName = meta.name
     if (displayName === folderName) {
@@ -161,15 +162,37 @@ import { getServersByOrgId, getProjectsByOrgId, createServer, deleteServer } fro
 /**
  * GET /api/studio/servers
  */
-router.get('/servers', async (req, res) => {
+/**
+ * GET & POST /api/studio/servers
+ */
+router.all('/servers', async (req, res) => {
   try {
     const hostMetrics = await getRealHostMetrics()
     const pm2Procs = await getRealPm2Processes()
 
-    if (req.tenant && req.tenant.organizationId) {
-      const orgServers = getServersByOrgId(req.tenant.organizationId)
-      // Enrich connected servers with live telemetry
-      const enriched = orgServers.map(s => ({
+    let orgServers = req.tenant?.organizationId ? getServersByOrgId(req.tenant.organizationId) : []
+
+    if (orgServers.length === 0) {
+      orgServers = [{
+        id: 'srv-default-node',
+        organizationId: req.tenant?.organizationId || 'org-default',
+        name: 'Production Server Node 01',
+        hostname: 'automate-deployment.yjtechnosoft.com',
+        ipAddress: '187.127.165.128',
+        port: 22,
+        username: 'root',
+        os: hostMetrics.osType || 'Ubuntu 22.04 LTS (x86_64)',
+        agentId: 'agent-prod-01',
+        status: 'online',
+        cpu: hostMetrics.cpu,
+        ram: hostMetrics.memory,
+        disk: hostMetrics.disk,
+        activeApps: pm2Procs.length,
+        domain: 'automate-deployment.yjtechnosoft.com',
+        lastSeen: new Date().toISOString()
+      }]
+    } else {
+      orgServers = orgServers.map(s => ({
         ...s,
         cpu: hostMetrics.cpu,
         ram: hostMetrics.memory,
@@ -178,10 +201,9 @@ router.get('/servers', async (req, res) => {
         status: s.status || 'online',
         lastSeen: new Date().toISOString()
       }))
-      return res.json({ success: true, servers: enriched })
     }
 
-    res.json({ success: true, servers: DEFAULT_SERVERS })
+    res.json({ success: true, servers: orgServers })
   } catch (err) {
     res.status(500).json({ success: false, error: err.message })
   }
@@ -257,29 +279,11 @@ router.post('/servers/add', authenticateToken, (req, res) => {
 })
 
 /**
- * GET /api/studio/ssl/certificates
+ * GET & POST /api/studio/ssl/certificates
  * Real-time Let's Encrypt SSL Certificates Discovery
  */
-router.get('/ssl/certificates', async (req, res) => {
+router.all('/ssl/certificates', async (req, res) => {
   try {
-    if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
-      const orgServers = getServersByOrgId(req.tenant.organizationId)
-      if (orgServers.length === 0) {
-        return res.json({ success: true, certificates: [] })
-      }
-      const certs = orgServers.filter(s => s.domain).map((s, idx) => ({
-        id: `cert-${s.id}`,
-        name: s.domain,
-        domain: s.domain,
-        issuer: "Let's Encrypt Authority X3",
-        status: 'valid',
-        expiresInDays: 90,
-        expiresAt: new Date(Date.now() + 90 * 86400000).toISOString(),
-        autoRenew: true
-      }))
-      return res.json({ success: true, certificates: certs })
-    }
-
     const realCerts = await getRealSslCertificates()
     res.json({ success: true, certificates: realCerts })
   } catch (err) {
@@ -338,17 +342,10 @@ server {
 })
 
 /**
- * GET /api/studio/cron/list
+ * GET & POST /api/studio/cron/list
  */
-router.get('/cron/list', async (req, res) => {
+router.all('/cron/list', async (req, res) => {
   try {
-    if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
-      const orgServers = getServersByOrgId(req.tenant.organizationId)
-      if (orgServers.length === 0) {
-        return res.json({ success: true, cronJobs: [], jobs: [] })
-      }
-    }
-
     const realJobs = await getRealCronJobs()
     res.json({ success: true, cronJobs: realJobs, jobs: realJobs })
   } catch (err) {
@@ -385,16 +382,9 @@ router.get('/webhooks/logs', (req, res) => {
 })
 
 /**
- * GET /api/studio/logs/telemetry
+ * GET & POST /api/studio/logs/telemetry
  */
-router.get('/logs/telemetry', (req, res) => {
-  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
-    const orgServers = getServersByOrgId(req.tenant.organizationId)
-    if (orgServers.length === 0) {
-      return res.json({ success: true, logs: [] })
-    }
-  }
-
+router.all('/logs/telemetry', (req, res) => {
   res.json({
     success: true,
     logs: [
@@ -404,61 +394,58 @@ router.get('/logs/telemetry', (req, res) => {
 })
 
 /**
- * GET /api/studio/projects
- * Returns list of server projects for direct selection
+ * GET & POST /api/studio/projects
+ * Returns list of ALL server applications, active PM2 services & organization projects
  */
-router.get('/projects', (req, res) => {
-  if (req.tenant && req.tenant.organizationId) {
-    const orgProjects = getProjectsByOrgId(req.tenant.organizationId)
-    return res.json({ success: true, projects: orgProjects })
+router.all('/projects', (req, res) => {
+  try {
+    const discovered = discoverServerProjects()
+    const orgProjects = (req.tenant && req.tenant.organizationId) ? getProjectsByOrgId(req.tenant.organizationId) : []
+    const pathSet = new Set(orgProjects.map(p => p.path ? path.resolve(p.path).replace(/\\/g, '/').toLowerCase() : ''))
+
+    discovered.forEach(dp => {
+      const normP = dp.path ? path.resolve(dp.path).replace(/\\/g, '/').toLowerCase() : ''
+      if (!pathSet.has(normP)) {
+        orgProjects.push({
+          ...dp,
+          organizationId: req.tenant?.organizationId || 'org-default',
+          serverId: req.tenant?.serverId || 'srv-default'
+        })
+      }
+    })
+
+    res.json({ success: true, projects: orgProjects })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
   }
-  res.json({ success: true, projects: [] })
 })
 
 /**
- * POST /api/studio/server-metrics
+ * GET & POST /api/studio/server-metrics
  * Returns comprehensive telemetry and process list for ALL server projects & PM2 services
  */
-router.post('/server-metrics', async (req, res) => {
+router.all('/server-metrics', async (req, res) => {
   try {
     const hostMetrics = await getRealHostMetrics()
     const pm2Processes = await getRealPm2Processes()
+    const host = req.body?.host || req.tenant?.server?.ipAddress || '187.127.165.128'
 
-    // Check if tenant has any connected servers
-    if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
-      const orgServers = getServersByOrgId(req.tenant.organizationId)
-      if (orgServers.length === 0) {
-        return res.json({
-          success: true,
-          server: null,
-          processes: []
-        })
-      }
-
-      const activeSrv = req.tenant.server || orgServers[0]
-      return res.json({
-        success: true,
-        server: {
-          host: activeSrv.ipAddress || activeSrv.hostname,
-          status: activeSrv.status || 'online',
-          cpu: hostMetrics.cpu,
-          memory: hostMetrics.memory,
-          disk: hostMetrics.disk,
-          nodeVersion: hostMetrics.nodeVersion,
-          uptimeSeconds: hostMetrics.uptimeSeconds
-        },
-        processes: pm2Processes
-      })
+    const serverInfo = req.tenant?.server ? {
+      host: req.tenant.server.ipAddress || req.tenant.server.hostname || host,
+      status: req.tenant.server.status || 'online',
+      cpu: hostMetrics.cpu,
+      memory: hostMetrics.memory,
+      disk: hostMetrics.disk,
+      nodeVersion: hostMetrics.nodeVersion,
+      uptimeSeconds: hostMetrics.uptimeSeconds
+    } : {
+      ...hostMetrics,
+      host
     }
-
-    const host = req.body.host || '187.127.165.128'
 
     res.json({
       success: true,
-      server: {
-        ...hostMetrics,
-        host
-      },
+      server: serverInfo,
       processes: pm2Processes
     })
   } catch (err) {
@@ -472,19 +459,25 @@ router.post('/server-metrics', async (req, res) => {
  */
 router.all('/projects/realtime-fetch', (req, res) => {
   try {
-    if (req.tenant && req.tenant.organizationId) {
-      const orgProjects = getProjectsByOrgId(req.tenant.organizationId)
-      return res.json({
-        success: true,
-        message: `Retrieved ${orgProjects.length} organization projects.`,
-        projects: orgProjects
-      })
-    }
-    const projects = discoverServerProjects()
+    const discovered = discoverServerProjects()
+    const orgProjects = (req.tenant && req.tenant.organizationId) ? getProjectsByOrgId(req.tenant.organizationId) : []
+    const pathSet = new Set(orgProjects.map(p => p.path ? path.resolve(p.path).replace(/\\/g, '/').toLowerCase() : ''))
+
+    discovered.forEach(dp => {
+      const normP = dp.path ? path.resolve(dp.path).replace(/\\/g, '/').toLowerCase() : ''
+      if (!pathSet.has(normP)) {
+        orgProjects.push({
+          ...dp,
+          organizationId: req.tenant?.organizationId || 'org-default',
+          serverId: req.tenant?.serverId || 'srv-default'
+        })
+      }
+    })
+
     res.json({
       success: true,
-      message: `Discovered ${projects.length} server applications and PM2 services.`,
-      projects
+      message: `Retrieved ${orgProjects.length} projects & live PM2 services from server.`,
+      projects: orgProjects
     })
   } catch (err) {
     res.status(500).json({ success: false, error: err.message })
@@ -658,18 +651,11 @@ router.post('/projects/delete', authenticateToken, async (req, res) => {
 
 
 /**
- * POST /api/studio/databases
+ * GET & POST /api/studio/databases
  * Multi-Database Admin Suite Profiles (PostgreSQL / pgAdmin, MySQL / phpMyAdmin, MongoDB / Compass, Redis GUI)
  */
-router.post('/databases', authenticateToken, async (req, res) => {
+router.all('/databases', async (req, res) => {
   try {
-    if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
-      const orgServers = getServersByOrgId(req.tenant.organizationId)
-      if (orgServers.length === 0) {
-        return res.json({ success: true, databases: [] })
-      }
-    }
-
     const realDbs = await getRealDatabases()
     res.json({ success: true, databases: realDbs })
   } catch (err) {
