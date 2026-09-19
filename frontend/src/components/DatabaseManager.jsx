@@ -174,7 +174,7 @@ export default function DatabaseManager({ jwtToken }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwtToken}`
+          'Authorization': `Bearer ${getToken()}`
         },
         body: JSON.stringify({
           engine: activeEngine,
@@ -204,7 +204,7 @@ export default function DatabaseManager({ jwtToken }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwtToken}`
+          'Authorization': `Bearer ${getToken()}`
         },
         body: JSON.stringify({
           engine: activeEngine,
@@ -236,7 +236,7 @@ export default function DatabaseManager({ jwtToken }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwtToken}`
+          'Authorization': `Bearer ${getToken()}`
         },
         body: JSON.stringify({
           engine: activeEngine,
@@ -264,7 +264,7 @@ export default function DatabaseManager({ jwtToken }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwtToken}`
+          'Authorization': `Bearer ${getToken()}`
         },
         body: JSON.stringify({
           engine: activeEngine,
@@ -295,7 +295,7 @@ export default function DatabaseManager({ jwtToken }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwtToken}`
+          'Authorization': `Bearer ${getToken()}`
         },
         body: JSON.stringify({
           engine: activeEngine,
