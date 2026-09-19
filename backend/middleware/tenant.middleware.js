@@ -34,15 +34,16 @@ export const requireTenant = (req, res, next) => {
       return res.status(404).json({ error: `Organization '${orgId}' not found.` })
     }
 
-    // Verify membership (Super Admin admin-001 gets override access)
+    // Verify membership (Super Admin / Admin gets override access)
     const members = getOrganizationMembers(orgId)
     const memberRecord = members.find(m => m.userId === user.id)
+    const isSystemAdmin = user.id === 'admin-001' || (user.role && user.role.toLowerCase().includes('admin')) || user.email === 'admin@tipcrm.com'
     
-    if (!memberRecord && user.id !== 'admin-001' && user.role !== 'admin') {
+    if (!memberRecord && !isSystemAdmin) {
       return res.status(403).json({ error: 'Access denied: You are not a member of this organization.' })
     }
 
-    const memberRole = memberRecord ? memberRecord.role : (user.id === 'admin-001' ? 'OWNER' : 'VIEWER')
+    const memberRole = memberRecord ? memberRecord.role : (isSystemAdmin ? 'OWNER' : 'VIEWER')
 
     // Resolve active serverId from header > query > body > first org server
     let serverId = req.headers['x-server-id'] || req.query.serverId || (req.body && req.body.serverId)
@@ -89,8 +90,11 @@ export const requireRole = (allowedRoles = []) => {
       return res.status(403).json({ error: 'Tenant context missing for role verification.' })
     }
 
-    const role = req.tenant.memberRole
-    if (allowedRoles.includes(role) || req.user.id === 'admin-001') {
+    const role = (req.tenant.memberRole || '').toUpperCase()
+    const allowedUpper = allowedRoles.map(r => r.toUpperCase())
+    const isSuperAdmin = req.user && (req.user.id === 'admin-001' || (req.user.role && req.user.role.toLowerCase().includes('admin')) || req.user.email === 'admin@tipcrm.com')
+
+    if (allowedUpper.includes(role) || isSuperAdmin) {
       return next()
     }
 
