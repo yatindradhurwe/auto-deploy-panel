@@ -22,15 +22,18 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
   // Delete Project Confirmation Modal State
   const [deleteModal, setDeleteModal] = useState(null)
 
+  const [projects, setProjects] = useState([])
+
   useEffect(() => {
     fetchMetrics()
     fetchAutoUpdateConfigs()
   }, [activeServer])
 
   const fetchAutoUpdateConfigs = async () => {
+    const tok = jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token')
     try {
       const res = await fetch('/api/studio/autoupdate/list', {
-        headers: { 'Authorization': `Bearer ${jwtToken}` }
+        headers: { 'Authorization': `Bearer ${tok}` }
       })
       const data = await res.json()
       if (data.success && data.configs) {
@@ -43,22 +46,40 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
 
   const fetchMetrics = async () => {
     setLoading(true)
+    const tok = jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
     try {
-      const res = await fetch('/api/studio/server-metrics', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwtToken}`
-        },
-        body: JSON.stringify({ host: activeServer ? activeServer.host : '187.127.165.128' })
-      })
-      const data = await res.json()
-      if (data.success) {
-        setProcesses(data.processes)
-        setServerStats(data.server)
+      const [metricsRes, projectsRes] = await Promise.all([
+        fetch('/api/studio/server-metrics', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${tok}`
+          },
+          body: JSON.stringify({ host: activeServer ? (activeServer.ipAddress || activeServer.host) : '187.127.165.128' })
+        }).catch(() => null),
+        fetch('/api/studio/projects', {
+          headers: {
+            'Authorization': `Bearer ${tok}`
+          }
+        }).catch(() => null)
+      ])
+
+      if (metricsRes) {
+        const data = await metricsRes.json().catch(() => ({}))
+        if (data.success) {
+          setProcesses(data.processes || [])
+          setServerStats(data.server)
+        }
+      }
+
+      if (projectsRes) {
+        const data = await projectsRes.json().catch(() => ({}))
+        if (data.success && data.projects) {
+          setProjects(data.projects)
+        }
       }
     } catch (e) {
-      console.error('Failed to fetch PM2 processes', e)
+      console.error('Failed to fetch PM2 processes & projects', e)
     } finally {
       setLoading(false)
     }
@@ -351,110 +372,185 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5 font-mono">
-              {processes.map((proc) => (
-                <tr key={proc.pm_id} className="hover:bg-slate-800/40 transition-colors">
-                  <td className="py-4 px-5 text-slate-400 font-bold">#{proc.pm_id}</td>
-                  <td className="py-4 px-5">
-                    <div className="font-extrabold text-white text-xs">{proc.name}</div>
-                    <div className="text-[10px] text-slate-500 font-mono mt-0.5">{proc.cwd || `/var/www/${proc.name}`}</div>
-                  </td>
-                  <td className="py-4 px-5">
-                    {autoUpdateConfigs[proc.name]?.enabled ? (
-                      <span
-                        onClick={() => handleOpenAutoUpdateModal(proc.name, proc.cwd)}
-                        className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-cyan-950/80 text-cyan-300 border border-cyan-500/40 inline-flex items-center gap-1.5 cursor-pointer hover:bg-cyan-900/80 transition"
-                        title="Click to configure project-wise Antigravity Auto-Update settings"
+              {processes.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-8 text-center text-slate-400">
+                    <div className="flex flex-col items-center justify-center space-y-3">
+                      <Layers className="w-8 h-8 text-slate-600" />
+                      <p className="text-xs font-bold text-slate-300">No active PM2 application services detected yet on host node.</p>
+                      <button
+                        onClick={() => setShowDeployWizard(true)}
+                        className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-indigo-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-cyan-500/20 flex items-center space-x-1.5 cursor-pointer"
                       >
-                        <Zap className="w-3 h-3 text-cyan-400 animate-pulse" />
-                        <span>⚡ Auto-Update ON</span>
-                      </span>
-                    ) : (
-                      <span
-                        onClick={() => handleOpenAutoUpdateModal(proc.name, proc.cwd)}
-                        className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-950/80 text-slate-400 border border-slate-800 inline-flex items-center gap-1.5 cursor-pointer hover:bg-slate-900 transition"
-                        title="Click to enable project-wise Antigravity Auto-Update settings"
-                      >
-                        <Zap className="w-3 h-3 text-slate-500" />
-                        <span>⏸ OFF</span>
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-4 px-5">
-                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border inline-flex items-center gap-1.5 shadow-sm ${
-                      proc.status === 'online'
-                        ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800/80'
-                        : 'bg-rose-950/80 text-rose-300 border-rose-800/80'
-                    }`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${proc.status === 'online' ? 'bg-emerald-400 animate-pulse shadow-sm shadow-emerald-400' : 'bg-rose-400'}`}></span>
-                      {proc.status.toUpperCase()}
-                    </span>
-                  </td>
-                  <td className="py-4 px-5 text-cyan-300 font-bold">{proc.cpu}%</td>
-                  <td className="py-4 px-5 text-blue-300 font-bold">{proc.memory} MB</td>
-                  <td className="py-4 px-5 text-purple-300 font-bold">{proc.restarts}</td>
-                  <td className="py-4 px-5 text-right space-x-2">
-                    {/* Antigravity Auto-Update Settings Button */}
-                    <button
-                      onClick={() => handleOpenAutoUpdateModal(proc.name, proc.cwd)}
-                      className="px-3 py-1.5 bg-gradient-to-r from-amber-600/30 to-orange-600/30 hover:from-amber-600/50 hover:to-orange-600/50 text-amber-200 border border-amber-500/40 rounded-xl text-[11px] transition cursor-pointer font-bold inline-flex items-center gap-1.5 shadow-md shadow-amber-950/40"
-                      title="Configure Antigravity Auto-Update interval, repo branch, and GitHub Webhooks for this project"
-                    >
-                      <Zap className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Auto-Update Settings</span>
-                    </button>
-
-                    {/* 1-Click Pull & Update Live Server Button */}
-                    <button
-                      onClick={() => handlePullAndUpdate(proc.name, proc.cwd)}
-                      disabled={updatingAppName === proc.name}
-                      className="px-3 py-1.5 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white border border-purple-400/40 rounded-xl text-[11px] transition cursor-pointer font-bold inline-flex items-center gap-1.5 shadow-md shadow-purple-950/40 disabled:opacity-50"
-                      title="Pull latest code changes from GitHub, rebuild assets, and reload live server service"
-                    >
-                      <DownloadCloud className={`w-3.5 h-3.5 text-purple-200 ${updatingAppName === proc.name ? 'animate-bounce' : ''}`} />
-                      <span>{updatingAppName === proc.name ? 'Updating...' : 'Pull & Update Live'}</span>
-                    </button>
-
-                    <button
-                      onClick={() => onOpenInStudio && onOpenInStudio(proc.name)}
-                      className="px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white border border-cyan-400/30 rounded-xl text-[11px] transition cursor-pointer font-bold inline-flex items-center gap-1.5 shadow-md shadow-cyan-950/40"
-                    >
-                      <Code className="w-3.5 h-3.5" />
-                      <span>Open in Studio</span>
-                    </button>
-
-                    <button
-                      onClick={() => toggleProcessState(proc.pm_id)}
-                      className={`px-3 py-1.5 rounded-xl border transition text-[11px] cursor-pointer font-semibold ${
-                        proc.status === 'online'
-                          ? 'bg-amber-950/40 text-amber-300 border-amber-800/60 hover:bg-amber-900/40'
-                          : 'bg-emerald-950/40 text-emerald-300 border-emerald-800/60 hover:bg-emerald-900/40'
-                      }`}
-                    >
-                      {proc.status === 'online' ? 'Stop' : 'Start'}
-                    </button>
-
-                    {/* Delete Project / Duplicate Website Button */}
-                    <button
-                      onClick={() => setDeleteModal({
-                        appName: proc.name,
-                        projectPath: proc.cwd || `/var/www/${proc.name}`,
-                        domain: proc.name.includes('.com') ? proc.name : `${proc.name}.yjtechnosoft.com`,
-                        deletePm2: true,
-                        deleteFiles: true,
-                        deleteNginx: true,
-                        deleting: false
-                      })}
-                      className="px-3 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/80 rounded-xl text-[11px] transition cursor-pointer font-bold inline-flex items-center gap-1 shadow-sm"
-                      title="Delete project, duplicate website directory, PM2 service and Nginx config from server"
-                    >
-                      <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-                      <span>Delete</span>
-                    </button>
+                        <Zap className="w-4 h-4 text-yellow-300" />
+                        <span>Start 1-Click Deployment</span>
+                      </button>
+                    </div>
                   </td>
                 </tr>
-              ))}
+              ) : (
+                processes.map((proc) => (
+                  <tr key={proc.pm_id} className="hover:bg-slate-800/40 transition-colors">
+                    <td className="py-4 px-5 text-slate-400 font-bold">#{proc.pm_id}</td>
+                    <td className="py-4 px-5">
+                      <div className="font-extrabold text-white text-xs">{proc.name}</div>
+                      <div className="text-[10px] text-slate-500 font-mono mt-0.5">{proc.cwd || `/var/www/${proc.name}`}</div>
+                    </td>
+                    <td className="py-4 px-5">
+                      {autoUpdateConfigs[proc.name]?.enabled ? (
+                        <span
+                          onClick={() => handleOpenAutoUpdateModal(proc.name, proc.cwd)}
+                          className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-cyan-950/80 text-cyan-300 border border-cyan-500/40 inline-flex items-center gap-1.5 cursor-pointer hover:bg-cyan-900/80 transition"
+                          title="Click to configure project-wise Antigravity Auto-Update settings"
+                        >
+                          <Zap className="w-3 h-3 text-cyan-400 animate-pulse" />
+                          <span>⚡ Auto-Update ON</span>
+                        </span>
+                      ) : (
+                        <span
+                          onClick={() => handleOpenAutoUpdateModal(proc.name, proc.cwd)}
+                          className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-950/80 text-slate-400 border border-slate-800 inline-flex items-center gap-1.5 cursor-pointer hover:bg-slate-900 transition"
+                          title="Click to enable project-wise Antigravity Auto-Update settings"
+                        >
+                          <Zap className="w-3 h-3 text-slate-500" />
+                          <span>⏸ OFF</span>
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-4 px-5">
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border inline-flex items-center gap-1.5 shadow-sm ${
+                        proc.status === 'online'
+                          ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800/80'
+                          : 'bg-rose-950/80 text-rose-300 border-rose-800/80'
+                      }`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${proc.status === 'online' ? 'bg-emerald-400 animate-pulse shadow-sm shadow-emerald-400' : 'bg-rose-400'}`}></span>
+                        {proc.status.toUpperCase()}
+                      </span>
+                    </td>
+                    <td className="py-4 px-5 text-cyan-300 font-bold">{proc.cpu}%</td>
+                    <td className="py-4 px-5 text-blue-300 font-bold">{proc.memory} MB</td>
+                    <td className="py-4 px-5 text-purple-300 font-bold">{proc.restarts}</td>
+                    <td className="py-4 px-5 text-right space-x-2">
+                      {/* Antigravity Auto-Update Settings Button */}
+                      <button
+                        onClick={() => handleOpenAutoUpdateModal(proc.name, proc.cwd)}
+                        className="px-3 py-1.5 bg-gradient-to-r from-amber-600/30 to-orange-600/30 hover:from-amber-600/50 hover:to-orange-600/50 text-amber-200 border border-amber-500/40 rounded-xl text-[11px] transition cursor-pointer font-bold inline-flex items-center gap-1.5 shadow-md shadow-amber-950/40"
+                        title="Configure Antigravity Auto-Update interval, repo branch, and GitHub Webhooks for this project"
+                      >
+                        <Zap className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Auto-Update Settings</span>
+                      </button>
+
+                      {/* 1-Click Pull & Update Live Server Button */}
+                      <button
+                        onClick={() => handlePullAndUpdate(proc.name, proc.cwd)}
+                        disabled={updatingAppName === proc.name}
+                        className="px-3 py-1.5 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white border border-purple-400/40 rounded-xl text-[11px] transition cursor-pointer font-bold inline-flex items-center gap-1.5 shadow-md shadow-purple-950/40 disabled:opacity-50"
+                        title="Pull latest code changes from GitHub, rebuild assets, and reload live server service"
+                      >
+                        <DownloadCloud className={`w-3.5 h-3.5 text-purple-200 ${updatingAppName === proc.name ? 'animate-bounce' : ''}`} />
+                        <span>{updatingAppName === proc.name ? 'Updating...' : 'Pull & Update Live'}</span>
+                      </button>
+
+                      <button
+                        onClick={() => onOpenInStudio && onOpenInStudio(proc.name)}
+                        className="px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white border border-cyan-400/30 rounded-xl text-[11px] transition cursor-pointer font-bold inline-flex items-center gap-1.5 shadow-md shadow-cyan-950/40"
+                      >
+                        <Code className="w-3.5 h-3.5" />
+                        <span>Open in Studio</span>
+                      </button>
+
+                      <button
+                        onClick={() => toggleProcessState(proc.pm_id)}
+                        className={`px-3 py-1.5 rounded-xl border transition text-[11px] cursor-pointer font-semibold ${
+                          proc.status === 'online'
+                            ? 'bg-amber-950/40 text-amber-300 border-amber-800/60 hover:bg-amber-900/40'
+                            : 'bg-emerald-950/40 text-emerald-300 border-emerald-800/60 hover:bg-emerald-900/40'
+                        }`}
+                      >
+                        {proc.status === 'online' ? 'Stop' : 'Start'}
+                      </button>
+
+                      {/* Delete Project / Duplicate Website Button */}
+                      <button
+                        onClick={() => setDeleteModal({
+                          appName: proc.name,
+                          projectPath: proc.cwd || `/var/www/${proc.name}`,
+                          domain: proc.name.includes('.com') ? proc.name : `${proc.name}.yjtechnosoft.com`,
+                          deletePm2: true,
+                          deleteFiles: true,
+                          deleteNginx: true,
+                          deleting: false
+                        })}
+                        className="px-3 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/80 rounded-xl text-[11px] transition cursor-pointer font-bold inline-flex items-center gap-1 shadow-sm"
+                        title="Delete project, duplicate website directory, PM2 service and Nginx config from server"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                        <span>Delete</span>
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* Discovered Server Projects & Applications Section */}
+      <div className="bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl overflow-hidden shadow-2xl shadow-slate-950/50">
+        <div className="p-4 border-b border-white/10 bg-slate-950/90 flex items-center justify-between text-xs">
+          <div className="flex items-center space-x-2">
+            <FolderGit2 className="w-4 h-4 text-cyan-400" />
+            <span className="font-extrabold text-white tracking-wider uppercase font-mono">Discovered Server Applications & Web Projects ({projects.length})</span>
+          </div>
+          <span className="text-slate-400 font-mono text-[11px]">Server Node Sync</span>
+        </div>
+
+        <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+          {projects.map((proj) => (
+            <div key={proj.id} className="bg-slate-950 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3 hover:border-slate-700 transition">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h4 className="font-extrabold text-sm text-white flex items-center gap-2">
+                    <span>{proj.name}</span>
+                    <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-800 px-2 py-0.5 rounded-full font-mono">
+                      {proj.type || 'Web Application'}
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-slate-500 font-mono mt-1">{proj.path}</p>
+                </div>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border font-mono ${
+                  proj.status === 'active' ? 'bg-emerald-950 text-emerald-300 border-emerald-800' : 'bg-slate-900 text-slate-400 border-slate-800'
+                }`}>
+                  {proj.status ? proj.status.toUpperCase() : 'IDLE'}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-slate-900 text-xs font-mono">
+                <span className="text-slate-400 flex items-center gap-1 text-[11px]">
+                  <GitBranch className="w-3.5 h-3.5 text-purple-400" />
+                  <span>{proj.branch || 'main'}</span>
+                </span>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => handlePullAndUpdate(proj.name || proj.repoName, proj.path)}
+                    className="px-2.5 py-1 bg-purple-950/80 hover:bg-purple-900 text-purple-300 border border-purple-800 rounded-xl text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <DownloadCloud className="w-3 h-3 text-purple-400" />
+                    <span>Pull Live</span>
+                  </button>
+                  <button
+                    onClick={() => onOpenInStudio && onOpenInStudio(proj.name)}
+                    className="px-2.5 py-1 bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border border-cyan-800 rounded-xl text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Code className="w-3 h-3 text-cyan-400" />
+                    <span>Studio</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 

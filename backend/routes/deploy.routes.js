@@ -135,6 +135,28 @@ router.post('/ai-execute-fix', async (req, res) => {
 import { getUserSettings, saveUserSettings } from '../services/db.service.js'
 
 /**
+ * GET /api/deploy/get-github-token
+ */
+router.get('/get-github-token', (req, res) => {
+  const userId = req.user ? req.user.id : 'admin-001'
+  const userSettings = getUserSettings(userId)
+  res.json({ success: true, githubToken: userSettings.githubToken || '' })
+})
+
+/**
+ * POST /api/deploy/save-github-token
+ */
+router.post('/save-github-token', (req, res) => {
+  const userId = req.user ? req.user.id : 'admin-001'
+  const token = (req.body.githubToken || '').trim()
+  if (!token) {
+    return res.status(400).json({ success: false, error: 'GitHub Personal Access Token is required' })
+  }
+  saveUserSettings(userId, { githubToken: token })
+  res.json({ success: true, message: 'GitHub Token saved permanently in account settings!' })
+})
+
+/**
  * Fetch Repositories from GitHub API using Personal Access Token
  */
 router.post('/github-repos', async (req, res) => {

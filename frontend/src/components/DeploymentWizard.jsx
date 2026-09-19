@@ -7,6 +7,7 @@ import {
 export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = '', onDeploymentSuccess }) {
   const [step, setStep] = useState(1) // 1: Repo, 2: Config, 3: Server/Domain, 4: Live Execution
   const [githubToken, setGithubToken] = useState(() => localStorage.getItem('autodeploy_github_token') || '')
+  const [tokenSavedMsg, setTokenSavedMsg] = useState(false)
   const [repos, setRepos] = useState([])
   const [loadingRepos, setLoadingRepos] = useState(false)
 
@@ -34,6 +35,28 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
   const [deployStatus, setDeployStatus] = useState('idle') // 'idle' | 'running' | 'success' | 'failed'
   const [deployId, setDeployId] = useState('')
 
+  // Load saved token on mount from backend database or localStorage
+  useEffect(() => {
+    const loadSavedToken = async () => {
+      try {
+        const res = await fetch(`${apiBaseUrl}/api/deploy/get-github-token`, {
+          headers: { 'Authorization': `Bearer ${jwtToken}` }
+        })
+        const data = await res.json()
+        if (data.success && data.githubToken) {
+          setGithubToken(data.githubToken)
+          localStorage.setItem('autodeploy_github_token', data.githubToken)
+          fetchGithubReposWithToken(data.githubToken)
+        } else if (githubToken) {
+          fetchGithubReposWithToken(githubToken)
+        }
+      } catch (e) {
+        if (githubToken) fetchGithubReposWithToken(githubToken)
+      }
+    }
+    loadSavedToken()
+  }, [])
+
   useEffect(() => {
     if (activeServer) {
       setDeployForm(prev => ({
@@ -45,12 +68,14 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
     }
   }, [activeServer])
 
-  const fetchGithubRepos = async () => {
-    if (!githubToken.trim()) return
-    setLoadingRepos(true)
+  const handleSaveTokenKey = async () => {
+    if (!githubToken.trim()) {
+      alert('Please enter a valid GitHub Personal Access Token.')
+      return
+    }
     try {
       localStorage.setItem('autodeploy_github_token', githubToken.trim())
-      const res = await fetch(`${apiBaseUrl}/api/deploy/github-repos`, {
+      await fetch(`${apiBaseUrl}/api/deploy/save-github-token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -58,18 +83,40 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
         },
         body: JSON.stringify({ githubToken: githubToken.trim() })
       })
+      setTokenSavedMsg(true)
+      setTimeout(() => setTokenSavedMsg(false), 3000)
+      fetchGithubReposWithToken(githubToken.trim())
+    } catch (e) {
+      console.warn('Save token error:', e)
+    }
+  }
+
+  const fetchGithubReposWithToken = async (tokenStr) => {
+    const tok = tokenStr || githubToken
+    if (!tok || !tok.trim()) return
+    setLoadingRepos(true)
+    try {
+      localStorage.setItem('autodeploy_github_token', tok.trim())
+      const res = await fetch(`${apiBaseUrl}/api/deploy/github-repos`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${jwtToken}`
+        },
+        body: JSON.stringify({ githubToken: tok.trim() })
+      })
       const data = await res.json()
       if (data.success && data.repos) {
         setRepos(data.repos)
-      } else {
-        alert(data.error || 'Failed to fetch GitHub repositories.')
       }
     } catch (err) {
-      alert('GitHub API Error: ' + err.message)
+      console.warn('GitHub API Error:', err)
     } finally {
       setLoadingRepos(false)
     }
   }
+
+  const fetchGithubRepos = () => fetchGithubReposWithToken(githubToken)
 
   const handleSelectRepo = (repo) => {
     const cleanAppName = repo.name.toLowerCase().replace(/[^a-z0-9]/g, '-')
@@ -202,9 +249,17 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
             </div>
           </div>
 
-          {/* GitHub Token Fetch Bar */}
+          {/* GitHub Token Fetch & Save Bar */}
           <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
-            <label className="text-xs font-bold text-slate-300 block">GitHub Personal Access Token (Optional for private repos)</label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-300 block">GitHub Personal Access Token (Saved in account settings)</label>
+              {tokenSavedMsg && (
+                <span className="text-[11px] font-bold text-emerald-400 bg-emerald-950/80 border border-emerald-800 px-2.5 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Token Saved Permanently!</span>
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               <input
                 type="password"
@@ -214,12 +269,20 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
                 className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-xs font-mono text-cyan-300 focus:outline-none focus:border-cyan-500"
               />
               <button
+                onClick={handleSaveTokenKey}
+                className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-slate-950 font-extrabold text-xs rounded-xl transition flex items-center gap-1.5 shadow-md cursor-pointer"
+                title="Save token key permanently so it will never ask again"
+              >
+                <Check className="w-4 h-4 text-slate-950" />
+                <span>Save Token Key</span>
+              </button>
+              <button
                 onClick={fetchGithubRepos}
                 disabled={loadingRepos}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-cyan-300 font-bold text-xs rounded-xl border border-slate-700 flex items-center gap-2"
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-cyan-300 font-bold text-xs rounded-xl border border-slate-700 flex items-center gap-2 cursor-pointer"
               >
                 {loadingRepos ? <RefreshCw className="w-4 h-4 animate-spin text-cyan-400" /> : <Github className="w-4 h-4 text-cyan-400" />}
-                <span>Fetch My Repositories</span>
+                <span>Fetch Repositories</span>
               </button>
             </div>
           </div>
