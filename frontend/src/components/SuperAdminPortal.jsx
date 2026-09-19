@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import {
   Crown, Users, Building, Server, RefreshCw, Zap, ShieldAlert, BarChart3,
-  CreditCard, ShieldCheck, Trash2, Eye, ExternalLink, Check, AlertCircle
+  CreditCard, ShieldCheck, Trash2, Eye, ExternalLink, Check, AlertCircle, Search
 } from 'lucide-react'
 
 export default function SuperAdminPortal({ activeTab = 'dashboard', apiBaseUrl = '' }) {
@@ -11,6 +11,7 @@ export default function SuperAdminPortal({ activeTab = 'dashboard', apiBaseUrl =
   const [serverList, setServerList] = useState([])
   const [subList, setSubList] = useState([])
   const [auditLogs, setAuditLogs] = useState([])
+  const [auditSearch, setAuditSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(null)
 
@@ -378,29 +379,110 @@ export default function SuperAdminPortal({ activeTab = 'dashboard', apiBaseUrl =
       )}
 
       {/* VIEW 6: Audit Logs */}
-      {activeTab === 'audit-logs' && (
-        <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 backdrop-blur-xl space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-base font-bold text-white flex items-center space-x-2">
-              <ShieldCheck className="w-4 h-4 text-purple-400" />
-              <span>Platform Audit Trail ({auditLogs.length})</span>
-            </h3>
-            <span className="text-xs text-slate-400 font-mono">Immutable Security Log</span>
-          </div>
+      {activeTab === 'audit-logs' && (() => {
+        const safeLogs = Array.isArray(auditLogs) ? auditLogs : []
+        const filteredLogs = safeLogs.filter(log => {
+          if (!auditSearch.trim()) return true
+          const term = auditSearch.toLowerCase()
+          const action = (log.action || '').toLowerCase()
+          const user = (log.userId || '').toLowerCase()
+          const org = (log.organizationId || '').toLowerCase()
+          const ip = (log.ip || '').toLowerCase()
+          const detailsStr = typeof log.details === 'string' 
+            ? log.details.toLowerCase() 
+            : (log.details && typeof log.details === 'object' ? JSON.stringify(log.details).toLowerCase() : '')
+          return action.includes(term) || user.includes(term) || org.includes(term) || ip.includes(term) || detailsStr.includes(term)
+        })
 
-          <div className="space-y-2">
-            {auditLogs.map((log, idx) => (
-              <div key={idx} className="p-3 bg-slate-950 border border-slate-800/80 rounded-xl flex items-center justify-between text-xs font-mono">
-                <div>
-                  <span className="text-purple-400 font-bold mr-2">[{log.action || 'AUDIT'}]</span>
-                  <span className="text-slate-200">{log.details || log.message || 'Platform event logged.'}</span>
-                </div>
-                <span className="text-[10px] text-slate-500">{log.timestamp ? new Date(log.timestamp).toLocaleString() : 'Just now'}</span>
+        const formatLogText = (log) => {
+          if (!log) return 'Platform event logged.'
+          if (typeof log.details === 'string') return log.details
+          if (log.details && typeof log.details === 'object' && Object.keys(log.details).length > 0) {
+            try {
+              return JSON.stringify(log.details)
+            } catch {
+              return log.message || 'Platform event logged.'
+            }
+          }
+          return log.message || 'Platform event logged.'
+        }
+
+        return (
+          <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 backdrop-blur-xl space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center space-x-2">
+                  <ShieldCheck className="w-5 h-5 text-purple-400" />
+                  <span>Platform Audit Trail ({filteredLogs.length})</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">Immutable platform security log and system events audit stream</p>
               </div>
-            ))}
+
+              <div className="relative w-full md:w-64">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Search audit trail..."
+                  value={auditSearch}
+                  onChange={(e) => setAuditSearch(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500/50"
+                />
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="text-center py-12 text-slate-400 text-sm font-mono flex items-center justify-center space-x-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-purple-400" />
+                <span>Loading platform audit records...</span>
+              </div>
+            ) : filteredLogs.length === 0 ? (
+              <div className="text-center py-12 text-slate-400 text-sm font-mono bg-slate-950/40 rounded-2xl border border-slate-800/60">
+                No platform audit entries found matching your query.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-2xl border border-slate-800/80 bg-slate-950/60">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-[11px] font-mono text-slate-400 uppercase bg-slate-900/60">
+                      <th className="py-3 px-4">Timestamp</th>
+                      <th className="py-3 px-4">Action</th>
+                      <th className="py-3 px-4">User / Org</th>
+                      <th className="py-3 px-4">IP Address</th>
+                      <th className="py-3 px-4">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/50 text-xs font-mono">
+                    {filteredLogs.map((log, idx) => (
+                      <tr key={log.id || idx} className="hover:bg-slate-900/40 transition">
+                        <td className="py-3 px-4 text-slate-400 text-[11px] whitespace-nowrap">
+                          {log.timestamp ? new Date(log.timestamp).toLocaleString() : 'Just now'}
+                        </td>
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          <span className="px-2 py-0.5 rounded bg-purple-500/10 border border-purple-500/20 text-purple-300 font-bold text-[10px]">
+                            {log.action || 'AUDIT'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-slate-300 text-[11px] whitespace-nowrap">
+                          <div>{log.userId || 'system'}</div>
+                          {log.organizationId && (
+                            <div className="text-[10px] text-slate-500">{log.organizationId}</div>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-slate-400 text-[11px] whitespace-nowrap">
+                          {log.ip || '127.0.0.1'}
+                        </td>
+                        <td className="py-3 px-4 text-slate-300 text-[11px] break-all max-w-xs">
+                          {formatLogText(log)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
