@@ -4,7 +4,7 @@ import {
   XCircle, AlertTriangle, Play, RefreshCw, Copy, Check, Lock, HardDrive, Code,
   Github, Search, X, ChevronRight, ChevronLeft, ChevronDown, Sparkles, FolderGit2, Bot, LogOut, UserCheck,
   Layers, Database, FolderTree, LayoutDashboard, Key, Activity, Clock, Webhook, Save, Trash2, DownloadCloud, Mail,
-  CreditCard, Users, Crown, Plus, AlertCircle, Building, Sliders, Settings, HelpCircle
+  CreditCard, Users, Crown, Plus, AlertCircle, Building, Sliders, Settings, HelpCircle, Menu
 } from 'lucide-react'
 import ServerSelectorDropdown from './ServerSelectorDropdown'
 import ServerManager from './ServerManager'
@@ -27,6 +27,7 @@ import DeploymentWizard from './DeploymentWizard'
 export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogout, apiBaseUrl = '' }) {
   const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'servers' | 'projects' | 'deployments' | 'databases' | 'code' | 'env' | 'domains' | 'logs' | 'email' | 'team' | 'billing' | 'settings'
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [servers, setServers] = useState([])
   const [activeServerId, setActiveServerId] = useState('')
   const [loadingServers, setLoadingServers] = useState(true)
@@ -171,21 +172,32 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
     <div className="min-h-screen bg-[#07090E] text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
       {/* Customer Header */}
       <header className="border-b border-white/10 bg-slate-950/90 backdrop-blur-2xl sticky top-0 z-40 shadow-xl">
-        <div className="px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
-          <div className="flex items-center space-x-3">
+        <div className="px-3 sm:px-6 h-14 flex items-center justify-between gap-2 sm:gap-4">
+          <div className="flex items-center space-x-2 sm:space-x-3">
+            {/* Mobile Hamburger Button */}
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="lg:hidden p-1.5 text-slate-300 hover:text-white bg-slate-900 rounded-xl border border-white/10 transition cursor-pointer"
+              aria-label="Toggle mobile menu"
+            >
+              {mobileMenuOpen ? <X className="w-5 h-5 text-cyan-400" /> : <Menu className="w-5 h-5 text-cyan-400" />}
+            </button>
+
+            {/* Desktop Collapse Toggle */}
             <button
               onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-              className="p-1.5 text-slate-400 hover:text-white bg-slate-900 rounded-xl border border-white/10 transition cursor-pointer"
+              className="hidden lg:flex p-1.5 text-slate-400 hover:text-white bg-slate-900 rounded-xl border border-white/10 transition cursor-pointer"
             >
               <LayoutDashboard className="w-4 h-4 text-cyan-400" />
             </button>
-            <div className="flex items-center space-x-2">
-              <span className="font-extrabold text-sm tracking-tight text-white bg-gradient-to-r from-cyan-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">AutoDeploy</span>
-              <span className="text-[10px] bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full font-mono font-bold">CUSTOMER WORKSPACE</span>
+
+            <div className="flex items-center space-x-1.5 sm:space-x-2">
+              <span className="font-extrabold text-xs sm:text-sm tracking-tight text-white bg-gradient-to-r from-cyan-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">AutoDeploy</span>
+              <span className="text-[9px] sm:text-[10px] bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 px-1.5 sm:px-2 py-0.5 rounded-full font-mono font-bold hidden xs:inline-block">WORKSPACES</span>
             </div>
           </div>
 
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-1.5 sm:space-x-3 overflow-x-auto no-scrollbar">
             <ServerSelectorDropdown
               activeServerId={activeServerId}
               onServerSelect={(id) => setActiveServerId(id)}
@@ -193,7 +205,7 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
             />
 
             {buildInfo?.lastCodeUpdateFormatted && (
-              <div className="hidden lg:flex items-center space-x-1.5 bg-slate-900/90 border border-cyan-500/30 text-cyan-300 px-2.5 py-1 rounded-xl text-[11px] font-mono shadow-inner" title={`Full Commit Timestamp: ${buildInfo.lastCodeUpdate}`}>
+              <div className="hidden xl:flex items-center space-x-1.5 bg-slate-900/90 border border-cyan-500/30 text-cyan-300 px-2.5 py-1 rounded-xl text-[11px] font-mono shadow-inner" title={`Full Commit Timestamp: ${buildInfo.lastCodeUpdate}`}>
                 <Clock className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
                 <span className="text-[10px] text-slate-400">Code Updated:</span>
                 <span className="font-bold text-cyan-300">{buildInfo.lastCodeUpdateFormatted}</span>
@@ -202,7 +214,7 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
 
             <button
               onClick={() => setShowAiDrawer(true)}
-              className="text-xs bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 px-3 py-1.5 rounded-xl flex items-center space-x-1.5 transition font-semibold"
+              className="text-xs bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 px-2.5 sm:px-3 py-1.5 rounded-xl flex items-center space-x-1.5 transition font-semibold shrink-0"
             >
               <Sparkles className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
               <span className="hidden sm:inline">AI Copilot</span>
@@ -211,19 +223,19 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
             {currentUser?.role === 'admin' && (
               <a
                 href="/admin/dashboard"
-                className="text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 px-3 py-1.5 rounded-xl font-bold flex items-center space-x-1"
+                className="text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 px-2.5 sm:px-3 py-1.5 rounded-xl font-bold flex items-center space-x-1 shrink-0"
               >
                 <Crown className="w-3.5 h-3.5 text-amber-400" />
                 <span className="hidden md:inline">Super Admin Portal</span>
               </a>
             )}
 
-            <div className="flex items-center space-x-2 bg-slate-900 border border-white/10 rounded-xl px-3 py-1 text-xs">
+            <div className="flex items-center space-x-1.5 sm:space-x-2 bg-slate-900 border border-white/10 rounded-xl px-2.5 py-1 text-xs shrink-0">
               <div className="w-5 h-5 rounded-full bg-cyan-500 text-slate-950 font-bold flex items-center justify-center text-[10px]">
                 {currentUser?.fullName?.charAt(0) || 'U'}
               </div>
-              <span className="font-semibold text-white max-w-[100px] truncate">{currentUser?.fullName || currentUser?.email}</span>
-              <button onClick={onLogout} className="text-slate-400 hover:text-rose-400 p-0.5 ml-1">
+              <span className="font-semibold text-white max-w-[80px] sm:max-w-[120px] truncate hidden xs:inline">{currentUser?.fullName || currentUser?.email}</span>
+              <button onClick={onLogout} className="text-slate-400 hover:text-rose-400 p-0.5 ml-1" title="Logout">
                 <LogOut className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -232,13 +244,23 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
       </header>
 
       {/* Main Workspace Body */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Mobile Backdrop Overlay */}
+        {mobileMenuOpen && (
+          <div
+            onClick={() => setMobileMenuOpen(false)}
+            className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-30 lg:hidden animate-in fade-in duration-200"
+          />
+        )}
+
         {/* Sidebar */}
-        <aside className={`bg-slate-950/80 border-r border-white/10 backdrop-blur-xl flex flex-col justify-between transition-all duration-300 z-30 select-none ${sidebarCollapsed ? 'w-16' : 'w-64'}`}>
+        <aside className={`fixed lg:relative inset-y-0 left-0 bg-slate-950/95 border-r border-white/10 backdrop-blur-2xl flex flex-col justify-between transition-all duration-300 z-40 select-none ${
+          mobileMenuOpen ? 'translate-x-0 w-64' : '-translate-x-full lg:translate-x-0'
+        } ${sidebarCollapsed ? 'lg:w-16' : 'lg:w-64'}`}>
           <div className="p-3 space-y-6 overflow-y-auto">
             {customerNavSections.map((section, idx) => (
               <div key={idx} className="space-y-1">
-                {!sidebarCollapsed && (
+                {(!sidebarCollapsed || mobileMenuOpen) && (
                   <div className="px-3 text-[10px] font-mono font-bold text-slate-500 tracking-wider uppercase mb-1.5">
                     {section.title}
                   </div>
@@ -249,8 +271,11 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
                   return (
                     <button
                       key={item.id}
-                      onClick={() => setActiveTab(item.id)}
-                      className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center px-2 py-2.5' : 'justify-between px-3 py-2'} rounded-xl text-xs transition-all cursor-pointer ${
+                      onClick={() => {
+                        setActiveTab(item.id)
+                        setMobileMenuOpen(false)
+                      }}
+                      className={`w-full flex items-center ${sidebarCollapsed && !mobileMenuOpen ? 'justify-center px-2 py-2.5' : 'justify-between px-3 py-2'} rounded-xl text-xs transition-all cursor-pointer ${
                         isActive
                           ? 'bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 text-white font-bold shadow-lg shadow-cyan-500/20'
                           : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900'
@@ -258,9 +283,9 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
                     >
                       <div className="flex items-center space-x-2.5">
                         <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                        {!sidebarCollapsed && <span className="font-medium">{item.label}</span>}
+                        {(!sidebarCollapsed || mobileMenuOpen) && <span className="font-medium">{item.label}</span>}
                       </div>
-                      {!sidebarCollapsed && item.badge && (
+                      {(!sidebarCollapsed || mobileMenuOpen) && item.badge && (
                         <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 font-bold">
                           {item.badge}
                         </span>
@@ -274,7 +299,7 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
         </aside>
 
         {/* Central Customer Area */}
-        <main className="flex-1 overflow-y-auto p-6 space-y-6">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-6 w-full">
           {activeTab === 'dashboard' && (
             <div className="space-y-8 max-w-7xl mx-auto">
               {/* Welcome Banner */}

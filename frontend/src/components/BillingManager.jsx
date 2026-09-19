@@ -103,7 +103,7 @@ export default function BillingManager({ apiBaseUrl = '' }) {
       )}
 
       {/* Quota Usage Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
         {[
           { label: 'VPS Servers', current: usage?.servers?.current, max: usage?.servers?.max },
           { label: 'Deployed Projects', current: usage?.projects?.current, max: usage?.projects?.max },
@@ -132,7 +132,7 @@ export default function BillingManager({ apiBaseUrl = '' }) {
       {/* Available Plans Pricing Grid */}
       <div>
         <h2 className="text-xl font-bold text-white mb-4">Select Subscription Tier</h2>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
           {Object.values(plans || {}).map((p) => {
             const isCurrent = p.id === plan?.id
             return (

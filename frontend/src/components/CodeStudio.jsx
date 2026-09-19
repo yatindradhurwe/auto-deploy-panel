@@ -7,6 +7,7 @@ import AIAgentStudioDrawer from './AIAgentStudioDrawer'
 export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
   const [projects, setProjects] = useState([])
   const [selectedProject, setSelectedProject] = useState(null)
+  const [mobileTab, setMobileTab] = useState('editor') // 'tree' | 'editor'
   const [deleteStudioModal, setDeleteStudioModal] = useState(null)
 
   const [fileTree, setFileTree] = useState([])
@@ -538,6 +539,7 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
     }
 
     setSelectedTreeNode(fileItem)
+    setMobileTab('editor')
     if (!openFiles.some((f) => f.path === fileItem.path)) {
       setOpenFiles((prev) => [...prev, fileItem])
     }
@@ -847,11 +849,27 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
         </div>
       </div>
 
+      {/* Mobile View Switcher Tab Bar (< lg) */}
+      <div className="flex lg:hidden bg-slate-900 border border-white/10 p-1 rounded-2xl font-mono text-xs">
+        <button
+          onClick={() => setMobileTab('tree')}
+          className={`flex-1 py-2 text-center rounded-xl font-bold transition ${mobileTab === 'tree' ? 'bg-cyan-600 text-white' : 'text-slate-400'}`}
+        >
+          📁 File Explorer Tree
+        </button>
+        <button
+          onClick={() => setMobileTab('editor')}
+          className={`flex-1 py-2 text-center rounded-xl font-bold transition ${mobileTab === 'editor' ? 'bg-cyan-600 text-white' : 'text-slate-400'}`}
+        >
+          ⚡ Code Editor {activeFile ? `(${activeFile.name})` : ''}
+        </button>
+      </div>
+
       {/* Main Studio Split Layout: Sidebar Explorer + VS Code Editor */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 items-start">
         
         {/* Left Explorer File Tree Sidebar */}
-        <div className="bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl p-3.5 sm:p-4 space-y-3 shadow-2xl shadow-slate-950/50 flex flex-col h-[320px] sm:h-[400px] lg:h-[650px] overflow-hidden">
+        <div className={`bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl p-3.5 sm:p-4 space-y-3 shadow-2xl shadow-slate-950/50 flex-col h-[520px] sm:h-[580px] lg:h-[650px] overflow-hidden ${mobileTab === 'tree' ? 'flex' : 'hidden lg:flex'}`}>
           
           {/* Tree Header & Action Toolbar */}
           <div className="space-y-2 border-b border-white/10 pb-3">
@@ -960,7 +978,7 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
         </div>
 
         {/* Right VS Code File Editor Workspace */}
-        <div className="lg:col-span-3 bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl overflow-hidden shadow-2xl shadow-slate-950/50 flex flex-col h-[480px] sm:h-[580px] lg:h-[650px]">
+        <div className={`lg:col-span-3 bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl overflow-hidden shadow-2xl shadow-slate-950/50 flex-col h-[520px] sm:h-[580px] lg:h-[650px] ${mobileTab === 'editor' ? 'flex' : 'hidden lg:flex'}`}>
           
           {/* Tab Bar across top of editor */}
           <div className="bg-slate-950 border-b border-white/10 flex items-center overflow-x-auto select-none no-scrollbar">

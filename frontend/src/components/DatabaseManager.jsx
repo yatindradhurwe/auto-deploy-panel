@@ -7,6 +7,7 @@ import {
 export default function DatabaseManager({ jwtToken }) {
   const [databases, setDatabases] = useState([])
   const [activeEngine, setActiveEngine] = useState('postgresql') // 'postgresql' | 'mysql' | 'mongodb' | 'redis' | 'sqlite'
+  const [mobileTab, setMobileTab] = useState('workbench') // 'explorer' | 'workbench'
   const [selectedDb, setSelectedDb] = useState(null)
   const [selectedDbName, setSelectedDbName] = useState('')
   const [selectedTable, setSelectedTable] = useState(null)
@@ -434,11 +435,27 @@ export default function DatabaseManager({ jwtToken }) {
         </button>
       </div>
 
+      {/* Mobile View Switcher Tab Bar (< lg) */}
+      <div className="flex lg:hidden bg-slate-900 border border-white/10 p-1 rounded-2xl font-mono text-xs">
+        <button
+          onClick={() => setMobileTab('explorer')}
+          className={`flex-1 py-2 text-center rounded-xl font-bold transition ${mobileTab === 'explorer' ? 'bg-cyan-600 text-white' : 'text-slate-400'}`}
+        >
+          📁 Explorer ({filteredTables.length || filteredCollections.length || filteredKeys.length})
+        </button>
+        <button
+          onClick={() => setMobileTab('workbench')}
+          className={`flex-1 py-2 text-center rounded-xl font-bold transition ${mobileTab === 'workbench' ? 'bg-cyan-600 text-white' : 'text-slate-400'}`}
+        >
+          ⚡ Workbench & Data
+        </button>
+      </div>
+
       {/* Main Grid: Left Tree Sidebar + Right Workbench Data Console */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
         
         {/* Left Sidebar: Databases List & Tables Tree Explorer */}
-        <div className="bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 space-y-4 shadow-2xl shadow-slate-950/50 flex flex-col h-[650px]">
+        <div className={`bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 space-y-4 shadow-2xl shadow-slate-950/50 flex-col h-[650px] ${mobileTab === 'explorer' ? 'flex' : 'hidden lg:flex'}`}>
           
           {/* Active Database Info Card */}
           {selectedDb && (
@@ -523,7 +540,10 @@ export default function DatabaseManager({ jwtToken }) {
                 filteredTables.map((t) => (
                   <button
                     key={t.name}
-                    onClick={() => setSelectedTable(t)}
+                    onClick={() => {
+                      setSelectedTable(t)
+                      setMobileTab('workbench')
+                    }}
                     className={`w-full p-2.5 rounded-xl text-xs font-mono text-left transition flex items-center justify-between cursor-pointer border ${
                       selectedTable?.name === t.name
                         ? 'bg-slate-950 text-cyan-300 border-cyan-500/50 font-bold shadow-md shadow-cyan-950/40'
@@ -547,7 +567,10 @@ export default function DatabaseManager({ jwtToken }) {
                 filteredCollections.map((c) => (
                   <button
                     key={c.name}
-                    onClick={() => setSelectedTable(c)}
+                    onClick={() => {
+                      setSelectedTable(c)
+                      setMobileTab('workbench')
+                    }}
                     className={`w-full p-2.5 rounded-xl text-xs font-mono text-left transition flex items-center justify-between cursor-pointer border ${
                       selectedTable?.name === c.name
                         ? 'bg-slate-950 text-emerald-300 border-emerald-500/50 font-bold shadow-md shadow-emerald-950/40'
@@ -571,7 +594,10 @@ export default function DatabaseManager({ jwtToken }) {
                 filteredKeys.map((k) => (
                   <button
                     key={k.key}
-                    onClick={() => setSelectedTable(k)}
+                    onClick={() => {
+                      setSelectedTable(k)
+                      setMobileTab('workbench')
+                    }}
                     className={`w-full p-2.5 rounded-xl text-xs font-mono text-left transition flex items-center justify-between cursor-pointer border ${
                       selectedTable?.key === k.key
                         ? 'bg-slate-950 text-rose-300 border-rose-500/50 font-bold shadow-md shadow-rose-950/40'
@@ -600,7 +626,7 @@ export default function DatabaseManager({ jwtToken }) {
         </div>
 
         {/* Right Main Panel: Data Grid Browser + Schema View + Interactive SQL Console */}
-        <div className="lg:col-span-3 bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl overflow-hidden shadow-2xl shadow-slate-950/50 flex flex-col h-[650px]">
+        <div className={`lg:col-span-3 bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl overflow-hidden shadow-2xl shadow-slate-950/50 flex-col h-[650px] ${mobileTab === 'workbench' ? 'flex' : 'hidden lg:flex'}`}>
           
           {/* Main Top Header Navigation Tabs */}
           <div className="bg-slate-950 border-b border-white/10 px-4 py-2.5 flex items-center justify-between select-none">

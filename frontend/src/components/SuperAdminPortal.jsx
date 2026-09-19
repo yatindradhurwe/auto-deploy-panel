@@ -123,7 +123,7 @@ export default function SuperAdminPortal({ activeTab = 'dashboard', apiBaseUrl =
       {activeTab === 'dashboard' && (
         <div className="space-y-8">
           {/* Metric Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
             {[
               { label: 'Total Users', value: metrics?.totalUsers || 0, icon: Users, color: 'text-cyan-400' },
               { label: 'Organizations', value: metrics?.totalOrganizations || 0, icon: Building, color: 'text-purple-400' },
@@ -143,7 +143,7 @@ export default function SuperAdminPortal({ activeTab = 'dashboard', apiBaseUrl =
           </div>
 
           {/* Recent Activity Tables */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 backdrop-blur-xl space-y-4">
               <h3 className="text-base font-bold text-white flex items-center space-x-2">
                 <Users className="w-4 h-4 text-cyan-400" />
