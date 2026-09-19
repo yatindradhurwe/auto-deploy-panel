@@ -13,8 +13,9 @@ export function AdminIdempotencyPanel({ jwtToken, apiBaseUrl = '' }) {
 
   const fetchIdempotencyData = async () => {
     setLoading(true)
+    const tok = jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
     try {
-      const headers = { 'Authorization': `Bearer ${jwtToken}` }
+      const headers = { 'Authorization': `Bearer ${tok}` }
       const [resStats, resRecords] = await Promise.all([
         fetch(`${apiBaseUrl}/api/admin/idempotency/stats`, { headers }),
         fetch(`${apiBaseUrl}/api/admin/idempotency/records`, { headers })

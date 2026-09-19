@@ -136,4 +136,18 @@ router.get('/idempotency/records', authenticateToken, requireSuperAdmin, (req, r
   }
 })
 
+/**
+ * GET /api/admin/audit-logs
+ * Platform-wide Audit Trail
+ */
+router.get('/audit-logs', authenticateToken, requireSuperAdmin, (req, res) => {
+  try {
+    const db = readDb()
+    const logs = db.auditLogs || []
+    res.json({ success: true, logs })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 export default router

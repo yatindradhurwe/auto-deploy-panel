@@ -43,7 +43,7 @@ export default function SuperAdminPortal({ activeTab = 'dashboard', apiBaseUrl =
         const result = await res.json()
         setSubList(result.subscriptions || [])
       } else if (activeTab === 'audit-logs') {
-        const res = await fetch(`${apiBaseUrl}/api/team/audit-logs`, { headers })
+        const res = await fetch(`${apiBaseUrl}/api/admin/audit-logs`, { headers })
         const result = await res.json()
         setAuditLogs(result.logs || [])
       }
