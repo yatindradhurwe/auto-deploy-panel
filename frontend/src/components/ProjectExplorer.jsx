@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react'
-import { Layers, Play, Square, RefreshCw, Cpu, Activity, Clock, Terminal, AlertCircle, CheckCircle2, ChevronRight, HardDrive, Code, DownloadCloud, X, Check, Globe, Trash2, Zap, Copy, GitBranch, Webhook, Settings } from 'lucide-react'
+import { Layers, Play, Square, RefreshCw, Cpu, Activity, Clock, Terminal, AlertCircle, CheckCircle2, ChevronRight, HardDrive, Code, DownloadCloud, X, Check, Globe, Trash2, Zap, Copy, GitBranch, Webhook, Settings, Plus } from 'lucide-react'
+import DeploymentWizard from './DeploymentWizard'
 
 export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio }) {
   const [processes, setProcesses] = useState([])
   const [serverStats, setServerStats] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [showDeployWizard, setShowDeployWizard] = useState(false)
 
   // Antigravity Auto-Update State
   const [autoUpdateConfigs, setAutoUpdateConfigs] = useState({})
@@ -283,6 +285,15 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
 
         <div className="flex items-center space-x-2">
           <button
+            onClick={() => setShowDeployWizard(true)}
+            className="px-4 py-2 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-extrabold border border-cyan-400/40 rounded-2xl transition cursor-pointer flex items-center gap-2 text-xs shadow-lg shadow-cyan-500/20"
+            title="Open 1-Click Automated Deployment Wizard to deploy any GitHub project onto VPS"
+          >
+            <Zap className="w-3.5 h-3.5 text-yellow-300" />
+            <span>1-Click Deploy New App</span>
+          </button>
+
+          <button
             onClick={() => setDeleteModal({
               appName: '',
               projectPath: '/var/www/',
@@ -301,10 +312,10 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
 
           <button
             onClick={handleRealTimeFetch}
-            className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold border border-cyan-400/40 rounded-2xl transition cursor-pointer flex items-center gap-2 text-xs shadow-md shadow-cyan-950/40"
+            className="px-4 py-2 bg-slate-800/80 hover:bg-slate-700/80 text-cyan-300 font-bold border border-slate-700 rounded-2xl transition cursor-pointer flex items-center gap-2 text-xs shadow-md"
             title="Scan live server /var/www directories, active PM2 processes, Nginx configs, and GitHub commits in real time"
           >
-            <Zap className={`w-3.5 h-3.5 text-cyan-200 ${loading ? 'animate-spin' : ''}`} />
+            <Zap className={`w-3.5 h-3.5 text-cyan-400 ${loading ? 'animate-spin' : ''}`} />
             <span>Real-Time Sync Telemetry</span>
           </button>
 
@@ -767,6 +778,29 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 1-Click Deployment Wizard Modal */}
+      {showDeployWizard && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xl flex items-center justify-center p-4 overflow-y-auto">
+          <div className="relative w-full max-w-5xl my-8">
+            <button
+              onClick={() => setShowDeployWizard(false)}
+              className="absolute top-4 right-4 z-50 p-2 text-slate-400 hover:text-white bg-slate-900 border border-slate-800 rounded-xl"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <DeploymentWizard
+              jwtToken={jwtToken}
+              activeServer={activeServer}
+              onDeploymentSuccess={() => {
+                setShowDeployWizard(false)
+                fetchMetrics()
+              }}
+            />
           </div>
         </div>
       )}

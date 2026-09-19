@@ -22,6 +22,8 @@ import TeamManager from './TeamManager'
 import AuditLogViewer from './AuditLogViewer'
 import AICopilotDrawer from './AICopilotDrawer'
 
+import DeploymentWizard from './DeploymentWizard'
+
 export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogout, apiBaseUrl = '' }) {
   const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'servers' | 'projects' | 'deployments' | 'databases' | 'code' | 'env' | 'domains' | 'logs' | 'email' | 'team' | 'billing' | 'settings'
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -360,10 +362,13 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
 
           {activeTab === 'servers' && <ServerManager jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'projects' && <ProjectExplorer jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'deployments' && <DeploymentWizard jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} onDeploymentSuccess={() => fetchTenantServers()} />}
           {activeTab === 'databases' && <DatabaseManager jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'code' && <CodeStudio jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'env' && <EnvManager jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'domains' && <DomainSSLManager jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'cron' && <CronManager jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'webhooks' && <WebhookManager jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'logs' && <LogsTelemetryManager jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'email' && <EmailManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'team' && <TeamManager apiBaseUrl={apiBaseUrl} />}
