@@ -1174,7 +1174,10 @@ router.post('/pm2/logs', authenticateToken, (req, res) => {
       }
       output = logBuffer || `No logs found for process ${safeApp}`
     }
-    res.json({ success: true, appName: safeApp, logs: output })
+
+    // Strip ANSI color escape codes and clean output
+    const cleanLogs = output.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '')
+    res.json({ success: true, appName: safeApp, logs: cleanLogs })
   })
 })
 

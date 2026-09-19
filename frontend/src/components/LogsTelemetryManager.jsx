@@ -4,7 +4,7 @@ import {
   Search, Copy, Check, Filter, Cpu, HardDrive, ShieldCheck, Zap, AlertCircle
 } from 'lucide-react'
 
-export default function LogsTelemetryManager({ jwtToken }) {
+export default function LogsTelemetryManager({ jwtToken, activeServer }) {
   const [processes, setProcesses] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedApp, setSelectedApp] = useState('')
@@ -17,22 +17,34 @@ export default function LogsTelemetryManager({ jwtToken }) {
 
   const logsEndRef = useRef(null)
 
+  const getEffectiveToken = () => {
+    return jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
+  }
+
+  const getEffectiveHost = () => {
+    return activeServer ? (activeServer.ipAddress || activeServer.host) : '187.127.165.128'
+  }
+
   const fetchPM2Status = async () => {
+    const tok = getEffectiveToken()
+    const host = getEffectiveHost()
     try {
       const res = await fetch('/api/studio/server-metrics', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': jwtToken ? `Bearer ${jwtToken}` : ''
+          'Authorization': tok ? `Bearer ${tok}` : ''
         },
-        body: JSON.stringify({ host: '187.127.165.128' })
+        body: JSON.stringify({ host })
       })
       const data = await res.json()
       if (data.success && data.processes) {
         setProcesses(data.processes)
-        if (!selectedApp && data.processes.length > 0) {
-          setSelectedApp(data.processes[0].name)
-        }
+        setSelectedApp((prev) => {
+          if (!prev && data.processes.length > 0) return data.processes[0].name
+          if (prev && !data.processes.some(p => p.name === prev) && data.processes.length > 0) return data.processes[0].name
+          return prev
+        })
       }
     } catch (e) {
       console.error('Error fetching PM2 status:', e)
@@ -44,14 +56,16 @@ export default function LogsTelemetryManager({ jwtToken }) {
   const fetchLogs = async (appName) => {
     if (!appName) return
     setLoadingLogs(true)
+    const tok = getEffectiveToken()
+    const host = getEffectiveHost()
     try {
       const res = await fetch('/api/studio/pm2/logs', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': jwtToken ? `Bearer ${jwtToken}` : ''
+          'Authorization': tok ? `Bearer ${tok}` : ''
         },
-        body: JSON.stringify({ appName, lines: 100 })
+        body: JSON.stringify({ appName, lines: 100, host })
       })
       const data = await res.json()
       if (data.success) {
@@ -72,13 +86,13 @@ export default function LogsTelemetryManager({ jwtToken }) {
       fetchPM2Status()
     }, 6000)
     return () => clearInterval(interval)
-  }, [jwtToken])
+  }, [jwtToken, activeServer])
 
   useEffect(() => {
     if (selectedApp) {
       fetchLogs(selectedApp)
     }
-  }, [selectedApp])
+  }, [selectedApp, activeServer])
 
   useEffect(() => {
     if (!autoRefresh || !selectedApp) return
@@ -86,18 +100,20 @@ export default function LogsTelemetryManager({ jwtToken }) {
       fetchLogs(selectedApp)
     }, 4000)
     return () => clearInterval(logInterval)
-  }, [selectedApp, autoRefresh])
+  }, [selectedApp, autoRefresh, activeServer])
 
   const handleProcessAction = async (action, processId, name) => {
     setActionLoading(`${action}-${processId}`)
+    const tok = getEffectiveToken()
+    const host = getEffectiveHost()
     try {
       const res = await fetch('/api/studio/pm2/control', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': jwtToken ? `Bearer ${jwtToken}` : ''
+          'Authorization': tok ? `Bearer ${tok}` : ''
         },
-        body: JSON.stringify({ action, processId, appName: name })
+        body: JSON.stringify({ action, processId, appName: name, host })
       })
       const data = await res.json()
       if (data.success) {

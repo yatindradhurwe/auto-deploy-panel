@@ -369,7 +369,7 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
           {activeTab === 'domains' && <DomainSSLManager jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'cron' && <CronManager jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'webhooks' && <WebhookManager jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />}
-          {activeTab === 'logs' && <LogsTelemetryManager jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'logs' && <LogsTelemetryManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'email' && <EmailManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'team' && <TeamManager apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'billing' && <BillingManager apiBaseUrl={apiBaseUrl} />}
