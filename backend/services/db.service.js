@@ -352,7 +352,7 @@ export function getWebhookAuditLogs() {
 /**
  * Get all created professional email mailboxes
  */
-export function getEmailAccounts() {
+export function getEmailAccounts(orgId) {
   const db = readDb()
   if (!db.emailAccounts) {
     db.emailAccounts = [
@@ -378,6 +378,9 @@ export function getEmailAccounts() {
       }
     ]
     writeDb(db)
+  }
+  if (orgId && orgId !== 'org-default') {
+    return db.emailAccounts.filter(a => a.organizationId === orgId)
   }
   return db.emailAccounts
 }

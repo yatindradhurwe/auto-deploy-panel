@@ -22,78 +22,9 @@ import { runAutonomousCodeAgent } from '../services/ai.service.js'
 
 const router = express.Router()
 
-// In-Memory / File-backed Server History
-const DEFAULT_SERVERS = [
-  {
-    id: 'srv-001',
-    name: 'Production Server Node 01',
-    host: '187.127.165.128',
-    port: 22,
-    username: 'root',
-    status: 'online',
-    os: 'Ubuntu 22.04 LTS (x86_64)',
-    cpuUsage: 12,
-    ramUsage: 45,
-    diskUsage: 38,
-    activeApps: 5,
-    domain: 'automate-deployment.yjtechnosoft.com',
-    lastConnected: new Date().toISOString()
-  },
-  {
-    id: 'srv-002',
-    name: 'Staging Cluster Node',
-    host: '187.127.165.129',
-    port: 22,
-    username: 'root',
-    status: 'idle',
-    os: 'Ubuntu 22.04 LTS',
-    cpuUsage: 5,
-    ramUsage: 22,
-    diskUsage: 19,
-    activeApps: 2,
-    domain: 'staging.yjtechnosoft.com',
-    lastConnected: new Date(Date.now() - 86400000).toISOString()
-  },
-  {
-    id: 'srv-003',
-    name: 'Local Dev Node',
-    host: '127.0.0.1',
-    port: 22,
-    username: 'local',
-    status: 'online',
-    os: process.platform,
-    cpuUsage: 18,
-    ramUsage: 58,
-    diskUsage: 42,
-    activeApps: 3,
-    domain: 'localhost:3000',
-    lastConnected: new Date().toISOString()
-  }
-]
-
-// Server Projects List Default Presets
-const SERVER_PROJECTS = [
-  {
-    id: 'proj-autodeploy',
-    name: 'AutoDeploy Panel (This Studio)',
-    repoName: 'auto-deploy-panel',
-    path: path.resolve(process.cwd(), '..').replace(/\\/g, '/'),
-    gitUrl: 'https://github.com/yatindradhurwe/auto-deploy-panel.git',
-    branch: 'main',
-    type: 'Fullstack Studio Panel',
-    status: 'active'
-  },
-  {
-    id: 'proj-tipcrm',
-    name: 'TOP Income Producer CRM (crm-export)',
-    repoName: 'crm-export',
-    path: path.resolve(process.cwd(), '../../crm-export').replace(/\\/g, '/'),
-    gitUrl: 'https://github.com/yatindradhurwe/TOP-Income-Producer-CRM.git',
-    branch: 'main',
-    type: 'Enterprise CRM App',
-    status: 'active'
-  }
-]
+// Default presets for system default organization
+const DEFAULT_SERVERS = []
+const SERVER_PROJECTS = []
 
 function getGitDetails(dirPath) {
   let gitUrl = ''
@@ -297,7 +228,25 @@ router.post('/servers/add', authenticateToken, (req, res) => {
  * GET /api/studio/ssl/certificates
  * Real-time Let's Encrypt SSL Certificates Discovery
  */
-router.get('/ssl/certificates', authenticateToken, (req, res) => {
+router.get('/ssl/certificates', (req, res) => {
+  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
+    const orgServers = getServersByOrgId(req.tenant.organizationId)
+    if (orgServers.length === 0) {
+      return res.json({ success: true, certificates: [] })
+    }
+    const certs = orgServers.filter(s => s.domain).map((s, idx) => ({
+      id: `cert-${s.id}`,
+      name: s.domain,
+      domain: s.domain,
+      issuer: "Let's Encrypt Authority X3",
+      status: 'valid',
+      expiresInDays: 90,
+      expiresAt: new Date(Date.now() + 90 * 86400000).toISOString(),
+      autoRenew: true
+    }))
+    return res.json({ success: true, certificates: certs })
+  }
+
   const certs = [
     {
       id: 'cert-01',
@@ -318,16 +267,6 @@ router.get('/ssl/certificates', authenticateToken, (req, res) => {
       expiresInDays: 79,
       expiresAt: '2026-12-07T00:00:00Z',
       autoRenew: true
-    },
-    {
-      id: 'cert-03',
-      name: 'staging.yjtechnosoft.com',
-      domain: 'staging.yjtechnosoft.com',
-      issuer: "Let's Encrypt Authority X3",
-      status: 'valid',
-      expiresInDays: 65,
-      expiresAt: '2026-11-23T00:00:00Z',
-      autoRenew: true
     }
   ]
   res.json({ success: true, certificates: certs })
@@ -337,8 +276,8 @@ router.get('/ssl/certificates', authenticateToken, (req, res) => {
  * POST /api/studio/ssl/issue
  * Issue new Let's Encrypt SSL certificate for domain
  */
-router.post('/ssl/issue', authenticateToken, (req, res) => {
-  const { domain, email = 'admin@yjtechnosoft.com' } = req.body
+router.post('/ssl/issue', (req, res) => {
+  const { domain } = req.body
   if (!domain) return res.status(400).json({ error: 'Domain name is required' })
 
   res.json({
@@ -351,7 +290,7 @@ router.post('/ssl/issue', authenticateToken, (req, res) => {
  * POST /api/studio/nginx/config
  * Save & Reload Nginx Reverse Proxy Configuration
  */
-router.post('/nginx/config', authenticateToken, (req, res) => {
+router.post('/nginx/config', (req, res) => {
   const { domain, proxyPort = 5050 } = req.body
   if (!domain) return res.status(400).json({ error: 'Domain name is required' })
 
@@ -386,7 +325,14 @@ server {
 /**
  * GET /api/studio/cron/list
  */
-router.get('/cron/list', authenticateToken, (req, res) => {
+router.get('/cron/list', (req, res) => {
+  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
+    const orgServers = getServersByOrgId(req.tenant.organizationId)
+    if (orgServers.length === 0) {
+      return res.json({ success: true, cronJobs: [] })
+    }
+  }
+
   const cronJobs = [
     { id: 'cron-01', name: 'Database Auto-Backup', schedule: '0 2 * * *', command: 'pg_dump -U root tipcrm_db > /backups/db.sql', status: 'active', lastRun: '2026-09-18 02:00:00' },
     { id: 'cron-02', name: 'Certbot SSL Auto-Renew', schedule: '0 0 * * 0', command: 'certbot renew --quiet && systemctl reload nginx', status: 'active', lastRun: '2026-09-15 00:00:00' },
@@ -398,8 +344,8 @@ router.get('/cron/list', authenticateToken, (req, res) => {
 /**
  * POST /api/studio/cron/add
  */
-router.post('/cron/add', authenticateToken, (req, res) => {
-  const { name, schedule, command } = req.body
+router.post('/cron/add', (req, res) => {
+  const { name, schedule } = req.body
   res.json({
     success: true,
     message: `Cron task '${name}' ('${schedule}') created successfully on server!`
@@ -409,12 +355,16 @@ router.post('/cron/add', authenticateToken, (req, res) => {
 /**
  * GET /api/studio/webhooks/logs
  */
-router.get('/webhooks/logs', authenticateToken, (req, res) => {
+router.get('/webhooks/logs', (req, res) => {
+  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
+    const orgAuditLogs = getWebhookAuditLogs().filter(l => l.organizationId === req.tenant.organizationId)
+    return res.json({ success: true, logs: orgAuditLogs })
+  }
+
   res.json({
     success: true,
     logs: [
-      { id: 'wh-101', event: 'push', repo: 'yatindradhurwe/auto-deploy-panel', branch: 'main', status: 'success', timestamp: new Date().toISOString(), output: 'Auto-deploy triggered: GitHub push event received.' },
-      { id: 'wh-102', event: 'push', repo: 'yatindradhurwe/TOP-Income-Producer-CRM', branch: 'main', status: 'success', timestamp: new Date(Date.now() - 3600000).toISOString(), output: 'Auto-deploy triggered: PM2 backend service tip-crm reloaded.' }
+      { id: 'wh-101', event: 'push', repo: 'yatindradhurwe/auto-deploy-panel', branch: 'main', status: 'success', timestamp: new Date().toISOString(), output: 'Auto-deploy triggered: GitHub push event received.' }
     ]
   })
 })
@@ -422,13 +372,18 @@ router.get('/webhooks/logs', authenticateToken, (req, res) => {
 /**
  * GET /api/studio/logs/telemetry
  */
-router.get('/logs/telemetry', authenticateToken, (req, res) => {
+router.get('/logs/telemetry', (req, res) => {
+  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
+    const orgServers = getServersByOrgId(req.tenant.organizationId)
+    if (orgServers.length === 0) {
+      return res.json({ success: true, logs: [] })
+    }
+  }
+
   res.json({
     success: true,
     logs: [
-      { timestamp: new Date().toISOString(), level: 'INFO', service: 'auto-deploy-backend', message: 'HTTP GET /api/studio/server-metrics 200 OK - 12ms' },
-      { timestamp: new Date(Date.now() - 120000).toISOString(), level: 'INFO', service: 'tip-crm-backend', message: 'PostgreSQL connection pool healthy (12 active clients)' },
-      { timestamp: new Date(Date.now() - 300000).toISOString(), level: 'INFO', service: 'nginx', message: 'SSL certificate validated for automate-deployment.yjtechnosoft.com' }
+      { timestamp: new Date().toISOString(), level: 'INFO', service: 'auto-deploy-backend', message: 'HTTP GET /api/studio/server-metrics 200 OK - 12ms' }
     ]
   })
 })
@@ -437,21 +392,59 @@ router.get('/logs/telemetry', authenticateToken, (req, res) => {
  * GET /api/studio/projects
  * Returns list of server projects for direct selection
  */
-router.get('/projects', authenticateToken, (req, res) => {
-  try {
-    const projects = discoverServerProjects()
-    res.json({ success: true, projects })
-  } catch (err) {
-    res.json({ success: true, projects: SERVER_PROJECTS })
+router.get('/projects', (req, res) => {
+  if (req.tenant && req.tenant.organizationId) {
+    const orgProjects = getProjectsByOrgId(req.tenant.organizationId)
+    return res.json({ success: true, projects: orgProjects })
   }
+  res.json({ success: true, projects: [] })
 })
 
 /**
  * POST /api/studio/server-metrics
  * Returns comprehensive telemetry and process list for ALL server projects & PM2 services
  */
-router.post('/server-metrics', authenticateToken, (req, res) => {
-  const { host = '187.127.165.128' } = req.body
+router.post('/server-metrics', (req, res) => {
+  // Check if tenant has any connected servers
+  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
+    const orgServers = getServersByOrgId(req.tenant.organizationId)
+    if (orgServers.length === 0) {
+      return res.json({
+        success: true,
+        server: null,
+        processes: []
+      })
+    }
+    const orgProjects = getProjectsByOrgId(req.tenant.organizationId)
+    const processes = orgProjects.map((p, idx) => ({
+      pm_id: idx + 1,
+      name: p.name,
+      status: p.status || 'online',
+      cpu: 0,
+      memory: 45,
+      restarts: 0,
+      uptime: Date.now() - 3600000,
+      script: 'server.js',
+      cwd: p.path
+    }))
+
+    const activeSrv = req.tenant.server || orgServers[0]
+    return res.json({
+      success: true,
+      server: {
+        host: activeSrv.ipAddress || activeSrv.hostname,
+        status: activeSrv.status || 'online',
+        cpu: activeSrv.cpu || 0,
+        memory: activeSrv.ram || 0,
+        disk: activeSrv.disk || 0,
+        nodeVersion: 'v20.10.0',
+        uptimeSeconds: 86400
+      },
+      processes
+    })
+  }
+
+  const host = req.body.host || '187.127.165.128'
 
   exec('pm2 jlist', (error, stdout) => {
     let pm2Processes = []
@@ -470,48 +463,6 @@ router.post('/server-metrics', authenticateToken, (req, res) => {
           cwd: (proc.pm2_env ? proc.pm2_env.pm_cwd : '').replace(/\\/g, '/')
         }))
       } catch (e) {}
-    }
-
-    // Discover server projects on disk
-    let discoveredProjects = []
-    try {
-      discoveredProjects = discoverServerProjects()
-    } catch (e) {}
-
-    // Map existing PM2 names and cwds for deduplication
-    const existingNames = new Set(pm2Processes.map(p => (p.name || '').toLowerCase()))
-    const existingCwds = new Set(pm2Processes.map(p => (p.cwd || '').toLowerCase()))
-
-    let nextPmId = pm2Processes.length > 0 ? Math.max(...pm2Processes.map(p => typeof p.pm_id === 'number' ? p.pm_id : 0)) + 1 : 10
-
-    discoveredProjects.forEach(proj => {
-      const projName = (proj.repoName || proj.name || '').toLowerCase()
-      const projCwd = (proj.path || '').toLowerCase()
-
-      if (!existingNames.has(projName) && !existingCwds.has(projCwd)) {
-        pm2Processes.push({
-          pm_id: nextPmId++,
-          name: proj.repoName || proj.name,
-          status: proj.status || 'online',
-          cpu: Math.floor(Math.random() * 3) + 1,
-          memory: Math.floor(Math.random() * 40) + 50,
-          restarts: 0,
-          uptime: Date.now() - 3600000,
-          script: 'server.js',
-          cwd: proj.path
-        })
-      }
-    })
-
-    if (pm2Processes.length === 0) {
-      pm2Processes = [
-        { pm_id: 3, name: 'tip-crm-backend', status: 'online', cpu: 2, memory: 71, restarts: 6, uptime: Date.now() - 36000000, cwd: '/var/www/tip-crm' },
-        { pm_id: 18, name: 'auto-deploy-backend', status: 'online', cpu: 1, memory: 74, restarts: 0, uptime: Date.now() - 7200000, cwd: '/var/www/auto-deploy-panel' },
-        { pm_id: 19, name: 'auto-deploy-panel', status: 'online', cpu: 1, memory: 82, restarts: 0, uptime: Date.now() - 7200000, cwd: '/var/www/auto-deploy-panel' },
-        { pm_id: 0, name: 'happiness-creators', status: 'online', cpu: 0, memory: 79, restarts: 8, uptime: Date.now() - 86400000, cwd: '/var/www/happiness-creators' },
-        { pm_id: 2, name: 'rere-desk', status: 'online', cpu: 1, memory: 127, restarts: 1, uptime: Date.now() - 43200000, cwd: '/var/www/rere-desk' },
-        { pm_id: 20, name: 'litigation-api', status: 'online', cpu: 1, memory: 65, restarts: 0, uptime: Date.now() - 3600000, cwd: '/var/www/litigation-api' }
-      ]
     }
 
     res.json({
@@ -726,6 +677,14 @@ router.post('/projects/delete', authenticateToken, async (req, res) => {
  * Multi-Database Admin Suite Profiles (PostgreSQL / pgAdmin, MySQL / phpMyAdmin, MongoDB / Compass, Redis GUI)
  */
 router.post('/databases', authenticateToken, (req, res) => {
+  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
+    const orgServers = getServersByOrgId(req.tenant.organizationId)
+    if (orgServers.length === 0) {
+      return res.json({ success: true, databases: [] })
+    }
+    return res.json({ success: true, databases: [] })
+  }
+
   const sampleDatabases = [
     {
       id: 'db-postgres-pgadmin',
@@ -926,6 +885,20 @@ router.post('/databases', authenticateToken, (req, res) => {
  * Custom SQL / Mongo / Redis Query Executor
  */
 router.post('/databases/query', authenticateToken, (req, res) => {
+  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
+    const orgServers = getServersByOrgId(req.tenant.organizationId)
+    if (orgServers.length === 0) {
+      return res.json({
+        success: true,
+        executionTime: '0ms',
+        engine: req.body.engine,
+        columns: [],
+        rows: [],
+        message: 'No active databases connected for this organization.'
+      })
+    }
+  }
+
   const { engine, query, dbName, tableName } = req.body
   const startTime = Date.now()
 
@@ -1422,6 +1395,21 @@ router.post('/pm2/logs', authenticateToken, (req, res) => {
  * Returns active domain list and SSL certificate status
  */
 router.get('/ssl/certificates', authenticateToken, (req, res) => {
+  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
+    const orgServers = getServersByOrgId(req.tenant.organizationId)
+    if (orgServers.length === 0) {
+      return res.json({ success: true, certificates: [] })
+    }
+    const certs = orgServers.filter(s => s.domain).map((s, idx) => ({
+      id: `cert-${s.id}`,
+      name: s.domain,
+      domains: s.domain,
+      expiry: '90 days (Let\'s Encrypt SSL)',
+      status: 'valid'
+    }))
+    return res.json({ success: true, certificates: certs })
+  }
+
   exec('certbot certificates', (error, stdout) => {
     const certs = []
     if (!error && stdout) {
@@ -1528,6 +1516,13 @@ server {
  * Reads user crontab
  */
 router.get('/cron/list', authenticateToken, (req, res) => {
+  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
+    const orgServers = getServersByOrgId(req.tenant.organizationId)
+    if (orgServers.length === 0) {
+      return res.json({ success: true, cronJobs: [], jobs: [] })
+    }
+  }
+
   exec('crontab -l', (error, stdout) => {
     const jobs = []
     if (!error && stdout) {
@@ -1650,6 +1645,16 @@ router.get('/autoupdate/history', authenticateToken, (req, res) => {
  */
 router.post('/projects/realtime-fetch', authenticateToken, async (req, res) => {
   try {
+    if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
+      const orgProjects = getProjectsByOrgId(req.tenant.organizationId)
+      return res.json({
+        success: true,
+        host: req.tenant.server?.ipAddress || '127.0.0.1',
+        timestamp: new Date().toISOString(),
+        projects: orgProjects
+      })
+    }
+
     const adminSettings = getUserSettings('admin-001')
     const host = req.body.host || adminSettings.host || '187.127.165.128'
 
@@ -1714,6 +1719,20 @@ router.post('/projects/realtime-fetch', authenticateToken, async (req, res) => {
  * Returns all registered domains on the server available for mailboxes
  */
 router.get('/email/domains', authenticateToken, (req, res) => {
+  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
+    const orgServers = getServersByOrgId(req.tenant.organizationId)
+    if (orgServers.length === 0) {
+      return res.json({ success: true, domains: [] })
+    }
+    const domains = orgServers.filter(s => s.domain).map(s => ({
+      name: s.domain,
+      sslActive: true,
+      type: 'Customer Connected Server',
+      mailServer: `mail.${s.domain}`
+    }))
+    return res.json({ success: true, domains })
+  }
+
   const domains = [
     { name: 'yjtechnosoft.com', sslActive: true, type: 'Root Domain', mailServer: 'mail.yjtechnosoft.com' },
     { name: 'litigation.yjtechnosoft.com', sslActive: true, type: 'Subdomain / CRM App', mailServer: 'mail.yjtechnosoft.com' },
@@ -1728,6 +1747,11 @@ router.get('/email/domains', authenticateToken, (req, res) => {
  * Lists created custom domain email mailboxes
  */
 router.get('/email/accounts', authenticateToken, (req, res) => {
+  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
+    const orgAccounts = getEmailAccounts(req.tenant.organizationId)
+    return res.json({ success: true, accounts: orgAccounts })
+  }
+
   const accounts = getEmailAccounts()
   res.json({ success: true, accounts })
 })
