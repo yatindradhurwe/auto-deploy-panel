@@ -125,7 +125,7 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
       title: 'WORKSPACE',
       items: [
         { id: 'dashboard', label: 'Dashboard Overview', icon: LayoutDashboard },
-        { id: 'servers', label: 'Server Nodes', icon: Server, badge: servers.length.toString() },
+        { id: 'servers', label: 'Server Nodes', icon: Server },
         { id: 'projects', label: 'Projects & PM2', icon: Layers },
         { id: 'deployments', label: '1-Click Deploy', icon: Zap }
       ]
@@ -285,11 +285,6 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
                         <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
                         {(!sidebarCollapsed || mobileMenuOpen) && <span className="font-medium">{item.label}</span>}
                       </div>
-                      {(!sidebarCollapsed || mobileMenuOpen) && item.badge && (
-                        <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 font-bold">
-                          {item.badge}
-                        </span>
-                      )}
                     </button>
                   )
                 })}
