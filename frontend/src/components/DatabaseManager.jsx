@@ -53,11 +53,20 @@ export default function DatabaseManager({ jwtToken }) {
       })
       const data = await res.json()
       if (data.success && data.schema) {
+        const defaultList = engine === 'postgresql' ? ['tipcrm_production', 'tipcrm_staging', 'postgres', 'happiness_db', 'litigation_db']
+          : engine === 'mysql' ? ['autodeploy_db', 'sys', 'mysql', 'wordpress_db']
+          : engine === 'mongodb' ? ['analytics_db', 'telemetry_db', 'admin']
+          : engine === 'redis' ? ['db0 (Default Cache)', 'db1 (Session Store)', 'db2 (Queue)']
+          : ['db.json', 'autodeploy_saas.db', 'system.db']
+
         setSelectedDb((prev) => ({
           ...prev,
-          tables: data.schema.tables || prev?.tables,
-          collections: data.schema.collections || prev?.collections,
-          keys: data.schema.keys || prev?.keys
+          engine: engine,
+          activeDbName: dbName,
+          databasesList: prev?.databasesList?.length ? prev.databasesList : defaultList,
+          tables: data.schema.tables,
+          collections: data.schema.collections,
+          keys: data.schema.keys
         }))
         const newTables = data.schema.tables || data.schema.collections || data.schema.keys || []
         if (newTables.length > 0) {
@@ -108,12 +117,34 @@ export default function DatabaseManager({ jwtToken }) {
   const handleEngineChange = (engine) => {
     setActiveEngine(engine)
     const matched = databases.find((d) => d.engine === engine)
+    const defaultDb = matched?.activeDbName || matched?.databasesList?.[0] || (
+      engine === 'postgresql' ? 'tipcrm_production'
+      : engine === 'mysql' ? 'autodeploy_db'
+      : engine === 'mongodb' ? 'analytics_db'
+      : engine === 'redis' ? 'db0 (Default Cache)'
+      : 'db.json'
+    )
+
     if (matched) {
-      const defaultDb = matched.activeDbName || matched.databasesList?.[0] || ''
       setSelectedDb(matched)
-      setSelectedDbName(defaultDb)
-      fetchDatabaseSchema(engine, defaultDb)
+    } else {
+      const defaultList = engine === 'postgresql' ? ['tipcrm_production', 'tipcrm_staging', 'postgres', 'happiness_db', 'litigation_db']
+        : engine === 'mysql' ? ['autodeploy_db', 'sys', 'mysql', 'wordpress_db']
+        : engine === 'mongodb' ? ['analytics_db', 'telemetry_db', 'admin']
+        : engine === 'redis' ? ['db0 (Default Cache)', 'db1 (Session Store)', 'db2 (Queue)']
+        : ['db.json', 'autodeploy_saas.db', 'system.db']
+
+      setSelectedDb({
+        engine,
+        name: engine === 'postgresql' ? 'PostgreSQL Engine (pgAdmin)' : engine === 'mysql' ? 'MySQL Engine (phpMyAdmin)' : engine === 'mongodb' ? 'MongoDB Engine' : engine === 'redis' ? 'Redis GUI Console' : 'SQLite Embedded Manager',
+        host: engine === 'postgresql' ? '127.0.0.1:5432' : engine === 'mysql' ? '127.0.0.1:3306' : engine === 'mongodb' ? '127.0.0.1:27017' : engine === 'redis' ? '127.0.0.1:6379' : '/var/www/auto-deploy-panel/backend/data/db.json',
+        databasesList: defaultList,
+        activeDbName: defaultDb
+      })
     }
+
+    setSelectedDbName(defaultDb)
+    fetchDatabaseSchema(engine, defaultDb)
     setQueryResult(null)
 
     // Set engine default template query

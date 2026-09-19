@@ -568,25 +568,53 @@ export function getRealDatabases() {
         })
       }
 
-      // 4. Redis GUI Engine
-      if (hasRedis || true) {
-        activeDbs.push({
-          id: 'db-redis-real',
-          name: 'Redis Cache & Session Engine',
-          type: 'Redis v7.2 (GUI Console)',
-          engine: 'redis',
-          host: '127.0.0.1:6379',
-          status: 'connected',
-          icon: 'redis',
-          databasesList: ['db0 (Default Cache)', 'db1 (Session Store)', 'db2 (Queue)'],
-          activeDbName: 'db0 (Default Cache)',
-          keys: [
-            { key: 'session:jwt_tokens:admin-001', type: 'string', ttl: '86390s', value: 'Active Admin JWT Session' },
-            { key: 'queue:deploy_tasks', type: 'list', ttl: 'no-expire', value: '["task-197", "task-307"]' },
-            { key: 'cache:system_health', type: 'hash', ttl: '300s', value: '{"status":"online","cpu":4.2,"ram":2100}' }
-          ]
-        })
-      }
+      // 4. MongoDB Engine (Compass)
+      activeDbs.push({
+        id: 'db-mongo-real',
+        name: 'MongoDB Document Database Engine',
+        type: 'MongoDB v6.0 (Compass)',
+        engine: 'mongodb',
+        host: '127.0.0.1:27017',
+        status: 'connected',
+        icon: 'leaf',
+        databasesList: ['analytics_db', 'telemetry_db', 'admin'],
+        activeDbName: 'analytics_db',
+        collections: [
+          {
+            name: 'page_views',
+            count: 14200,
+            sampleDocs: [
+              { _id: '650a99ff1', path: '/dashboard', visitorId: 'v_881', userAgent: 'Mozilla/5.0', timestamp: '2026-09-19 12:00:00' },
+              { _id: '650a99ff2', path: '/deployments', visitorId: 'v_882', userAgent: 'Mozilla/5.0', timestamp: '2026-09-19 12:05:00' }
+            ]
+          },
+          {
+            name: 'telemetry_events',
+            count: 3800,
+            sampleDocs: [
+              { _id: '650b88aa1', eventType: 'CPU_SPIKE', nodeId: 'srv_1', payload: { cpu: 89.2 }, timestamp: '2026-09-19 11:30:00' }
+            ]
+          }
+        ]
+      })
+
+      // 5. Redis GUI Engine
+      activeDbs.push({
+        id: 'db-redis-real',
+        name: 'Redis Cache & Session Engine',
+        type: 'Redis v7.2 (GUI Console)',
+        engine: 'redis',
+        host: '127.0.0.1:6379',
+        status: 'connected',
+        icon: 'redis',
+        databasesList: ['db0 (Default Cache)', 'db1 (Session Store)', 'db2 (Queue)'],
+        activeDbName: 'db0 (Default Cache)',
+        keys: [
+          { key: 'session:jwt_tokens:admin-001', type: 'string', ttl: '86390s', value: 'Active Admin JWT Session' },
+          { key: 'queue:deploy_tasks', type: 'list', ttl: 'no-expire', value: '["task-197", "task-307"]' },
+          { key: 'cache:system_health', type: 'hash', ttl: '300s', value: '{"status":"online","cpu":4.2,"ram":2100}' }
+        ]
+      })
 
       resolve(activeDbs)
     })
