@@ -117,16 +117,21 @@ function discoverServerProjects() {
   try {
     const stdout = execSync('pm2 jlist', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] })
     if (stdout) {
-      const procs = JSON.parse(stdout)
-      procs.forEach(p => {
-        const procName = p.name || 'pm2-app'
-        const cwd = p.pm2_env && p.pm2_env.pm_cwd
-        const normCwd = (cwd && fs.existsSync(cwd)) ? path.resolve(cwd).replace(/\\/g, '/') : `/var/www/${procName}`
-        pm2Cwds.add(normCwd)
-        if (!candidateMap.has(normCwd)) {
-          candidateMap.set(normCwd, { name: procName, repoName: procName })
-        }
-      })
+      const jsonStart = stdout.indexOf('[')
+      const jsonEnd = stdout.lastIndexOf(']')
+      if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+        const jsonStr = stdout.substring(jsonStart, jsonEnd + 1)
+        const procs = JSON.parse(jsonStr)
+        procs.forEach(p => {
+          const procName = p.name || 'pm2-app'
+          const cwd = p.pm2_env && p.pm2_env.pm_cwd
+          const normCwd = (cwd && fs.existsSync(cwd)) ? path.resolve(cwd).replace(/\\/g, '/') : `/var/www/${procName}`
+          pm2Cwds.add(normCwd)
+          if (!candidateMap.has(normCwd)) {
+            candidateMap.set(normCwd, { name: procName, repoName: procName })
+          }
+        })
+      }
     }
   } catch (e) {}
 

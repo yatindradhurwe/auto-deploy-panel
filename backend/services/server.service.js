@@ -57,7 +57,13 @@ export function getRealPm2Processes() {
         return resolve([])
       }
       try {
-        const list = JSON.parse(stdout)
+        const jsonStart = stdout.indexOf('[')
+        const jsonEnd = stdout.lastIndexOf(']')
+        if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
+          return resolve([])
+        }
+        const jsonStr = stdout.substring(jsonStart, jsonEnd + 1)
+        const list = JSON.parse(jsonStr)
         const formatted = list.map((proc) => {
           const env = proc.pm2_env || {}
           const monit = proc.monit || {}
