@@ -29,23 +29,46 @@ export default function LogsTelemetryManager({ jwtToken, activeServer }) {
     const tok = getEffectiveToken()
     const host = getEffectiveHost()
     try {
-      const res = await fetch('/api/studio/server-metrics', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': tok ? `Bearer ${tok}` : ''
-        },
-        body: JSON.stringify({ host })
-      })
-      const data = await res.json()
-      if (data.success && data.processes) {
-        setProcesses(data.processes)
-        setSelectedApp((prev) => {
-          if (!prev && data.processes.length > 0) return data.processes[0].name
-          if (prev && !data.processes.some(p => p.name === prev) && data.processes.length > 0) return data.processes[0].name
-          return prev
-        })
+      const headers = { 'Content-Type': 'application/json' }
+      if (tok) headers['Authorization'] = `Bearer ${tok}`
+
+      const [metricsRes, projectsRes] = await Promise.all([
+        fetch('/api/studio/server-metrics', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ host })
+        }).catch(() => null),
+        fetch('/api/studio/projects', { headers }).catch(() => null)
+      ])
+
+      let combinedProcesses = []
+      if (metricsRes) {
+        const data = await metricsRes.json().catch(() => ({}))
+        if (data.success && data.processes) {
+          combinedProcesses = data.processes
+        }
       }
+
+      if (combinedProcesses.length === 0 && projectsRes) {
+        const data = await projectsRes.json().catch(() => ({}))
+        if (data.success && data.projects) {
+          combinedProcesses = data.projects.map((p, idx) => ({
+            pm_id: idx + 1,
+            name: p.name || p.repoName,
+            status: p.status || 'online',
+            cpu: '0%',
+            memory: '45 MB',
+            restarts: 0
+          }))
+        }
+      }
+
+      setProcesses(combinedProcesses)
+      setSelectedApp((prev) => {
+        if (!prev && combinedProcesses.length > 0) return combinedProcesses[0].name
+        if (prev && !combinedProcesses.some(p => p.name === prev) && combinedProcesses.length > 0) return combinedProcesses[0].name
+        return prev || (combinedProcesses.length > 0 ? combinedProcesses[0].name : '')
+      })
     } catch (e) {
       console.error('Error fetching PM2 status:', e)
     } finally {

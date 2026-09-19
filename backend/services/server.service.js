@@ -52,17 +52,18 @@ export function getRealHostMetrics() {
  */
 export function getRealPm2Processes() {
   return new Promise((resolve) => {
-    exec('pm2 jlist', (err, stdout) => {
-      if (err || !stdout) {
+    exec('pm2 jlist', (err, stdout, stderr) => {
+      const output = (stdout || '') + (stderr || '')
+      if (!output) {
         return resolve([])
       }
       try {
-        const jsonStart = stdout.indexOf('[')
-        const jsonEnd = stdout.lastIndexOf(']')
+        const jsonStart = output.indexOf('[')
+        const jsonEnd = output.lastIndexOf(']')
         if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
           return resolve([])
         }
-        const jsonStr = stdout.substring(jsonStart, jsonEnd + 1)
+        const jsonStr = output.substring(jsonStart, jsonEnd + 1)
         const list = JSON.parse(jsonStr)
         const formatted = list.map((proc) => {
           const env = proc.pm2_env || {}
