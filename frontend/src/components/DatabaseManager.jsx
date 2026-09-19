@@ -59,14 +59,18 @@ export default function DatabaseManager({ jwtToken }) {
           : engine === 'redis' ? ['db0 (Default Cache)', 'db1 (Session Store)', 'db2 (Queue)']
           : ['db.json', 'autodeploy_saas.db', 'system.db']
 
+        const currentDbList = data.schema.databasesList && data.schema.databasesList.length > 0
+          ? data.schema.databasesList
+          : defaultList
+
         setSelectedDb((prev) => ({
           ...prev,
           engine: engine,
           activeDbName: dbName,
-          databasesList: prev?.databasesList?.length ? prev.databasesList : defaultList,
-          tables: data.schema.tables,
-          collections: data.schema.collections,
-          keys: data.schema.keys
+          databasesList: currentDbList,
+          tables: data.schema.tables || [],
+          collections: data.schema.collections || [],
+          keys: data.schema.keys || []
         }))
         const newTables = data.schema.tables || data.schema.collections || data.schema.keys || []
         if (newTables.length > 0) {
@@ -125,21 +129,28 @@ export default function DatabaseManager({ jwtToken }) {
       : 'db.json'
     )
 
-    if (matched) {
-      setSelectedDb(matched)
-    } else {
-      const defaultList = engine === 'postgresql' ? ['tipcrm_production', 'tipcrm_staging', 'postgres', 'happiness_db', 'litigation_db']
-        : engine === 'mysql' ? ['autodeploy_db', 'sys', 'mysql', 'wordpress_db']
-        : engine === 'mongodb' ? ['analytics_db', 'telemetry_db', 'admin']
-        : engine === 'redis' ? ['db0 (Default Cache)', 'db1 (Session Store)', 'db2 (Queue)']
-        : ['db.json', 'autodeploy_saas.db', 'system.db']
+    const defaultList = engine === 'postgresql' ? ['tipcrm_production', 'tipcrm_staging', 'postgres', 'happiness_db', 'litigation_db']
+      : engine === 'mysql' ? ['autodeploy_db', 'sys', 'mysql', 'wordpress_db']
+      : engine === 'mongodb' ? ['analytics_db', 'telemetry_db', 'admin']
+      : engine === 'redis' ? ['db0 (Default Cache)', 'db1 (Session Store)', 'db2 (Queue)']
+      : ['db.json', 'autodeploy_saas.db', 'system.db']
 
+    if (matched) {
+      setSelectedDb({
+        ...matched,
+        databasesList: matched.databasesList?.length ? matched.databasesList : defaultList,
+        activeDbName: defaultDb
+      })
+    } else {
       setSelectedDb({
         engine,
         name: engine === 'postgresql' ? 'PostgreSQL Engine (pgAdmin)' : engine === 'mysql' ? 'MySQL Engine (phpMyAdmin)' : engine === 'mongodb' ? 'MongoDB Engine' : engine === 'redis' ? 'Redis GUI Console' : 'SQLite Embedded Manager',
         host: engine === 'postgresql' ? '127.0.0.1:5432' : engine === 'mysql' ? '127.0.0.1:3306' : engine === 'mongodb' ? '127.0.0.1:27017' : engine === 'redis' ? '127.0.0.1:6379' : '/var/www/auto-deploy-panel/backend/data/db.json',
         databasesList: defaultList,
-        activeDbName: defaultDb
+        activeDbName: defaultDb,
+        tables: [],
+        collections: [],
+        keys: []
       })
     }
 
@@ -507,60 +518,78 @@ export default function DatabaseManager({ jwtToken }) {
                 <RefreshCw className="w-5 h-5 animate-spin text-emerald-400" />
                 <span>Scanning server databases...</span>
               </div>
-            ) : selectedDb?.tables ? (
-              filteredTables.map((t) => (
-                <button
-                  key={t.name}
-                  onClick={() => setSelectedTable(t)}
-                  className={`w-full p-2.5 rounded-xl text-xs font-mono text-left transition flex items-center justify-between cursor-pointer border ${
-                    selectedTable?.name === t.name
-                      ? 'bg-slate-950 text-cyan-300 border-cyan-500/50 font-bold shadow-md shadow-cyan-950/40'
-                      : 'bg-slate-950/40 text-slate-400 border-white/5 hover:text-slate-200 hover:bg-slate-900/60'
-                  }`}
-                >
-                  <span className="flex items-center gap-2 truncate">
-                    <Table className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                    <span className="truncate">{t.name}</span>
-                  </span>
-                  <span className="text-[10px] text-slate-500 shrink-0">{t.rows} rows</span>
-                </button>
-              ))
-            ) : selectedDb?.collections ? (
-              filteredCollections.map((c) => (
-                <button
-                  key={c.name}
-                  onClick={() => setSelectedTable(c)}
-                  className={`w-full p-2.5 rounded-xl text-xs font-mono text-left transition flex items-center justify-between cursor-pointer border ${
-                    selectedTable?.name === c.name
-                      ? 'bg-slate-950 text-emerald-300 border-emerald-500/50 font-bold shadow-md shadow-emerald-950/40'
-                      : 'bg-slate-950/40 text-slate-400 border-white/5 hover:text-slate-200 hover:bg-slate-900/60'
-                  }`}
-                >
-                  <span className="flex items-center gap-2 truncate">
-                    <span className="text-emerald-400 font-bold">🍃</span>
-                    <span className="truncate">{c.name}</span>
-                  </span>
-                  <span className="text-[10px] text-slate-500 shrink-0">{c.count} docs</span>
-                </button>
-              ))
-            ) : selectedDb?.keys ? (
-              filteredKeys.map((k) => (
-                <button
-                  key={k.key}
-                  onClick={() => setSelectedTable(k)}
-                  className={`w-full p-2.5 rounded-xl text-xs font-mono text-left transition flex items-center justify-between cursor-pointer border ${
-                    selectedTable?.key === k.key
-                      ? 'bg-slate-950 text-rose-300 border-rose-500/50 font-bold shadow-md shadow-rose-950/40'
-                      : 'bg-slate-950/40 text-slate-400 border-white/5 hover:text-slate-200 hover:bg-slate-900/60'
-                  }`}
-                >
-                  <span className="flex items-center gap-2 truncate">
-                    <span className="text-rose-400 font-bold">🔴</span>
-                    <span className="truncate">{k.key}</span>
-                  </span>
-                  <span className="text-[10px] text-rose-400 font-semibold shrink-0">{k.type}</span>
-                </button>
-              ))
+            ) : (activeEngine === 'postgresql' || activeEngine === 'mysql' || activeEngine === 'sqlite') ? (
+              filteredTables.length > 0 ? (
+                filteredTables.map((t) => (
+                  <button
+                    key={t.name}
+                    onClick={() => setSelectedTable(t)}
+                    className={`w-full p-2.5 rounded-xl text-xs font-mono text-left transition flex items-center justify-between cursor-pointer border ${
+                      selectedTable?.name === t.name
+                        ? 'bg-slate-950 text-cyan-300 border-cyan-500/50 font-bold shadow-md shadow-cyan-950/40'
+                        : 'bg-slate-950/40 text-slate-400 border-white/5 hover:text-slate-200 hover:bg-slate-900/60'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2 truncate">
+                      <Table className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                      <span className="truncate">{t.name}</span>
+                    </span>
+                    <span className="text-[10px] text-slate-500 shrink-0">{t.rows} rows</span>
+                  </button>
+                ))
+              ) : (
+                <div className="p-4 text-center text-slate-500 text-xs font-mono">
+                  No tables found in {selectedDbName}
+                </div>
+              )
+            ) : activeEngine === 'mongodb' ? (
+              filteredCollections.length > 0 ? (
+                filteredCollections.map((c) => (
+                  <button
+                    key={c.name}
+                    onClick={() => setSelectedTable(c)}
+                    className={`w-full p-2.5 rounded-xl text-xs font-mono text-left transition flex items-center justify-between cursor-pointer border ${
+                      selectedTable?.name === c.name
+                        ? 'bg-slate-950 text-emerald-300 border-emerald-500/50 font-bold shadow-md shadow-emerald-950/40'
+                        : 'bg-slate-950/40 text-slate-400 border-white/5 hover:text-slate-200 hover:bg-slate-900/60'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2 truncate">
+                      <span className="text-emerald-400 font-bold">🍃</span>
+                      <span className="truncate">{c.name}</span>
+                    </span>
+                    <span className="text-[10px] text-slate-500 shrink-0">{c.count} docs</span>
+                  </button>
+                ))
+              ) : (
+                <div className="p-4 text-center text-slate-500 text-xs font-mono">
+                  No collections found in {selectedDbName}
+                </div>
+              )
+            ) : activeEngine === 'redis' ? (
+              filteredKeys.length > 0 ? (
+                filteredKeys.map((k) => (
+                  <button
+                    key={k.key}
+                    onClick={() => setSelectedTable(k)}
+                    className={`w-full p-2.5 rounded-xl text-xs font-mono text-left transition flex items-center justify-between cursor-pointer border ${
+                      selectedTable?.key === k.key
+                        ? 'bg-slate-950 text-rose-300 border-rose-500/50 font-bold shadow-md shadow-rose-950/40'
+                        : 'bg-slate-950/40 text-slate-400 border-white/5 hover:text-slate-200 hover:bg-slate-900/60'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2 truncate">
+                      <span className="text-rose-400 font-bold">🔴</span>
+                      <span className="truncate">{k.key}</span>
+                    </span>
+                    <span className="text-[10px] text-rose-400 font-semibold shrink-0">{k.type}</span>
+                  </button>
+                ))
+              ) : (
+                <div className="p-4 text-center text-slate-500 text-xs font-mono">
+                  No cached keys found in {selectedDbName}
+                </div>
+              )
             ) : null}
           </div>
 
@@ -659,7 +688,7 @@ export default function DatabaseManager({ jwtToken }) {
                   <Database className="w-10 h-10 text-slate-600" />
                   <p>Select a table or collection from the left sidebar to view data rows.</p>
                 </div>
-              ) : selectedTable.data ? (
+              ) : (selectedTable.columns || Array.isArray(selectedTable.data)) ? (
                 <div className="flex-1 flex flex-col overflow-hidden space-y-3">
                   {/* Table Info Toolbar */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-mono text-slate-400 border-b border-white/10 pb-2">
@@ -749,7 +778,7 @@ export default function DatabaseManager({ jwtToken }) {
                     ))}
                   </div>
                 </div>
-              ) : selectedTable.value ? (
+              ) : (selectedTable.value !== undefined || selectedTable.key) ? (
                 /* Redis Key Viewer */
                 <div className="flex-1 flex flex-col space-y-3 p-4 bg-slate-900/90 border border-white/10 rounded-2xl font-mono text-xs">
                   <div className="flex items-center justify-between text-rose-300 font-bold">

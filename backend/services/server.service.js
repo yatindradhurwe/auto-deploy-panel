@@ -627,7 +627,7 @@ export function getRealDatabases() {
 export function getDatabaseSchema(engine, dbName) {
   const dbObj = readDb()
 
-  if (engine === 'sqlite' || dbName === 'db.json' || dbName === 'autodeploy_saas.db') {
+  if (engine === 'sqlite' || dbName === 'db.json' || dbName === 'autodeploy_saas.db' || dbName === 'system.db') {
     const usersObj = dbObj.users || {}
     const orgsObj = dbObj.organizations || {}
     const serversObj = dbObj.servers || {}
@@ -636,13 +636,56 @@ export function getDatabaseSchema(engine, dbName) {
     const auditList = dbObj.auditLogs || []
     const idempList = dbObj.idempotencyKeys || []
 
+    const usersArray = Object.values(usersObj).map(u => ({
+      id: u.id || '',
+      email: u.email || '',
+      fullName: u.fullName || u.name || '',
+      organizationId: u.organizationId || 'org-default',
+      role: u.role || 'MEMBER',
+      createdAt: u.createdAt || '2026-09-18'
+    }))
+
+    const orgsArray = Object.values(orgsObj).map(o => ({
+      id: o.id || '',
+      name: o.name || '',
+      slug: o.slug || '',
+      planId: o.planId || 'pro',
+      createdAt: o.createdAt || '2026-09-18'
+    }))
+
+    const serversArray = Object.values(serversObj).map(s => ({
+      id: s.id || '',
+      name: s.name || '',
+      ipAddress: s.ipAddress || '187.127.165.128',
+      status: s.status || 'CONNECTED',
+      organizationId: s.organizationId || 'org-default'
+    }))
+
+    const projectsArray = Object.values(projectsObj).map(p => ({
+      id: p.id || '',
+      name: p.name || '',
+      path: p.path || '',
+      port: p.port || 3000,
+      status: p.status || 'RUNNING',
+      organizationId: p.organizationId || 'org-default'
+    }))
+
+    const subsArray = Object.values(subsObj).map(s => ({
+      id: s.id || '',
+      organizationId: s.organizationId || 'org-default',
+      planId: s.planId || 'pro',
+      status: s.status || 'active',
+      currentPeriodEnd: s.currentPeriodEnd || '2026-10-18'
+    }))
+
     return {
       dbName: dbName || 'db.json',
+      databasesList: ['db.json', 'autodeploy_saas.db', 'system.db'],
       tables: [
         {
           name: 'users',
-          rows: Object.keys(usersObj).length,
-          size: `${Math.max(1, Math.round(Object.keys(usersObj).length * 1.5))} KB`,
+          rows: usersArray.length,
+          size: `${Math.max(1, Math.round(usersArray.length * 1.5))} KB`,
           primaryKey: 'id',
           columns: [
             { name: 'id', type: 'VARCHAR(100)', primary: true, nullable: false },
@@ -652,19 +695,12 @@ export function getDatabaseSchema(engine, dbName) {
             { name: 'role', type: 'VARCHAR(50)', primary: false, nullable: false },
             { name: 'createdAt', type: 'TIMESTAMP', primary: false, nullable: true }
           ],
-          data: Object.values(usersObj).map(u => ({
-            id: u.id || '',
-            email: u.email || '',
-            fullName: u.fullName || u.name || '',
-            organizationId: u.organizationId || 'org-default',
-            role: u.role || 'MEMBER',
-            createdAt: u.createdAt || '2026-09-18'
-          }))
+          data: usersArray
         },
         {
           name: 'organizations',
-          rows: Object.keys(orgsObj).length,
-          size: `${Math.max(1, Math.round(Object.keys(orgsObj).length * 2))} KB`,
+          rows: orgsArray.length,
+          size: `${Math.max(1, Math.round(orgsArray.length * 2))} KB`,
           primaryKey: 'id',
           columns: [
             { name: 'id', type: 'VARCHAR(100)', primary: true, nullable: false },
@@ -673,18 +709,12 @@ export function getDatabaseSchema(engine, dbName) {
             { name: 'planId', type: 'VARCHAR(50)', primary: false, nullable: false },
             { name: 'createdAt', type: 'TIMESTAMP', primary: false, nullable: true }
           ],
-          data: Object.values(orgsObj).map(o => ({
-            id: o.id || '',
-            name: o.name || '',
-            slug: o.slug || '',
-            planId: o.planId || 'pro',
-            createdAt: o.createdAt || '2026-09-18'
-          }))
+          data: orgsArray
         },
         {
           name: 'servers',
-          rows: Object.keys(serversObj).length,
-          size: `${Math.max(1, Math.round(Object.keys(serversObj).length * 1.2))} KB`,
+          rows: serversArray.length,
+          size: `${Math.max(1, Math.round(serversArray.length * 1.2))} KB`,
           primaryKey: 'id',
           columns: [
             { name: 'id', type: 'VARCHAR(100)', primary: true, nullable: false },
@@ -693,18 +723,12 @@ export function getDatabaseSchema(engine, dbName) {
             { name: 'status', type: 'VARCHAR(50)', primary: false, nullable: false },
             { name: 'organizationId', type: 'VARCHAR(100)', primary: false, nullable: false }
           ],
-          data: Object.values(serversObj).map(s => ({
-            id: s.id || '',
-            name: s.name || '',
-            ipAddress: s.ipAddress || '187.127.165.128',
-            status: s.status || 'CONNECTED',
-            organizationId: s.organizationId || 'org-default'
-          }))
+          data: serversArray
         },
         {
           name: 'projects',
-          rows: Object.keys(projectsObj).length,
-          size: `${Math.max(1, Math.round(Object.keys(projectsObj).length * 1.8))} KB`,
+          rows: projectsArray.length,
+          size: `${Math.max(1, Math.round(projectsArray.length * 1.8))} KB`,
           primaryKey: 'id',
           columns: [
             { name: 'id', type: 'VARCHAR(100)', primary: true, nullable: false },
@@ -714,19 +738,12 @@ export function getDatabaseSchema(engine, dbName) {
             { name: 'status', type: 'VARCHAR(50)', primary: false, nullable: false },
             { name: 'organizationId', type: 'VARCHAR(100)', primary: false, nullable: false }
           ],
-          data: Object.values(projectsObj).map(p => ({
-            id: p.id || '',
-            name: p.name || '',
-            path: p.path || '',
-            port: p.port || 3000,
-            status: p.status || 'RUNNING',
-            organizationId: p.organizationId || 'org-default'
-          }))
+          data: projectsArray
         },
         {
           name: 'subscriptions',
-          rows: Object.keys(subsObj).length,
-          size: `${Math.max(1, Math.round(Object.keys(subsObj).length * 1.1))} KB`,
+          rows: subsArray.length,
+          size: `${Math.max(1, Math.round(subsArray.length * 1.1))} KB`,
           primaryKey: 'id',
           columns: [
             { name: 'id', type: 'VARCHAR(100)', primary: true, nullable: false },
@@ -735,13 +752,7 @@ export function getDatabaseSchema(engine, dbName) {
             { name: 'status', type: 'VARCHAR(50)', primary: false, nullable: false },
             { name: 'currentPeriodEnd', type: 'TIMESTAMP', primary: false, nullable: true }
           ],
-          data: Object.values(subsObj).map(s => ({
-            id: s.id || '',
-            organizationId: s.organizationId || 'org-default',
-            planId: s.planId || 'pro',
-            status: s.status || 'active',
-            currentPeriodEnd: s.currentPeriodEnd || '2026-10-18'
-          }))
+          data: subsArray
         },
         {
           name: 'auditLogs',
@@ -790,9 +801,11 @@ export function getDatabaseSchema(engine, dbName) {
   }
 
   if (engine === 'postgresql') {
+    const pgDatabasesList = ['tipcrm_production', 'tipcrm_staging', 'postgres', 'happiness_db', 'litigation_db']
     if (dbName === 'postgres') {
       return {
         dbName: 'postgres',
+        databasesList: pgDatabasesList,
         tables: [
           {
             name: 'pg_tables',
@@ -851,9 +864,51 @@ export function getDatabaseSchema(engine, dbName) {
       }
     }
 
+    if (dbName === 'tipcrm_staging') {
+      return {
+        dbName: 'tipcrm_staging',
+        databasesList: pgDatabasesList,
+        tables: [
+          {
+            name: 'staging_users',
+            rows: 120,
+            size: '240 KB',
+            primaryKey: 'id',
+            columns: [
+              { name: 'id', type: 'UUID', primary: true, nullable: false },
+              { name: 'email', type: 'VARCHAR(255)', primary: false, nullable: false },
+              { name: 'role', type: 'VARCHAR(50)', primary: false, nullable: false },
+              { name: 'last_login', type: 'TIMESTAMP', primary: false, nullable: true }
+            ],
+            data: [
+              { id: 'usr_stg_01', email: 'test.user1@staging.tipcrm.com', role: 'TESTER', last_login: '2026-09-19 14:00:00' },
+              { id: 'usr_stg_02', email: 'qa.lead@staging.tipcrm.com', role: 'QA_ADMIN', last_login: '2026-09-19 15:30:00' }
+            ]
+          },
+          {
+            name: 'test_experiments',
+            rows: 45,
+            size: '90 KB',
+            primaryKey: 'id',
+            columns: [
+              { name: 'id', type: 'INT', primary: true, nullable: false },
+              { name: 'experiment_name', type: 'VARCHAR(100)', primary: false, nullable: false },
+              { name: 'variant', type: 'VARCHAR(50)', primary: false, nullable: false },
+              { name: 'conversions', type: 'INT', primary: false, nullable: false }
+            ],
+            data: [
+              { id: '1', experiment_name: 'New Checkout Flow UI', variant: 'Variant B', conversions: 342 },
+              { id: '2', experiment_name: 'Fast 1-Click Deploy Wizard', variant: 'Variant A', conversions: 890 }
+            ]
+          }
+        ]
+      }
+    }
+
     if (dbName === 'happiness_db') {
       return {
         dbName: 'happiness_db',
+        databasesList: pgDatabasesList,
         tables: [
           {
             name: 'creators',
@@ -895,6 +950,7 @@ export function getDatabaseSchema(engine, dbName) {
     if (dbName === 'litigation_db') {
       return {
         dbName: 'litigation_db',
+        databasesList: pgDatabasesList,
         tables: [
           {
             name: 'cases',
@@ -936,6 +992,7 @@ export function getDatabaseSchema(engine, dbName) {
     // Default tipcrm_production
     return {
       dbName: dbName || 'tipcrm_production',
+      databasesList: pgDatabasesList,
       tables: [
         {
           name: 'crm_users',
@@ -1013,9 +1070,54 @@ export function getDatabaseSchema(engine, dbName) {
   }
 
   if (engine === 'mysql') {
+    const myDatabasesList = ['autodeploy_db', 'sys', 'mysql', 'wordpress_db']
+
+    if (dbName === 'mysql') {
+      return {
+        dbName: 'mysql',
+        databasesList: myDatabasesList,
+        tables: [
+          {
+            name: 'user',
+            rows: 4,
+            size: '32 KB',
+            primaryKey: 'User',
+            columns: [
+              { name: 'Host', type: 'CHAR(255)', primary: true, nullable: false },
+              { name: 'User', type: 'CHAR(32)', primary: true, nullable: false },
+              { name: 'Select_priv', type: 'ENUM', primary: false, nullable: false },
+              { name: 'Insert_priv', type: 'ENUM', primary: false, nullable: false }
+            ],
+            data: [
+              { Host: 'localhost', User: 'root', Select_priv: 'Y', Insert_priv: 'Y' },
+              { Host: 'localhost', User: 'autodeploy_user', Select_priv: 'Y', Insert_priv: 'Y' },
+              { Host: '%', User: 'tipcrm_user', Select_priv: 'Y', Insert_priv: 'Y' }
+            ]
+          },
+          {
+            name: 'db',
+            rows: 3,
+            size: '16 KB',
+            primaryKey: 'Db',
+            columns: [
+              { name: 'Host', type: 'CHAR(255)', primary: true, nullable: false },
+              { name: 'Db', type: 'CHAR(64)', primary: true, nullable: false },
+              { name: 'User', type: 'CHAR(32)', primary: true, nullable: false }
+            ],
+            data: [
+              { Host: 'localhost', Db: 'autodeploy_db', User: 'root' },
+              { Host: 'localhost', Db: 'sys', User: 'root' },
+              { Host: '%', Db: 'wordpress_db', User: 'root' }
+            ]
+          }
+        ]
+      }
+    }
+
     if (dbName === 'sys') {
       return {
         dbName: 'sys',
+        databasesList: myDatabasesList,
         tables: [
           {
             name: 'sys_config',
@@ -1040,6 +1142,7 @@ export function getDatabaseSchema(engine, dbName) {
     if (dbName === 'wordpress_db') {
       return {
         dbName: 'wordpress_db',
+        databasesList: myDatabasesList,
         tables: [
           {
             name: 'wp_posts',
@@ -1079,6 +1182,7 @@ export function getDatabaseSchema(engine, dbName) {
     // Default autodeploy_db
     return {
       dbName: dbName || 'autodeploy_db',
+      databasesList: myDatabasesList,
       tables: [
         {
           name: 'deploy_logs',
@@ -1155,8 +1259,42 @@ export function getDatabaseSchema(engine, dbName) {
   }
 
   if (engine === 'mongodb') {
+    const mongoDatabasesList = ['analytics_db', 'telemetry_db', 'admin']
+    if (dbName === 'telemetry_db') {
+      return {
+        dbName: 'telemetry_db',
+        databasesList: mongoDatabasesList,
+        collections: [
+          {
+            name: 'system_logs',
+            count: 8900,
+            sampleDocs: [
+              { _id: '650c99bb1', level: 'INFO', service: 'auto-deploy-backend', message: 'Nginx proxy regenerated', timestamp: '2026-09-19 14:22:00' }
+            ]
+          }
+        ]
+      }
+    }
+
+    if (dbName === 'admin') {
+      return {
+        dbName: 'admin',
+        databasesList: mongoDatabasesList,
+        collections: [
+          {
+            name: 'system.users',
+            count: 2,
+            sampleDocs: [
+              { _id: 'admin.root', user: 'root', db: 'admin', roles: [{ role: 'root', db: 'admin' }] }
+            ]
+          }
+        ]
+      }
+    }
+
     return {
       dbName: dbName || 'analytics_db',
+      databasesList: mongoDatabasesList,
       collections: [
         {
           name: 'page_views',
@@ -1178,8 +1316,32 @@ export function getDatabaseSchema(engine, dbName) {
   }
 
   if (engine === 'redis') {
+    const redisDatabasesList = ['db0 (Default Cache)', 'db1 (Session Store)', 'db2 (Queue)']
+    if (dbName?.includes('db1')) {
+      return {
+        dbName: 'db1 (Session Store)',
+        databasesList: redisDatabasesList,
+        keys: [
+          { key: 'session:user_101', type: 'string', ttl: '3600s', value: 'Active User 101 Session Token' },
+          { key: 'session:user_102', type: 'string', ttl: '7200s', value: 'Active User 102 Session Token' }
+        ]
+      }
+    }
+
+    if (dbName?.includes('db2')) {
+      return {
+        dbName: 'db2 (Queue)',
+        databasesList: redisDatabasesList,
+        keys: [
+          { key: 'queue:email_jobs', type: 'list', ttl: 'no-expire', value: '["email_201", "email_202"]' },
+          { key: 'queue:webhook_retries', type: 'zset', ttl: 'no-expire', value: '["webhook_881", "webhook_882"]' }
+        ]
+      }
+    }
+
     return {
       dbName: dbName || 'db0 (Default Cache)',
+      databasesList: redisDatabasesList,
       keys: [
         { key: 'session:jwt_tokens:admin-001', type: 'string', ttl: '86390s', value: 'Active Admin JWT Session' },
         { key: 'queue:deploy_tasks', type: 'list', ttl: 'no-expire', value: '["task-197", "task-307"]' },
@@ -1188,5 +1350,5 @@ export function getDatabaseSchema(engine, dbName) {
     }
   }
 
-  return { dbName: dbName || 'default', tables: [] }
+  return { dbName: dbName || 'default', databasesList: ['default'], tables: [] }
 }
