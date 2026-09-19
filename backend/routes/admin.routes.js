@@ -76,4 +76,32 @@ router.get('/servers', authenticateToken, requireSuperAdmin, (req, res) => {
   }
 })
 
+import { getIdempotencyStats, getAllIdempotencyRecords } from '../services/db.service.js'
+
+/**
+ * GET /api/admin/idempotency/stats
+ * Summary statistics for Admin Idempotency Dashboard
+ */
+router.get('/idempotency/stats', authenticateToken, requireSuperAdmin, (req, res) => {
+  try {
+    const stats = getIdempotencyStats()
+    res.json({ success: true, stats })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+/**
+ * GET /api/admin/idempotency/records
+ * Full audit list of Idempotency records
+ */
+router.get('/idempotency/records', authenticateToken, requireSuperAdmin, (req, res) => {
+  try {
+    const records = getAllIdempotencyRecords()
+    res.json({ success: true, records })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 export default router

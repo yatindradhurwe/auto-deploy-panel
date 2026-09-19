@@ -251,10 +251,28 @@ router.get('/stream/:deployId', (req, res) => {
   })
 })
 
+import { makeDeploymentLockKey, acquireLock, releaseLock } from '../services/lock.service.js'
+import { recordWebhookEvent } from '../services/db.service.js'
+
 /**
  * Start Deployment Session
  */
 router.post('/deploy', async (req, res) => {
+  const orgId = req.tenant?.organizationId || 'org-default'
+  const targetProject = req.body.appName || req.body.projectId || 'default'
+  const environment = req.body.environment || 'production'
+
+  const lockKey = makeDeploymentLockKey(orgId, targetProject, environment)
+  const lockResult = acquireLock(lockKey, 10 * 60 * 1000)
+
+  if (!lockResult.acquired) {
+    return res.status(409).json({
+      success: false,
+      error: lockResult.message || 'Deployment execution already in progress for this project.',
+      code: 'DEPLOYMENT_LOCKED'
+    })
+  }
+
   const deployId = `deploy_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
   const deploySession = {
     id: deployId,
@@ -289,6 +307,8 @@ router.post('/deploy', async (req, res) => {
   } catch (err) {
     deploySession.status = 'failed'
     onLog(`[FAILED] Deployment error: ${err.message}`, true, 'END')
+  } finally {
+    releaseLock(lockKey)
   }
 })
 
@@ -297,12 +317,31 @@ const webhookAuditLogs = []
 
 /**
  * POST /api/deploy/webhook/:projectId
- * GitHub / GitLab Push Webhook Endpoint
+ * GitHub / GitLab Push Webhook Endpoint with Deduplication
  */
 router.post('/webhook/:projectId', (req, res) => {
   const { projectId } = req.params
+  const eventId = req.headers['x-github-delivery'] || req.headers['x-gitlab-event-uuid'] || req.body.after || req.body.head_commit?.id || `evt_${Date.now()}`
   const eventType = req.headers['x-github-event'] || 'push'
   const payload = req.body || {}
+
+  // Webhook Deduplication Check: UNIQUE(provider, event_id)
+  const { isDuplicate } = recordWebhookEvent({
+    provider: 'github',
+    eventId,
+    organizationId: req.tenant?.organizationId || 'org-default',
+    eventType,
+    payloadHash: JSON.stringify(payload).substring(0, 100)
+  })
+
+  if (isDuplicate) {
+    console.log(`[WEBHOOK DEDUPLICATED] GitHub eventId=${eventId} already processed.`)
+    return res.json({
+      success: true,
+      message: `Webhook event '${eventId}' already processed safely (Idempotent deduplicated).`,
+      replayed: true
+    })
+  }
 
   const commitMsg = payload.head_commit ? payload.head_commit.message : 'Push event received'
   const pusher = payload.pusher ? payload.pusher.name : (payload.sender ? payload.sender.login : 'GitHub Webhook')

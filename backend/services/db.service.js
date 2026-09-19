@@ -218,6 +218,8 @@ export function readDb() {
     if (!parsed.subscriptions) parsed.subscriptions = INITIAL_DB.subscriptions
     if (!parsed.plans) parsed.plans = INITIAL_DB.plans
     if (!parsed.auditLogs) parsed.auditLogs = INITIAL_DB.auditLogs
+    if (!parsed.idempotencyKeys) parsed.idempotencyKeys = {}
+    if (!parsed.webhookEvents) parsed.webhookEvents = {}
     return parsed
   } catch (e) {
     console.error('[DB-SERVICE] Error reading db.json, returning default:', e)
@@ -932,6 +934,234 @@ export function recordAuditLog({ organizationId, userId, action, resourceType, r
   }
   writeDb(db)
   return entry
+}
+
+// ==============================================================================
+// IDEMPOTENCY SYSTEM DATABASE HELPERS & CONSTRAINTS
+// ==============================================================================
+
+/**
+ * Generate composite primary key for organization-scoped idempotency
+ */
+function makeIdempotencyPk(orgId, key) {
+  const safeOrg = (orgId || 'org-default').trim()
+  const safeKey = (key || '').trim()
+  return `idemp_${safeOrg}_${safeKey}`
+}
+
+/**
+ * Get idempotency record by Organization ID and Idempotency Key
+ */
+export function getIdempotencyRecord(organizationId, idempotencyKey) {
+  if (!idempotencyKey) return null
+  const db = readDb()
+  const pk = makeIdempotencyPk(organizationId, idempotencyKey)
+  return (db.idempotencyKeys && db.idempotencyKeys[pk]) || null
+}
+
+/**
+ * Create a new atomic Idempotency Record in PROCESSING state
+ */
+export function createIdempotencyRecord({
+  organizationId = 'org-default',
+  userId = 'system',
+  idempotencyKey,
+  requestHash,
+  httpMethod,
+  requestPath,
+  resourceType = 'generic',
+  resourceId = null,
+  retentionDays = 7
+}) {
+  if (!idempotencyKey) throw new Error('Idempotency Key is required.')
+
+  const db = readDb()
+  if (!db.idempotencyKeys) db.idempotencyKeys = {}
+
+  const pk = makeIdempotencyPk(organizationId, idempotencyKey)
+
+  // Enforce Database Unique Constraint: UNIQUE(organization_id, idempotency_key)
+  if (db.idempotencyKeys[pk]) {
+    const existing = db.idempotencyKeys[pk]
+    // If PROCESSING and crash timeout exceeded (5 mins), auto-expire for recovery
+    const ageMs = Date.now() - new Date(existing.createdAt).getTime()
+    if (existing.status === 'PROCESSING' && ageMs > 5 * 60 * 1000) {
+      existing.status = 'EXPIRED'
+      existing.updatedAt = new Date().toISOString()
+      writeDb(db)
+    } else {
+      return { record: existing, created: false }
+    }
+  }
+
+  const now = new Date()
+  const expiresAt = new Date(now.getTime() + retentionDays * 86400000).toISOString()
+
+  const record = {
+    id: pk,
+    organizationId,
+    userId,
+    idempotencyKey,
+    requestHash,
+    httpMethod: (httpMethod || 'POST').toUpperCase(),
+    requestPath,
+    resourceType,
+    resourceId,
+    status: 'PROCESSING', // 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'EXPIRED'
+    responseStatus: null,
+    responseHeaders: null,
+    responseBody: null,
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+    completedAt: null,
+    expiresAt
+  }
+
+  db.idempotencyKeys[pk] = record
+  writeDb(db)
+  return { record, created: true }
+}
+
+/**
+ * Update an existing Idempotency Record (mark COMPLETED, FAILED, etc.)
+ */
+export function updateIdempotencyRecord(organizationId, idempotencyKey, updates) {
+  const db = readDb()
+  if (!db.idempotencyKeys) return null
+
+  const pk = makeIdempotencyPk(organizationId, idempotencyKey)
+  const existing = db.idempotencyKeys[pk]
+  if (!existing) return null
+
+  const updated = {
+    ...existing,
+    ...updates,
+    updatedAt: new Date().toISOString(),
+    completedAt: updates.status === 'COMPLETED' || updates.status === 'FAILED' ? new Date().toISOString() : existing.completedAt
+  }
+
+  db.idempotencyKeys[pk] = updated
+  writeDb(db)
+  return updated
+}
+
+/**
+ * Retrieve summary metrics for Super Admin Idempotency Dashboard
+ */
+export function getIdempotencyStats() {
+  const db = readDb()
+  const keys = Object.values(db.idempotencyKeys || {})
+
+  const total = keys.length
+  const processing = keys.filter(k => k.status === 'PROCESSING').length
+  const completed = keys.filter(k => k.status === 'COMPLETED').length
+  const failed = keys.filter(k => k.status === 'FAILED').length
+  const expired = keys.filter(k => k.status === 'EXPIRED').length
+  const replayed = keys.filter(k => k.replayedCount > 0).length
+  const conflicts = keys.filter(k => k.hasConflict).length
+
+  return {
+    totalRequests: total,
+    newOperations: completed + processing,
+    replayedRequests: replayed,
+    conflicts,
+    processing,
+    completed,
+    failed,
+    expired
+  }
+}
+
+/**
+ * Retrieve all Idempotency records for Admin Inspection (sorted newest first)
+ */
+export function getAllIdempotencyRecords() {
+  const db = readDb()
+  const records = Object.values(db.idempotencyKeys || {})
+  return records.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+}
+
+/**
+ * Clean up expired Idempotency records
+ */
+export function cleanExpiredIdempotencyKeys(retentionDays = 7) {
+  const db = readDb()
+  if (!db.idempotencyKeys) return 0
+
+  const nowMs = Date.now()
+  let deletedCount = 0
+
+  Object.keys(db.idempotencyKeys).forEach(pk => {
+    const item = db.idempotencyKeys[pk]
+    const expMs = new Date(item.expiresAt || 0).getTime()
+    if (expMs > 0 && expMs < nowMs) {
+      delete db.idempotencyKeys[pk]
+      deletedCount++
+    }
+  })
+
+  if (deletedCount > 0) {
+    writeDb(db)
+  }
+  return deletedCount
+}
+
+// ==============================================================================
+// WEBHOOK DEDUPLICATION HELPERS: UNIQUE(provider, event_id)
+// ==============================================================================
+
+export function getWebhookEvent(provider, eventId) {
+  if (!provider || !eventId) return null
+  const db = readDb()
+  const pk = `wh_${provider.toLowerCase()}_${eventId}`
+  return (db.webhookEvents && db.webhookEvents[pk]) || null
+}
+
+export function recordWebhookEvent({ provider, eventId, organizationId = 'org-default', eventType, payloadHash, status = 'PROCESSED' }) {
+  if (!provider || !eventId) throw new Error('Provider and eventId are required for webhooks.')
+
+  const db = readDb()
+  if (!db.webhookEvents) db.webhookEvents = {}
+
+  const pk = `wh_${provider.toLowerCase()}_${eventId}`
+  if (db.webhookEvents[pk]) {
+    return { record: db.webhookEvents[pk], isDuplicate: true }
+  }
+
+  const record = {
+    id: pk,
+    provider: provider.toLowerCase(),
+    eventId,
+    organizationId,
+    eventType: eventType || 'generic',
+    payloadHash: payloadHash || '',
+    status,
+    processedAt: new Date().toISOString()
+  }
+
+  db.webhookEvents[pk] = record
+  writeDb(db)
+  return { record, isDuplicate: false }
+}
+
+// ==============================================================================
+// DOMAIN & MAILBOX UNIQUENESS HELPERS
+// ==============================================================================
+
+export function getDomainByNormalizedName(organizationId, domainName) {
+  if (!domainName) return null
+  const norm = domainName.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+  const db = readDb()
+  const servers = Object.values(db.servers || {})
+  return servers.find(s => s.organizationId === organizationId && s.domain && s.domain.trim().toLowerCase() === norm) || null
+}
+
+export function getEmailAccountByAddress(organizationId, emailAddress) {
+  if (!emailAddress) return null
+  const cleanEmail = emailAddress.trim().toLowerCase()
+  const db = readDb()
+  const accounts = db.emailAccounts || []
+  return accounts.find(a => (a.organizationId === organizationId || !organizationId) && a.email === cleanEmail) || null
 }
 
 

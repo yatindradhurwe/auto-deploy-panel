@@ -5,9 +5,10 @@ import {
   Eye, AlertTriangle, ArrowLeft
 } from 'lucide-react'
 import SuperAdminPortal from './SuperAdminPortal'
+import { AdminIdempotencyPanel } from './AdminIdempotencyPanel'
 
 export default function SuperAdminDashboardLayout({ currentUser, jwtToken, onLogout, onExitImpersonation, apiBaseUrl = '' }) {
-  const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'users' | 'organizations' | 'servers' | 'subscriptions' | 'audit-logs'
+  const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'users' | 'organizations' | 'servers' | 'subscriptions' | 'audit-logs' | 'idempotency'
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [impersonatingOrg, setImpersonatingOrg] = useState(null)
 
@@ -30,7 +31,8 @@ export default function SuperAdminDashboardLayout({ currentUser, jwtToken, onLog
     {
       title: 'SYSTEM & SECURITY',
       items: [
-        { id: 'audit-logs', label: 'Platform Audit Trail', icon: ShieldCheck }
+        { id: 'audit-logs', label: 'Platform Audit Trail', icon: ShieldCheck },
+        { id: 'idempotency', label: 'Idempotency System', icon: RefreshCw }
       ]
     }
   ]
@@ -119,8 +121,11 @@ export default function SuperAdminDashboardLayout({ currentUser, jwtToken, onLog
 
         {/* Central Super Admin View */}
         <main className="flex-1 overflow-y-auto p-6 space-y-6">
-          {activeTab === 'dashboard' && <SuperAdminPortal apiBaseUrl={apiBaseUrl} />}
-          {activeTab !== 'dashboard' && <SuperAdminPortal apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'idempotency' ? (
+            <AdminIdempotencyPanel jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />
+          ) : (
+            <SuperAdminPortal apiBaseUrl={apiBaseUrl} />
+          )}
         </main>
       </div>
     </div>

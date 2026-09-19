@@ -100,4 +100,43 @@ router.post('/cancel', authenticateToken, requireTenant, requireRole(['OWNER']),
   }
 })
 
+import { recordWebhookEvent } from '../services/db.service.js'
+
+/**
+ * POST /api/billing/webhook
+ * Stripe / Razorpay Payment Webhook Deduplication Endpoint
+ */
+router.post('/webhook', (req, res) => {
+  try {
+    const provider = req.headers['x-payment-provider'] || (req.body.id && req.body.id.startsWith('evt_') ? 'stripe' : 'razorpay')
+    const eventId = req.body.id || req.body.event_id || req.body.payload?.payment?.entity?.id || `pay_${Date.now()}`
+    const eventType = req.body.type || req.body.event || 'payment.succeeded'
+
+    const { isDuplicate } = recordWebhookEvent({
+      provider,
+      eventId,
+      organizationId: req.body.organizationId || 'org-default',
+      eventType,
+      payloadHash: JSON.stringify(req.body).substring(0, 100)
+    })
+
+    if (isDuplicate) {
+      console.log(`[PAYMENT WEBHOOK DEDUPLICATED] provider=${provider} eventId=${eventId}`)
+      return res.json({
+        success: true,
+        message: `Payment webhook '${eventId}' already processed safely.`,
+        replayed: true
+      })
+    }
+
+    res.json({
+      success: true,
+      message: `Payment webhook event '${eventId}' processed successfully.`,
+      eventId
+    })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 export default router

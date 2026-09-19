@@ -57,23 +57,18 @@ app.post('/api/webhooks/github/:appName', (req, res) => {
 // Public Authentication & Onboarding Routes
 app.use('/api/auth', authRoutes)
 
-// Agent Management Routes
-app.use('/api/agent', agentRoutes)
+import { requireTenant } from './middleware/tenant.middleware.js'
+import { requireIdempotency } from './middleware/idempotency.middleware.js'
 
-// Protected SaaS Subscriptions & Billing Routes
-app.use('/api/billing', billingRoutes)
-
-// Protected Team Management & RBAC Routes
+// Apply Idempotency Middleware to state-mutating endpoints
+app.use('/api/agent', requireIdempotency(), agentRoutes)
+app.use('/api/billing', requireIdempotency(), billingRoutes)
 app.use('/api/team', teamRoutes)
-
-// Super Admin Platform Monitoring Routes
 app.use('/api/admin', adminRoutes)
 
-import { requireTenant } from './middleware/tenant.middleware.js'
-
 // Protected Deployment & Studio Routes (Requires valid JWT Token & Tenant Context)
-app.use('/api/deploy', authenticateToken, requireTenant, deployRoutes)
-app.use('/api/studio', authenticateToken, requireTenant, studioRoutes)
+app.use('/api/deploy', authenticateToken, requireTenant, requireIdempotency(), deployRoutes)
+app.use('/api/studio', authenticateToken, requireTenant, requireIdempotency(), studioRoutes)
 
 app.listen(PORT, () => {
   console.log(`[AUTODEPLOY-STUDIO-BACKEND] Multi-Tenant Engine Listening on http://localhost:${PORT}`)
