@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
   Zap, GitBranch, Github, Server, Globe, Key, ShieldCheck, Terminal, CheckCircle2,
   AlertTriangle, RefreshCw, Layers, ArrowRight, ArrowLeft, Play, Lock, Cpu, Sparkles, X, Check
@@ -10,6 +10,14 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
   const [tokenSavedMsg, setTokenSavedMsg] = useState(false)
   const [repos, setRepos] = useState([])
   const [loadingRepos, setLoadingRepos] = useState(false)
+  const logsContainerRef = useRef(null)
+
+  // Auto-scroll terminal log container as new logs arrive
+  useEffect(() => {
+    if (logsContainerRef.current) {
+      logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight
+    }
+  }, [deployLogs])
 
   // Deployment Form State
   const [deployForm, setDeployForm] = useState({
@@ -142,6 +150,12 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
       { text: `--> Target Remote Path: ${deployForm.remoteDir}`, step: 'CONFIG', timestamp: new Date().toISOString() }
     ])
 
+    const payload = {
+      ...deployForm,
+      gitRepoUrl: deployForm.gitUrl,
+      gitUrl: deployForm.gitUrl
+    }
+
     try {
       const res = await fetch(`${apiBaseUrl}/api/deploy/deploy`, {
         method: 'POST',
@@ -149,7 +163,7 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${jwtToken}`
         },
-        body: JSON.stringify(deployForm)
+        body: JSON.stringify(payload)
       })
 
       const data = await res.json()
@@ -163,8 +177,10 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
 
       setDeployId(data.deployId)
 
-      // Connect EventSource SSE log stream
-      const eventSource = new EventSource(`${apiBaseUrl}/api/deploy/stream/${data.deployId}`)
+      // Connect EventSource SSE log stream with authentication token parameter
+      const tokenToUse = jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('token') || ''
+      const streamUrl = `${apiBaseUrl}/api/deploy/stream/${data.deployId}?token=${encodeURIComponent(tokenToUse)}`
+      const eventSource = new EventSource(streamUrl)
 
       eventSource.onmessage = (event) => {
         try {
@@ -550,7 +566,7 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
             </div>
           </div>
 
-          <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-xs text-slate-300 h-96 overflow-y-auto space-y-1 shadow-inner">
+          <div ref={logsContainerRef} className="bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-xs text-slate-300 h-96 overflow-y-auto space-y-1 shadow-inner">
             {deployLogs.map((log, idx) => (
               <div key={idx} className={`leading-relaxed ${log.isError ? 'text-rose-400 font-bold' : log.step === 'START' ? 'text-cyan-400 font-bold' : 'text-slate-300'}`}>
                 <span className="text-slate-600 text-[10px] mr-2">[{log.timestamp ? log.timestamp.substring(11, 19) : ''}]</span>

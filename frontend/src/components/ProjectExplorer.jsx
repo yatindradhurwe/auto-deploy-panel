@@ -114,7 +114,11 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
           'Authorization': `Bearer ${jwtToken}`
         },
         body: JSON.stringify({
-          host: activeServer ? activeServer.host : '187.127.165.128',
+          host: activeServer ? (activeServer.ipAddress || activeServer.host) : '187.127.165.128',
+          port: activeServer ? (activeServer.port || 22) : 22,
+          username: activeServer ? (activeServer.username || 'root') : 'root',
+          password: activeServer ? activeServer.password : undefined,
+          privateKey: activeServer ? activeServer.privateKey : undefined,
           appName,
           projectPath,
           branch: 'main'

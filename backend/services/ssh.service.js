@@ -202,10 +202,11 @@ export async function executeDeployment(config, onLog) {
     onLog(`SSH Connection Established Successfully!\n\n`, false, 'INIT')
 
     let domain = (config.domain || '').trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
-    let gitRepoUrl = (config.gitRepoUrl || '').trim()
+    let gitRepoUrl = (config.gitRepoUrl || config.gitUrl || '').trim()
     const appName = (config.appName || 'my-app').trim()
     const backendPort = config.backendPort || 5050
     let remoteDir = (config.remoteDir || `/var/www/${appName}`).trim()
+    const branch = config.branch || 'main'
     const setupSsl = config.setupSsl !== false
 
     if (!domain) {
@@ -219,15 +220,15 @@ export async function executeDeployment(config, onLog) {
     domain = domain.replace(/\/$/, '')
 
     // Step 1: Sync Codebase from Git
-    onLog(`\n==========================================\n[STEP 1/6] Syncing Codebase from Repository...\n==========================================\n`, false, 'GIT')
+    onLog(`\n==========================================\n[STEP 1/6] Syncing Codebase from Repository (${branch})...\n==========================================\n`, false, 'GIT')
     const gitCmd = `
       if [ -d "${remoteDir}/.git" ]; then
-        echo "Updating existing repository at ${remoteDir}..."
-        cd ${remoteDir} && git fetch --all && git reset --hard origin/main && git pull origin main
+        echo "Updating existing repository at ${remoteDir} (branch: ${branch})..."
+        cd ${remoteDir} && git fetch --all && (git checkout ${branch} 2>/dev/null || git checkout -b ${branch} origin/${branch} 2>/dev/null || true) && git reset --hard origin/${branch} && git pull origin ${branch}
       else
-        echo "Cloning repository ${gitRepoUrl} into ${remoteDir}..."
+        echo "Cloning repository ${gitRepoUrl} (branch: ${branch}) into ${remoteDir}..."
         mkdir -p ${remoteDir}
-        git clone ${gitRepoUrl} ${remoteDir}
+        git clone -b ${branch} ${gitRepoUrl} ${remoteDir} || git clone ${gitRepoUrl} ${remoteDir}
       fi
     `
     try {
@@ -248,6 +249,19 @@ export async function executeDeployment(config, onLog) {
     const hasRootPackageJson = (await runQuery(conn, `[ -f "${remoteDir}/package.json" ] && echo "YES" || echo "NO"`)) === 'YES'
 
     onLog(`Layout detected: Monorepo Frontend=${hasFrontendDir}, Backend=${hasBackendDir}, Root Package=${hasRootPackageJson}\n`, false, 'LAYOUT')
+
+    // Persist Environment Variables (.env) if provided
+    if (config.envVars && config.envVars.trim()) {
+      onLog(`Persisting environment configuration (.env) on remote server...\n`, false, 'ENV')
+      const envContent = config.envVars.trim()
+      const writeEnvCmd = `cat << 'EOF' > ${remoteDir}/.env\n${envContent}\nEOF`
+      await runCommandStream(conn, writeEnvCmd, onLog)
+
+      if (hasBackendDir) {
+        const writeBackendEnvCmd = `cat << 'EOF' > ${remoteDir}/backend/.env\n${envContent}\nEOF`
+        await runCommandStream(conn, writeBackendEnvCmd, onLog)
+      }
+    }
 
     let webRootDir = `${remoteDir}`
     let backendEntryDir = null
