@@ -270,7 +270,7 @@ export async function executeDeployment(config, onLog) {
     onLog(`\n==========================================\n[STEP 2/6] Building Frontend Production Assets...\n==========================================\n`, false, 'FRONTEND')
     if (hasFrontendDir) {
       onLog(`Building frontend inside ${remoteDir}/frontend...\n`, false, 'FRONTEND')
-      const frontendCmd = `cd ${remoteDir}/frontend && npm install --production=false && npm run build`
+      const frontendCmd = `cd ${remoteDir}/frontend && (npm install --production=false --legacy-peer-deps || npm install --production=false --force) && npm run build`
       await runCommandStream(conn, frontendCmd, onLog)
       
       const hasFrontendDist = (await runQuery(conn, `[ -d "${remoteDir}/frontend/dist" ] && echo "YES" || echo "NO"`)) === 'YES'
@@ -281,7 +281,7 @@ export async function executeDeployment(config, onLog) {
       }
     } else if (hasRootPackageJson) {
       onLog(`Building project at root ${remoteDir}...\n`, false, 'FRONTEND')
-      const rootBuildCmd = `cd ${remoteDir} && npm install --production=false && (npm run build || true)`
+      const rootBuildCmd = `cd ${remoteDir} && (npm install --production=false --legacy-peer-deps || npm install --production=false --force) && (npm run build || true)`
       await runCommandStream(conn, rootBuildCmd, onLog)
 
       const hasDist = (await runQuery(conn, `[ -d "${remoteDir}/dist" ] && echo "YES" || echo "NO"`)) === 'YES'
@@ -310,7 +310,7 @@ export async function executeDeployment(config, onLog) {
 
     if (backendEntryDir) {
       onLog(`Installing backend packages in ${backendEntryDir}...\n`, false, 'BACKEND')
-      await runCommandStream(conn, `cd ${backendEntryDir} && npm install`, onLog)
+      await runCommandStream(conn, `cd ${backendEntryDir} && (npm install --legacy-peer-deps || npm install --force)`, onLog)
 
       const serverFile = (await runQuery(conn, `
         if [ -f "${backendEntryDir}/server.js" ]; then echo "server.js";
@@ -449,14 +449,14 @@ export async function updateExistingDeployment(config, onLog) {
       cd ${remoteDir}
       if [ -d "frontend" ]; then
         echo "Building frontend workspace in ${remoteDir}/frontend..."
-        cd frontend && npm install --production=false && npm run build && cd ..
+        cd frontend && (npm install --production=false --legacy-peer-deps || npm install --production=false --force) && npm run build && cd ..
       fi
       if [ -d "backend" ]; then
         echo "Installing backend dependencies in ${remoteDir}/backend..."
-        cd backend && npm install && cd ..
+        cd backend && (npm install --legacy-peer-deps || npm install --force) && cd ..
       elif [ -f "package.json" ]; then
         echo "Installing root npm packages in ${remoteDir}..."
-        npm install
+        (npm install --legacy-peer-deps || npm install --force)
       fi
     `
     await runCommandStream(conn, buildCmd, onLog)
