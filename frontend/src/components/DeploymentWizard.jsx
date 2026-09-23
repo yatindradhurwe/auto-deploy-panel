@@ -12,12 +12,11 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
   const [loadingRepos, setLoadingRepos] = useState(false)
   const logsContainerRef = useRef(null)
 
-  // Auto-scroll terminal log container as new logs arrive
-  useEffect(() => {
-    if (logsContainerRef.current) {
-      logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight
-    }
-  }, [deployLogs])
+  // Live Stream Execution State
+  const [deploying, setDeploying] = useState(false)
+  const [deployLogs, setDeployLogs] = useState([])
+  const [deployStatus, setDeployStatus] = useState('idle') // 'idle' | 'running' | 'success' | 'failed'
+  const [deployId, setDeployId] = useState('')
 
   // Deployment Form State
   const [deployForm, setDeployForm] = useState({
@@ -37,11 +36,37 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
     password: 'Yatindra@1223'
   })
 
-  // Live Stream Execution State
-  const [deploying, setDeploying] = useState(false)
-  const [deployLogs, setDeployLogs] = useState([])
-  const [deployStatus, setDeployStatus] = useState('idle') // 'idle' | 'running' | 'success' | 'failed'
-  const [deployId, setDeployId] = useState('')
+  // Auto-scroll terminal log container as new logs arrive
+  useEffect(() => {
+    if (logsContainerRef.current) {
+      logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight
+    }
+  }, [deployLogs])
+
+  const fetchGithubReposWithToken = async (tokenStr) => {
+    const tok = tokenStr || githubToken
+    if (!tok || !tok.trim()) return
+    setLoadingRepos(true)
+    try {
+      localStorage.setItem('autodeploy_github_token', tok.trim())
+      const res = await fetch(`${apiBaseUrl}/api/deploy/github-repos`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${jwtToken}`
+        },
+        body: JSON.stringify({ githubToken: tok.trim() })
+      })
+      const data = await res.json()
+      if (data.success && data.repos) {
+        setRepos(data.repos)
+      }
+    } catch (err) {
+      console.warn('GitHub API Error:', err)
+    } finally {
+      setLoadingRepos(false)
+    }
+  }
 
   // Load saved token on mount from backend database or localStorage
   useEffect(() => {
@@ -96,31 +121,6 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
       fetchGithubReposWithToken(githubToken.trim())
     } catch (e) {
       console.warn('Save token error:', e)
-    }
-  }
-
-  const fetchGithubReposWithToken = async (tokenStr) => {
-    const tok = tokenStr || githubToken
-    if (!tok || !tok.trim()) return
-    setLoadingRepos(true)
-    try {
-      localStorage.setItem('autodeploy_github_token', tok.trim())
-      const res = await fetch(`${apiBaseUrl}/api/deploy/github-repos`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwtToken}`
-        },
-        body: JSON.stringify({ githubToken: tok.trim() })
-      })
-      const data = await res.json()
-      if (data.success && data.repos) {
-        setRepos(data.repos)
-      }
-    } catch (err) {
-      console.warn('GitHub API Error:', err)
-    } finally {
-      setLoadingRepos(false)
     }
   }
 
