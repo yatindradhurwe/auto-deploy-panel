@@ -125,9 +125,10 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwtToken}`
+          'Authorization': `Bearer ${jwtToken}`,
+          'X-Server-Id': activeServer?.id || ''
         },
-        body: JSON.stringify({ projectPath })
+        body: JSON.stringify({ projectPath, serverId: activeServer?.id })
       })
       const data = await res.json()
       if (data.success) {
@@ -151,9 +152,10 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwtToken}`
+          'Authorization': `Bearer ${jwtToken}`,
+          'X-Server-Id': activeServer?.id || ''
         },
-        body: JSON.stringify({ projectPath })
+        body: JSON.stringify({ projectPath, serverId: activeServer?.id })
       })
       const data = await res.json()
       if (data.success) {

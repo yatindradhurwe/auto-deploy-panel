@@ -54,9 +54,10 @@ export default function DomainSSLManager({ jwtToken, activeServer }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': jwtToken ? `Bearer ${jwtToken}` : ''
+          'Authorization': jwtToken ? `Bearer ${jwtToken}` : '',
+          'X-Server-Id': activeServer?.id || ''
         },
-        body: JSON.stringify({ domain: newDomain, email })
+        body: JSON.stringify({ domain: newDomain, email, serverId: activeServer?.id })
       })
       const data = await res.json()
       if (data.success) {
@@ -83,9 +84,10 @@ export default function DomainSSLManager({ jwtToken, activeServer }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': jwtToken ? `Bearer ${jwtToken}` : ''
+          'Authorization': jwtToken ? `Bearer ${jwtToken}` : '',
+          'X-Server-Id': activeServer?.id || ''
         },
-        body: JSON.stringify({ domain: configDomain, proxyPort })
+        body: JSON.stringify({ domain: configDomain, proxyPort, serverId: activeServer?.id })
       })
       const data = await res.json()
       if (data.success) {

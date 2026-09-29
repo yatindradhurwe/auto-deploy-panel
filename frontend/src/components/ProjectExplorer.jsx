@@ -100,6 +100,8 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
     )
   }
 
+  const srvId = activeServer?.id || ''
+
   const handlePullAndUpdate = async (appName, projectPath) => {
     setUpdatingAppName(appName)
     setUpdateLogModal({
@@ -114,9 +116,11 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwtToken}`
+          'Authorization': `Bearer ${jwtToken}`,
+          'X-Server-Id': activeServer?.id || ''
         },
         body: JSON.stringify({
+          serverId: activeServer?.id,
           host: activeServer ? (activeServer.ipAddress || activeServer.host) : '187.127.165.128',
           port: activeServer ? (activeServer.port || 22) : 22,
           username: activeServer ? (activeServer.username || 'root') : 'root',
@@ -161,7 +165,10 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
   const handleOpenAutoUpdateModal = async (appName, projectPath) => {
     try {
       const res = await fetch(`/api/studio/autoupdate/config/${appName}`, {
-        headers: { 'Authorization': `Bearer ${jwtToken}` }
+        headers: {
+          'Authorization': `Bearer ${jwtToken}`,
+          'X-Server-Id': activeServer?.id || ''
+        }
       })
       const data = await res.json()
       if (data.success && data.config) {
@@ -184,9 +191,10 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwtToken}`
+          'Authorization': `Bearer ${jwtToken}`,
+          'X-Server-Id': activeServer?.id || ''
         },
-        body: JSON.stringify(autoUpdateModal)
+        body: JSON.stringify({ ...autoUpdateModal, serverId: activeServer?.id })
       })
       const data = await res.json()
       if (data.success) {
@@ -210,9 +218,10 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwtToken}`
+          'Authorization': `Bearer ${jwtToken}`,
+          'X-Server-Id': activeServer?.id || ''
         },
-        body: JSON.stringify({ appName: autoUpdateModal.appName })
+        body: JSON.stringify({ appName: autoUpdateModal.appName, serverId: activeServer?.id })
       })
       const data = await res.json()
       if (data.success) {
@@ -238,9 +247,11 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwtToken}`
+          'Authorization': `Bearer ${jwtToken}`,
+          'X-Server-Id': activeServer?.id || ''
         },
         body: JSON.stringify({
+          serverId: activeServer?.id,
           host: activeServer ? activeServer.host : '187.127.165.128',
           appName: deleteModal.appName,
           projectPath: deleteModal.projectPath,
@@ -269,13 +280,14 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
   const handleRealTimeFetch = async () => {
     setLoading(true)
     try {
-      const res = await fetch('/api/studio/projects/realtime-fetch', {
+      const res = await fetch(`/api/studio/projects/realtime-fetch?serverId=${activeServer?.id || ''}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwtToken}`
+          'Authorization': `Bearer ${jwtToken}`,
+          'X-Server-Id': activeServer?.id || ''
         },
-        body: JSON.stringify({ host: activeServer ? activeServer.host : '187.127.165.128' })
+        body: JSON.stringify({ host: activeServer ? activeServer.host : '187.127.165.128', serverId: activeServer?.id })
       })
       const data = await res.json()
       if (data.success) {

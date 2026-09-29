@@ -47,6 +47,8 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
   const [installCommand, setInstallCommand] = useState('')
   const [buildInfo, setBuildInfo] = useState(null)
 
+  const [activeServerMetrics, setActiveServerMetrics] = useState(null)
+
   const fetchTenantServers = async () => {
     setLoadingServers(true)
     try {
@@ -67,6 +69,25 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
     }
   }
 
+  const fetchActiveServerMetrics = async (srvId) => {
+    if (!srvId) return
+    try {
+      const res = await fetch('/api/studio/server-metrics', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${jwtToken}`,
+          'X-Server-Id': srvId
+        },
+        body: JSON.stringify({ serverId: srvId })
+      })
+      const data = await res.json()
+      if (data.success && data.server) {
+        setActiveServerMetrics(data.server)
+      }
+    } catch (e) {}
+  }
+
   const fetchBuildInfo = async () => {
     try {
       const res = await fetch(`${apiBaseUrl}/api/health`)
@@ -84,6 +105,12 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
     setAgentToken(token)
     setInstallCommand(`curl -fsSL ${window.location.origin}/install.sh | sudo bash -s -- --token=${token}`)
   }, [])
+
+  useEffect(() => {
+    if (activeServerId) {
+      fetchActiveServerMetrics(activeServerId)
+    }
+  }, [activeServerId])
 
   const handleConnectServer = async (e) => {
     e.preventDefault()
@@ -406,17 +433,17 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
 
                   <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 backdrop-blur-xl">
                     <div className="text-xs text-slate-400 font-semibold uppercase">CPU Usage</div>
-                    <div className="text-3xl font-black text-white mt-2">{activeServer?.cpu || 12}%</div>
+                    <div className="text-3xl font-black text-white mt-2">{activeServerMetrics?.cpu !== undefined ? activeServerMetrics.cpu : (activeServer?.cpu || 12)}%</div>
                     <div className="w-full bg-slate-950 h-1.5 rounded-full mt-2 overflow-hidden border border-slate-800">
-                      <div className="bg-cyan-500 h-full" style={{ width: `${activeServer?.cpu || 12}%` }} />
+                      <div className="bg-cyan-500 h-full" style={{ width: `${activeServerMetrics?.cpu !== undefined ? activeServerMetrics.cpu : (activeServer?.cpu || 12)}%` }} />
                     </div>
                   </div>
 
                   <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 backdrop-blur-xl">
                     <div className="text-xs text-slate-400 font-semibold uppercase">RAM Memory</div>
-                    <div className="text-3xl font-black text-white mt-2">{activeServer?.ram || 42}%</div>
+                    <div className="text-3xl font-black text-white mt-2">{activeServerMetrics?.memory !== undefined ? activeServerMetrics.memory : (activeServer?.ram || 42)}%</div>
                     <div className="w-full bg-slate-950 h-1.5 rounded-full mt-2 overflow-hidden border border-slate-800">
-                      <div className="bg-indigo-500 h-full" style={{ width: `${activeServer?.ram || 42}%` }} />
+                      <div className="bg-indigo-500 h-full" style={{ width: `${activeServerMetrics?.memory !== undefined ? activeServerMetrics.memory : (activeServer?.ram || 42)}%` }} />
                     </div>
                   </div>
                 </div>

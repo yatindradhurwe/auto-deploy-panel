@@ -40,6 +40,19 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
   const [detectingStack, setDetectingStack] = useState(false)
   const [detectedStackInfo, setDetectedStackInfo] = useState(null)
 
+  useEffect(() => {
+    if (activeServer) {
+      setDeployForm(prev => ({
+        ...prev,
+        serverId: activeServer.id,
+        host: activeServer.ipAddress || activeServer.ftpHost || activeServer.hostname || activeServer.host || '187.127.165.128',
+        port: activeServer.port || (activeServer.serverType === 'shared' ? 21 : 22),
+        username: activeServer.username || activeServer.ftpUser || activeServer.cpanelUser || 'root',
+        password: activeServer.password || activeServer.ftpPassword || 'Yatindra@1223'
+      }))
+    }
+  }, [activeServer])
+
   const autoDetectStackForRepo = async (targetGitUrl, repoNameStr) => {
     const url = targetGitUrl || deployForm.gitUrl
     if (!url) return
@@ -49,7 +62,8 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwtToken}`
+          'Authorization': `Bearer ${jwtToken}`,
+          'X-Server-Id': activeServer?.id || ''
         },
         body: JSON.stringify({
           repoUrl: url,

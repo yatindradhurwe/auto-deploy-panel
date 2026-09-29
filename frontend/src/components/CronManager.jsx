@@ -53,9 +53,10 @@ export default function CronManager({ jwtToken, activeServer }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': jwtToken ? `Bearer ${jwtToken}` : ''
+          'Authorization': jwtToken ? `Bearer ${jwtToken}` : '',
+          'X-Server-Id': activeServer?.id || ''
         },
-        body: JSON.stringify({ schedule, command })
+        body: JSON.stringify({ schedule, command, serverId: activeServer?.id })
       })
       const data = await res.json()
       if (data.success) {
