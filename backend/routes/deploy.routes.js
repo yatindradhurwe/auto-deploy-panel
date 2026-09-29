@@ -2,11 +2,118 @@ import express from 'express'
 import https from 'https'
 import { testSshConnection, scanPortsAndServices, executeDeployment } from '../services/ssh.service.js'
 import { diagnoseDeploymentError, executeSshPatch } from '../services/ai.service.js'
+import { detectProjectStack } from '../services/detector.service.js'
 
 const router = express.Router()
 
 // In-memory store for active streaming deployments
 const activeDeployments = new Map()
+
+/**
+ * Detect Project Stack (Language, Framework, Entrypoint, Build/Start Commands)
+ */
+router.post('/detect-stack', async (req, res) => {
+  try {
+    const { repoUrl, githubToken, fileList = [], repoName } = req.body
+    let filesToInspect = [...fileList]
+    let packageJson = null
+    let composerJson = null
+
+    // If GitHub Repo is provided and token available, fetch file tree via GitHub API
+    if (repoUrl && repoUrl.includes('github.com')) {
+      const match = repoUrl.match(/github\.com[\/:]([^\/]+)\/([^\/\.]+)/i)
+      if (match) {
+        const owner = match[1]
+        const repo = match[2]
+        const userId = req.user ? req.user.id : 'admin-001'
+        const userSettings = getUserSettings(userId)
+        const tok = (githubToken || userSettings.githubToken || '').trim()
+
+        if (tok) {
+          const fetchGithubFile = (filePath) => new Promise((resolve) => {
+            const options = {
+              hostname: 'api.github.com',
+              path: `/repos/${owner}/${repo}/contents/${filePath}`,
+              method: 'GET',
+              headers: {
+                'Authorization': tok.startsWith('bearer ') || tok.startsWith('token ') ? tok : `Bearer ${tok}`,
+                'User-Agent': 'AutoDeploy-Console-App',
+                'Accept': 'application/vnd.github.v3+json'
+              }
+            }
+            const request = https.request(options, (apiRes) => {
+              let body = ''
+              apiRes.on('data', chunk => body += chunk)
+              apiRes.on('end', () => {
+                if (apiRes.statusCode === 200) {
+                  try {
+                    const parsed = JSON.parse(body)
+                    if (parsed.content) {
+                      const decoded = Buffer.from(parsed.content, 'base64').toString('utf-8')
+                      return resolve(JSON.parse(decoded))
+                    }
+                  } catch (e) {}
+                }
+                resolve(null)
+              })
+            })
+            request.on('error', () => resolve(null))
+            request.end()
+          })
+
+          const fetchGithubTree = () => new Promise((resolve) => {
+            const options = {
+              hostname: 'api.github.com',
+              path: `/repos/${owner}/${repo}/git/trees/main?recursive=1`,
+              method: 'GET',
+              headers: {
+                'Authorization': tok.startsWith('bearer ') || tok.startsWith('token ') ? tok : `Bearer ${tok}`,
+                'User-Agent': 'AutoDeploy-Console-App',
+                'Accept': 'application/vnd.github.v3+json'
+              }
+            }
+            const request = https.request(options, (apiRes) => {
+              let body = ''
+              apiRes.on('data', chunk => body += chunk)
+              apiRes.on('end', () => {
+                if (apiRes.statusCode === 200) {
+                  try {
+                    const parsed = JSON.parse(body)
+                    if (parsed.tree && Array.isArray(parsed.tree)) {
+                      return resolve(parsed.tree.map(item => item.path))
+                    }
+                  } catch (e) {}
+                }
+                resolve([])
+              })
+            })
+            request.on('error', () => resolve([]))
+            request.end()
+          })
+
+          const ghFiles = await fetchGithubTree()
+          if (ghFiles.length > 0) filesToInspect = Array.from(new Set([...filesToInspect, ...ghFiles]))
+
+          packageJson = await fetchGithubFile('package.json')
+          composerJson = await fetchGithubFile('composer.json')
+        }
+      }
+    }
+
+    // Infer from repository name if list is small
+    if (filesToInspect.length === 0 && repoName) {
+      if (repoName.includes('php') || repoName.includes('laravel') || repoName.includes('wordpress')) filesToInspect.push('index.php', 'composer.json')
+      else if (repoName.includes('python') || repoName.includes('django') || repoName.includes('flask') || repoName.includes('fastapi')) filesToInspect.push('requirements.txt', 'main.py')
+      else if (repoName.includes('go') || repoName.includes('golang')) filesToInspect.push('go.mod', 'main.go')
+      else if (repoName.includes('java') || repoName.includes('spring')) filesToInspect.push('pom.xml')
+    }
+
+    const stack = detectProjectStack(filesToInspect, packageJson, composerJson)
+    res.json({ success: true, stack, detectedFilesCount: filesToInspect.length })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
 
 /**
  * Test SSH Connection

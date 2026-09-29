@@ -242,13 +242,31 @@ export async function executeDeployment(config, onLog) {
       throw new Error(`Git Sync Failed: ${gitErr.message}`)
     }
 
-    // Inspect repository layout on server
-    onLog(`\nAnalyzing project layout in ${remoteDir}...\n`, false, 'LAYOUT')
+    // Inspect repository layout & language stack on server
+    onLog(`\nAnalyzing project layout & language stack in ${remoteDir}...\n`, false, 'LAYOUT')
     const hasFrontendDir = (await runQuery(conn, `[ -d "${remoteDir}/frontend" ] && echo "YES" || echo "NO"`)) === 'YES'
     const hasBackendDir = (await runQuery(conn, `[ -d "${remoteDir}/backend" ] && echo "YES" || echo "NO"`)) === 'YES'
     const hasRootPackageJson = (await runQuery(conn, `[ -f "${remoteDir}/package.json" ] && echo "YES" || echo "NO"`)) === 'YES'
+    const hasComposerJson = (await runQuery(conn, `[ -f "${remoteDir}/composer.json" ] && echo "YES" || echo "NO"`)) === 'YES'
+    const hasArtisan = (await runQuery(conn, `[ -f "${remoteDir}/artisan" ] && echo "YES" || echo "NO"`)) === 'YES'
+    const hasIndexPhp = (await runQuery(conn, `[ -f "${remoteDir}/index.php" -o -f "${remoteDir}/public/index.php" ] && echo "YES" || echo "NO"`)) === 'YES'
+    const hasRequirementsTxt = (await runQuery(conn, `[ -f "${remoteDir}/requirements.txt" -o -f "${remoteDir}/Pipfile" -o -f "${remoteDir}/pyproject.toml" ] && echo "YES" || echo "NO"`)) === 'YES'
+    const hasManagePy = (await runQuery(conn, `[ -f "${remoteDir}/manage.py" ] && echo "YES" || echo "NO"`)) === 'YES'
+    const hasGoMod = (await runQuery(conn, `[ -f "${remoteDir}/go.mod" -o -f "${remoteDir}/main.go" ] && echo "YES" || echo "NO"`)) === 'YES'
+    const hasPomXml = (await runQuery(conn, `[ -f "${remoteDir}/pom.xml" -o -f "${remoteDir}/build.gradle" ] && echo "YES" || echo "NO"`)) === 'YES'
 
-    onLog(`Layout detected: Monorepo Frontend=${hasFrontendDir}, Backend=${hasBackendDir}, Root Package=${hasRootPackageJson}\n`, false, 'LAYOUT')
+    // Determine target language stack
+    let detectedLanguage = config.language || 'auto'
+    if (detectedLanguage === 'auto') {
+      if (hasComposerJson || hasArtisan || hasIndexPhp) detectedLanguage = 'php'
+      else if (hasRequirementsTxt || hasManagePy) detectedLanguage = 'python'
+      else if (hasGoMod) detectedLanguage = 'golang'
+      else if (hasPomXml) detectedLanguage = 'java'
+      else if (hasRootPackageJson || hasFrontendDir || hasBackendDir) detectedLanguage = 'nodejs'
+      else detectedLanguage = 'static'
+    }
+
+    onLog(`Detected Stack: Language=${detectedLanguage.toUpperCase()}, Monorepo Frontend=${hasFrontendDir}, Backend=${hasBackendDir}, Root Package=${hasRootPackageJson}\n`, false, 'LAYOUT')
 
     // Persist Environment Variables (.env) if provided
     if (config.envVars && config.envVars.trim()) {
@@ -265,78 +283,211 @@ export async function executeDeployment(config, onLog) {
 
     let webRootDir = `${remoteDir}`
     let backendEntryDir = null
+    let isPhpApp = detectedLanguage === 'php'
+    let isPythonApp = detectedLanguage === 'python'
+    let isGoApp = detectedLanguage === 'golang'
+    let isJavaApp = detectedLanguage === 'java'
+    let isNodeApp = detectedLanguage === 'nodejs'
+    let isProxyBackend = false
 
-    // Step 2: Build Frontend
-    onLog(`\n==========================================\n[STEP 2/6] Building Frontend Production Assets...\n==========================================\n`, false, 'FRONTEND')
-    if (hasFrontendDir) {
-      onLog(`Building frontend inside ${remoteDir}/frontend...\n`, false, 'FRONTEND')
-      const frontendCmd = `cd ${remoteDir}/frontend && (npm install --production=false --legacy-peer-deps || npm install --production=false --force) && npm run build`
-      await runCommandStream(conn, frontendCmd, onLog)
-      
-      const hasFrontendDist = (await runQuery(conn, `[ -d "${remoteDir}/frontend/dist" ] && echo "YES" || echo "NO"`)) === 'YES'
-      if (hasFrontendDist) {
-        webRootDir = `${remoteDir}/frontend/dist`
-      } else {
-        webRootDir = `${remoteDir}/frontend`
+    // Step 2 & 3: Language-Specific Dependencies, Build & PM2 Process Setup
+    onLog(`\n==========================================\n[STEP 2 & 3/6] Building Dependencies & Service Setup (${detectedLanguage.toUpperCase()})...\n==========================================\n`, false, 'BUILD')
+
+    if (isPhpApp) {
+      onLog(`Setting up PHP application environment...\n`, false, 'PHP')
+      if (hasComposerJson) {
+        onLog(`Installing PHP dependencies via Composer...\n`, false, 'COMPOSER')
+        const composerCmd = `cd ${remoteDir} && (composer install --no-interaction --prefer-dist --optimize-autoloader || true)`
+        await runCommandStream(conn, composerCmd, onLog)
       }
-    } else if (hasRootPackageJson) {
-      onLog(`Building project at root ${remoteDir}...\n`, false, 'FRONTEND')
-      const rootBuildCmd = `cd ${remoteDir} && (npm install --production=false --legacy-peer-deps || npm install --production=false --force) && (npm run build || true)`
-      await runCommandStream(conn, rootBuildCmd, onLog)
+      if (hasArtisan) {
+        onLog(`Running Laravel optimizations (key:generate, storage:link, config:cache)...\n`, false, 'LARAVEL')
+        const laravelCmd = `cd ${remoteDir} && (php artisan key:generate --force || true) && (php artisan storage:link || true)`
+        await runCommandStream(conn, laravelCmd, onLog)
+        webRootDir = `${remoteDir}/public`
+      } else if (hasIndexPhp && (await runQuery(conn, `[ -f "${remoteDir}/public/index.php" ] && echo "YES" || echo "NO"`)) === 'YES') {
+        webRootDir = `${remoteDir}/public`
+      } else {
+        webRootDir = remoteDir
+      }
+    } else if (isPythonApp) {
+      onLog(`Setting up Python virtual environment & requirements...\n`, false, 'PYTHON')
+      const pyCmd = `
+        cd ${remoteDir}
+        python3 -m venv venv || virtualenv venv || true
+        source venv/bin/activate
+        pip install --upgrade pip || true
+        [ -f "requirements.txt" ] && pip install -r requirements.txt || true
+        pip install gunicorn uvicorn || true
+        if [ -f "manage.py" ]; then
+          python manage.py migrate --noinput || true
+          python manage.py collectstatic --noinput || true
+        fi
+      `
+      await runCommandStream(conn, pyCmd, onLog)
 
-      const hasDist = (await runQuery(conn, `[ -d "${remoteDir}/dist" ] && echo "YES" || echo "NO"`)) === 'YES'
-      const hasBuild = (await runQuery(conn, `[ -d "${remoteDir}/build" ] && echo "YES" || echo "NO"`)) === 'YES'
-      const hasPublic = (await runQuery(conn, `[ -d "${remoteDir}/public" ] && echo "YES" || echo "NO"`)) === 'YES'
+      const isDjango = hasManagePy
+      const startPyCmd = isDjango
+        ? `cd ${remoteDir} && source venv/bin/activate && exec gunicorn --bind 127.0.0.1:${backendPort} --workers 2 --timeout 120 $(ls *.wsgi.py 2>/dev/null | sed 's/.py//' || echo "app.wsgi"):application`
+        : `cd ${remoteDir} && source venv/bin/activate && exec gunicorn --bind 127.0.0.1:${backendPort} --workers 2 app:app`
 
-      if (hasDist) webRootDir = `${remoteDir}/dist`
-      else if (hasBuild) webRootDir = `${remoteDir}/build`
-      else if (hasPublic) webRootDir = `${remoteDir}/public`
-      else webRootDir = remoteDir
-    } else {
-      onLog(`No package.json build script required. Using static root ${remoteDir}.\n`, false, 'FRONTEND')
-      webRootDir = remoteDir
-    }
-
-    onLog(`Selected Nginx Static Web Root: ${webRootDir}\n`, false, 'FRONTEND')
-
-    // Step 3 & Step 4: Backend Setup & PM2 Service
-    onLog(`\n==========================================\n[STEP 3 & 4/6] Backend Setup & PM2 Service Management...\n==========================================\n`, false, 'BACKEND')
-    if (hasBackendDir) {
-      backendEntryDir = `${remoteDir}/backend`
-    } else if (hasRootPackageJson) {
-      const hasServerJs = (await runQuery(conn, `[ -f "${remoteDir}/server.js" -o -f "${remoteDir}/index.js" -o -f "${remoteDir}/app.js" ] && echo "YES" || echo "NO"`)) === 'YES'
-      if (hasServerJs) backendEntryDir = remoteDir
-    }
-
-    if (backendEntryDir) {
-      onLog(`Installing backend packages in ${backendEntryDir}...\n`, false, 'BACKEND')
-      await runCommandStream(conn, `cd ${backendEntryDir} && (npm install --legacy-peer-deps || npm install --force)`, onLog)
-
-      const serverFile = (await runQuery(conn, `
-        if [ -f "${backendEntryDir}/server.js" ]; then echo "server.js";
-        elif [ -f "${backendEntryDir}/index.js" ]; then echo "index.js";
-        elif [ -f "${backendEntryDir}/app.js" ]; then echo "app.js";
-        else echo ""; fi
-      `)) || 'server.js'
-
-      onLog(`Starting PM2 backend service (${appName} -> ${serverFile} on Port ${backendPort})...\n`, false, 'PM2')
-      const pm2Cmd = `
+      onLog(`Starting PM2 Python service (${appName} on Port ${backendPort})...\n`, false, 'PM2')
+      const pm2PyCmd = `
         pm2 delete ${appName} || true
-        cd ${backendEntryDir}
-        PORT=${backendPort} pm2 start ${serverFile} --name '${appName}' --update-env
+        pm2 start "${startPyCmd}" --name '${appName}'
         pm2 save
       `
-      await runCommandStream(conn, pm2Cmd, onLog)
+      await runCommandStream(conn, pm2PyCmd, onLog)
+      isProxyBackend = true
+    } else if (isGoApp) {
+      onLog(`Building Go application binary...\n`, false, 'GOLANG')
+      const goCmd = `cd ${remoteDir} && go build -o ${appName}_bin .`
+      await runCommandStream(conn, goCmd, onLog)
+
+      onLog(`Starting PM2 Go service (${appName} on Port ${backendPort})...\n`, false, 'PM2')
+      const pm2GoCmd = `
+        pm2 delete ${appName} || true
+        cd ${remoteDir}
+        PORT=${backendPort} pm2 start ./${appName}_bin --name '${appName}' --update-env
+        pm2 save
+      `
+      await runCommandStream(conn, pm2GoCmd, onLog)
+      isProxyBackend = true
+    } else if (isJavaApp) {
+      onLog(`Building Java Spring Boot package...\n`, false, 'JAVA')
+      const javaBuildCmd = `cd ${remoteDir} && (./mvnw clean package -DskipTests || mvn clean package -DskipTests || ./gradlew build -x test || true)`
+      await runCommandStream(conn, javaBuildCmd, onLog)
+
+      onLog(`Starting PM2 Java service (${appName} on Port ${backendPort})...\n`, false, 'PM2')
+      const pm2JavaCmd = `
+        pm2 delete ${appName} || true
+        cd ${remoteDir}
+        JAR_FILE=$(find . -name "*.jar" | head -n 1)
+        pm2 start "java -jar $JAR_FILE --server.port=${backendPort}" --name '${appName}'
+        pm2 save
+      `
+      await runCommandStream(conn, pm2JavaCmd, onLog)
+      isProxyBackend = true
     } else {
-      onLog(`No Node.js backend entry point (server.js/index.js) found. Skipping PM2 backend service.\n`, false, 'PM2')
+      // Node.js & Static Web Applications
+      if (hasFrontendDir) {
+        onLog(`Building frontend inside ${remoteDir}/frontend...\n`, false, 'FRONTEND')
+        const frontendCmd = `cd ${remoteDir}/frontend && (npm install --production=false --legacy-peer-deps || npm install --production=false --force) && npm run build`
+        await runCommandStream(conn, frontendCmd, onLog)
+        
+        const hasFrontendDist = (await runQuery(conn, `[ -d "${remoteDir}/frontend/dist" ] && echo "YES" || echo "NO"`)) === 'YES'
+        if (hasFrontendDist) {
+          webRootDir = `${remoteDir}/frontend/dist`
+        } else {
+          webRootDir = `${remoteDir}/frontend`
+        }
+      } else if (hasRootPackageJson) {
+        onLog(`Building project at root ${remoteDir}...\n`, false, 'FRONTEND')
+        const rootBuildCmd = `cd ${remoteDir} && (npm install --production=false --legacy-peer-deps || npm install --production=false --force) && (npm run build || true)`
+        await runCommandStream(conn, rootBuildCmd, onLog)
+
+        const hasDist = (await runQuery(conn, `[ -d "${remoteDir}/dist" ] && echo "YES" || echo "NO"`)) === 'YES'
+        const hasBuild = (await runQuery(conn, `[ -d "${remoteDir}/build" ] && echo "YES" || echo "NO"`)) === 'YES'
+        const hasPublic = (await runQuery(conn, `[ -d "${remoteDir}/public" ] && echo "YES" || echo "NO"`)) === 'YES'
+
+        if (hasDist) webRootDir = `${remoteDir}/dist`
+        else if (hasBuild) webRootDir = `${remoteDir}/build`
+        else if (hasPublic) webRootDir = `${remoteDir}/public`
+        else webRootDir = remoteDir
+      } else {
+        onLog(`Using static web root ${remoteDir}.\n`, false, 'FRONTEND')
+        webRootDir = remoteDir
+      }
+
+      if (hasBackendDir) {
+        backendEntryDir = `${remoteDir}/backend`
+      } else if (hasRootPackageJson) {
+        const hasServerJs = (await runQuery(conn, `[ -f "${remoteDir}/server.js" -o -f "${remoteDir}/index.js" -o -f "${remoteDir}/app.js" ] && echo "YES" || echo "NO"`)) === 'YES'
+        if (hasServerJs) backendEntryDir = remoteDir
+      }
+
+      if (backendEntryDir) {
+        onLog(`Installing backend packages in ${backendEntryDir}...\n`, false, 'BACKEND')
+        await runCommandStream(conn, `cd ${backendEntryDir} && (npm install --legacy-peer-deps || npm install --force)`, onLog)
+
+        const serverFile = (await runQuery(conn, `
+          if [ -f "${backendEntryDir}/server.js" ]; then echo "server.js";
+          elif [ -f "${backendEntryDir}/index.js" ]; then echo "index.js";
+          elif [ -f "${backendEntryDir}/app.js" ]; then echo "app.js";
+          else echo ""; fi
+        `)) || 'server.js'
+
+        onLog(`Starting PM2 backend service (${appName} -> ${serverFile} on Port ${backendPort})...\n`, false, 'PM2')
+        const pm2Cmd = `
+          pm2 delete ${appName} || true
+          cd ${backendEntryDir}
+          PORT=${backendPort} pm2 start ${serverFile} --name '${appName}' --update-env
+          pm2 save
+        `
+        await runCommandStream(conn, pm2Cmd, onLog)
+        isProxyBackend = true
+      }
     }
+
+    onLog(`Selected Web Root: ${webRootDir}\n`, false, 'LAYOUT')
 
     // Step 5: Nginx Site Block Configuration
     onLog(`\n==========================================\n[STEP 5/6] Auto-Configuring Nginx Web Server for Domain: ${domain}...\n==========================================\n`, false, 'NGINX')
     
-    let proxyLocation = ''
-    if (backendEntryDir) {
-      proxyLocation = `
+    let nginxConf = ''
+
+    if (isPhpApp) {
+      // Find PHP-FPM socket path dynamically on target Linux OS
+      const phpSockPath = (await runQuery(conn, `
+        if [ -S "/run/php/php-fpm.sock" ]; then echo "/run/php/php-fpm.sock";
+        elif [ -S "/var/run/php/php-fpm.sock" ]; then echo "/var/run/php/php-fpm.sock";
+        else find /run/php /var/run/php -name "*.sock" 2>/dev/null | head -n 1; fi
+      `)) || '/run/php/php-fpm.sock'
+
+      nginxConf = `server {
+    server_name ${domain};
+    root ${webRootDir};
+    index index.php index.html index.htm;
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \\.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:${phpSockPath};
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
+
+    location ~ /\\.ht {
+        deny all;
+    }
+
+    listen 80;
+}`
+    } else if (isProxyBackend || isPythonApp || isGoApp || isJavaApp) {
+      nginxConf = `server {
+    server_name ${domain};
+
+    location / {
+        proxy_pass http://127.0.0.1:${backendPort};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    listen 80;
+}`
+    } else {
+      let proxyLocation = ''
+      if (backendEntryDir) {
+        proxyLocation = `
     location /api/ {
         proxy_pass http://127.0.0.1:${backendPort}/api/;
         proxy_http_version 1.1;
@@ -348,9 +499,9 @@ export async function executeDeployment(config, onLog) {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }`
-    }
+      }
 
-    const nginxConf = `server {
+      nginxConf = `server {
     server_name ${domain};
 
     location / {
@@ -362,6 +513,7 @@ ${proxyLocation}
 
     listen 80;
 }`
+    }
 
     const nginxCmd = `
       cat << 'EOF' > /etc/nginx/sites-available/${domain}.conf

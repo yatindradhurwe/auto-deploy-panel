@@ -25,7 +25,8 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
     branch: 'main',
     appName: 'tip-crm-app',
     remoteDir: '/var/www/tip-crm-app',
-    framework: 'Node.js Express',
+    language: 'auto',
+    framework: 'Auto-Detect Stack',
     backendPort: 5070,
     domain: '',
     setupSsl: true,
@@ -35,6 +36,43 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
     username: activeServer ? (activeServer.username || 'root') : 'root',
     password: 'Yatindra@1223'
   })
+
+  const [detectingStack, setDetectingStack] = useState(false)
+  const [detectedStackInfo, setDetectedStackInfo] = useState(null)
+
+  const autoDetectStackForRepo = async (targetGitUrl, repoNameStr) => {
+    const url = targetGitUrl || deployForm.gitUrl
+    if (!url) return
+    setDetectingStack(true)
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/deploy/detect-stack`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${jwtToken}`
+        },
+        body: JSON.stringify({
+          repoUrl: url,
+          githubToken,
+          repoName: repoNameStr || deployForm.repoName
+        })
+      })
+      const data = await res.json()
+      if (data.success && data.stack) {
+        setDetectedStackInfo(data.stack)
+        setDeployForm(prev => ({
+          ...prev,
+          language: data.stack.language,
+          framework: data.stack.framework,
+          backendPort: data.stack.defaultPort || prev.backendPort
+        }))
+      }
+    } catch (e) {
+      console.warn('Auto detect stack error:', e)
+    } finally {
+      setDetectingStack(false)
+    }
+  }
 
   // Auto-scroll terminal log container as new logs arrive
   useEffect(() => {
@@ -128,15 +166,17 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
 
   const handleSelectRepo = (repo) => {
     const cleanAppName = repo.name.toLowerCase().replace(/[^a-z0-9]/g, '-')
+    const repoGitUrl = repo.authenticated_url || repo.clone_url || repo.html_url
     setDeployForm(prev => ({
       ...prev,
-      gitUrl: repo.authenticated_url || repo.clone_url || repo.html_url,
+      gitUrl: repoGitUrl,
       repoName: repo.name,
       branch: repo.default_branch || 'main',
       appName: cleanAppName,
       remoteDir: `/var/www/${cleanAppName}`,
       domain: `${cleanAppName}.yjtechnosoft.com`
     }))
+    autoDetectStackForRepo(repoGitUrl, repo.name)
   }
 
   const startOneClickDeployment = async () => {
@@ -398,6 +438,61 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-bold text-slate-300 block">Programming Language & Framework</label>
+                <button
+                  type="button"
+                  onClick={() => autoDetectStackForRepo()}
+                  disabled={detectingStack}
+                  className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  <span>{detectingStack ? 'Detecting...' : 'Auto-Detect Stack'}</span>
+                </button>
+              </div>
+              <select
+                value={deployForm.language || 'auto'}
+                onChange={(e) => setDeployForm({ ...deployForm, language: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-cyan-300 font-semibold focus:outline-none focus:border-cyan-500"
+              >
+                <option value="auto">⚡ Auto-Detect Stack (Recommended)</option>
+                <option value="php">🐘 PHP (Laravel, Symfony, WordPress, Plain PHP)</option>
+                <option value="python">🐍 Python (Django, Flask, FastAPI)</option>
+                <option value="nodejs">🟢 Node.js (Express, React, Next.js, Vue)</option>
+                <option value="golang">🐹 Go / Golang (Compiled Binary)</option>
+                <option value="java">☕ Java (Spring Boot Maven / Gradle)</option>
+                <option value="ruby">💎 Ruby (Rails / Sinatra)</option>
+                <option value="static">🌐 Static HTML / JS / CSS</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-300 block mb-1">Framework / Runtime Profile</label>
+              <input
+                type="text"
+                value={deployForm.framework || 'Auto-Detect Stack'}
+                onChange={(e) => setDeployForm({ ...deployForm, framework: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs font-mono text-white focus:outline-none focus:border-cyan-500"
+              />
+            </div>
+          </div>
+
+          {detectedStackInfo && (
+            <div className="bg-cyan-950/40 border border-cyan-500/30 rounded-2xl p-3 flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Sparkles className="w-4 h-4 text-cyan-400" />
+                <span className="text-xs text-cyan-200 font-semibold">
+                  Detected Stack: <strong>{detectedStackInfo.framework}</strong> ({detectedStackInfo.language.toUpperCase()})
+                </span>
+              </div>
+              <span className="text-[10px] font-mono text-cyan-400 bg-cyan-900/60 px-2.5 py-1 rounded-lg border border-cyan-700/50">
+                Web Root: {detectedStackInfo.webRootSubdir ? `/${detectedStackInfo.webRootSubdir}` : '/ (root)'}
+              </span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
               <label className="text-xs font-bold text-slate-300 block mb-1">Application PM2 Service Name</label>
               <input
                 type="text"
@@ -416,7 +511,7 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
             </div>
 
             <div>
-              <label className="text-xs font-bold text-slate-300 block mb-1">Backend Port (PM2 HTTP Server)</label>
+              <label className="text-xs font-bold text-slate-300 block mb-1">Backend Port (PM2 / Reverse Proxy Server)</label>
               <input
                 type="number"
                 value={deployForm.backendPort}
