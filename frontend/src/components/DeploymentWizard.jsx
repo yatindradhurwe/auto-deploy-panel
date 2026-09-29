@@ -97,7 +97,8 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
       })
       const data = await res.json()
       if (data.success && data.repos) {
-        setRepos(data.repos)
+        const unique = Array.from(new Map(data.repos.map(item => [item.full_name || item.id || item.name, item])).values())
+        setRepos(unique)
       }
     } catch (err) {
       console.warn('GitHub API Error:', err)
@@ -395,17 +396,40 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-300 block mb-1">Framework Preset</label>
+                <label className="text-xs font-bold text-slate-300 block mb-1">Language & Framework Preset</label>
                 <select
-                  value={deployForm.framework}
-                  onChange={(e) => setDeployForm({ ...deployForm, framework: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-xs font-medium text-white focus:outline-none focus:border-cyan-500"
+                  value={deployForm.language || 'auto'}
+                  onChange={(e) => {
+                    const lang = e.target.value
+                    let fw = 'Auto-Detect Stack'
+                    if (lang === 'php') fw = 'PHP / Laravel / WordPress'
+                    else if (lang === 'python') fw = 'Python Django / FastAPI / Flask'
+                    else if (lang === 'nodejs') fw = 'Node.js Express / API'
+                    else if (lang === 'react') fw = 'React / Vue / Vite SPA'
+                    else if (lang === 'next') fw = 'Next.js (SSR React)'
+                    else if (lang === 'golang') fw = 'Go / Golang'
+                    else if (lang === 'java') fw = 'Java Spring Boot'
+                    else if (lang === 'ruby') fw = 'Ruby on Rails'
+                    else if (lang === 'static') fw = 'Static HTML / JS'
+
+                    setDeployForm({
+                      ...deployForm,
+                      language: lang,
+                      framework: fw
+                    })
+                  }}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-xs font-semibold text-cyan-300 focus:outline-none focus:border-cyan-500"
                 >
-                  <option value="Node.js Express">Node.js Express / API Backend</option>
-                  <option value="Node.js React">Node.js React / Vite Frontend</option>
-                  <option value="Next.js">Next.js SSR Application</option>
-                  <option value="Python Flask">Python Flask / FastAPI</option>
-                  <option value="Static HTML/JS">Static HTML / Web App</option>
+                  <option value="auto">⚡ Auto-Detect Stack (Recommended)</option>
+                  <option value="php">🐘 PHP (Laravel, Symfony, WordPress, Plain PHP)</option>
+                  <option value="python">🐍 Python (Django, Flask, FastAPI)</option>
+                  <option value="nodejs">🟢 Node.js (Express, NestJS, Fastify)</option>
+                  <option value="react">⚛️ React.js / Vue / Vite SPA</option>
+                  <option value="next">🚀 Next.js (SSR React)</option>
+                  <option value="golang">🐹 Go / Golang (Compiled Binary)</option>
+                  <option value="java">☕ Java (Spring Boot Maven / Gradle)</option>
+                  <option value="ruby">💎 Ruby (Rails / Sinatra)</option>
+                  <option value="static">🌐 Static HTML / JS / CSS</option>
                 </select>
               </div>
             </div>
