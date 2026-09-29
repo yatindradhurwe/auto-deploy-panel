@@ -4,7 +4,7 @@ import {
   AlertTriangle, Server, Code, Zap, ExternalLink, Sliders
 } from 'lucide-react'
 
-export default function DomainSSLManager({ jwtToken }) {
+export default function DomainSSLManager({ jwtToken, activeServer }) {
   const [certificates, setCertificates] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -24,7 +24,10 @@ export default function DomainSSLManager({ jwtToken }) {
     setLoading(true)
     try {
       const res = await fetch('/api/studio/ssl/certificates', {
-        headers: { 'Authorization': jwtToken ? `Bearer ${jwtToken}` : '' }
+        headers: {
+          'Authorization': jwtToken ? `Bearer ${jwtToken}` : '',
+          'X-Server-Id': activeServer?.id || ''
+        }
       })
       const data = await res.json()
       if (data.success && data.certificates) {
@@ -39,7 +42,7 @@ export default function DomainSSLManager({ jwtToken }) {
 
   useEffect(() => {
     fetchCertificates()
-  }, [jwtToken])
+  }, [jwtToken, activeServer])
 
   const handleIssueSsl = async (e) => {
     e.preventDefault()

@@ -400,15 +400,15 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
             </div>
           )}
 
-          {activeTab === 'servers' && <ServerManager jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'servers' && <ServerManager jwtToken={jwtToken} activeServer={activeServer} onSelectServer={(id) => setActiveServerId(id)} apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'projects' && <ProjectExplorer jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'deployments' && <DeploymentWizard jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} onDeploymentSuccess={() => fetchTenantServers()} />}
-          {activeTab === 'databases' && <DatabaseManager jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'databases' && <DatabaseManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'code' && <CodeStudio jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
-          {activeTab === 'env' && <EnvManager jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />}
-          {activeTab === 'domains' && <DomainSSLManager jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />}
-          {activeTab === 'cron' && <CronManager jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />}
-          {activeTab === 'webhooks' && <WebhookManager jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'env' && <EnvManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'domains' && <DomainSSLManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'cron' && <CronManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'webhooks' && <WebhookManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'logs' && <LogsTelemetryManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'email' && <EmailManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'team' && <TeamManager apiBaseUrl={apiBaseUrl} />}

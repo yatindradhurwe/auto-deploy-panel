@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Key, Save, Plus, Trash2, Eye, EyeOff, RefreshCw, FileText, CheckCircle2, Lock, Sparkles, Folder, Code } from 'lucide-react'
 
-export default function EnvManager({ jwtToken }) {
+export default function EnvManager({ jwtToken, activeServer }) {
   const [projects, setProjects] = useState([])
   const [selectedProject, setSelectedProject] = useState(null)
   const [envVars, setEnvVars] = useState([])
@@ -15,7 +15,7 @@ export default function EnvManager({ jwtToken }) {
 
   useEffect(() => {
     fetchProjects()
-  }, [])
+  }, [activeServer])
 
   useEffect(() => {
     if (selectedProject) {
@@ -26,7 +26,10 @@ export default function EnvManager({ jwtToken }) {
   const fetchProjects = async () => {
     try {
       const res = await fetch('/api/studio/projects', {
-        headers: { 'Authorization': `Bearer ${jwtToken}` }
+        headers: {
+          'Authorization': `Bearer ${jwtToken}`,
+          'X-Server-Id': activeServer?.id || ''
+        }
       })
       const data = await res.json()
       if (data.success && data.projects.length > 0) {

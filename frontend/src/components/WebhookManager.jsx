@@ -4,7 +4,7 @@ import {
   Clock, ShieldCheck, Zap, ExternalLink
 } from 'lucide-react'
 
-export default function WebhookManager({ jwtToken }) {
+export default function WebhookManager({ jwtToken, activeServer }) {
   const [projects, setProjects] = useState([])
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
@@ -13,9 +13,13 @@ export default function WebhookManager({ jwtToken }) {
   const fetchData = async () => {
     setLoading(true)
     try {
+      const headers = {
+        'Authorization': jwtToken ? `Bearer ${jwtToken}` : '',
+        'X-Server-Id': activeServer?.id || ''
+      }
       const [listRes, histRes] = await Promise.all([
-        fetch('/api/studio/autoupdate/list', { headers: { 'Authorization': jwtToken ? `Bearer ${jwtToken}` : '' } }),
-        fetch('/api/studio/autoupdate/history', { headers: { 'Authorization': jwtToken ? `Bearer ${jwtToken}` : '' } })
+        fetch('/api/studio/autoupdate/list', { headers }),
+        fetch('/api/studio/autoupdate/history', { headers })
       ])
 
       const listData = await listRes.json()
@@ -41,7 +45,7 @@ export default function WebhookManager({ jwtToken }) {
 
   useEffect(() => {
     fetchData()
-  }, [jwtToken])
+  }, [jwtToken, activeServer])
 
   const handleCopyWebhook = (appName) => {
     const domain = window.location.origin

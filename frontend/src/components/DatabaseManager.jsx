@@ -4,7 +4,7 @@ import {
   FileText, Layers, Terminal, Server, Plus, Trash2, Download, Edit3, X, AlertTriangle, ChevronRight, Check
 } from 'lucide-react'
 
-export default function DatabaseManager({ jwtToken }) {
+export default function DatabaseManager({ jwtToken, activeServer }) {
   const [databases, setDatabases] = useState([])
   const [activeEngine, setActiveEngine] = useState('postgresql') // 'postgresql' | 'mysql' | 'mongodb' | 'redis' | 'sqlite'
   const [mobileTab, setMobileTab] = useState('workbench') // 'explorer' | 'workbench'
@@ -39,7 +39,7 @@ export default function DatabaseManager({ jwtToken }) {
 
   useEffect(() => {
     fetchDatabases()
-  }, [])
+  }, [activeServer])
 
   const fetchDatabaseSchema = async (engine, dbName) => {
     try {
@@ -48,9 +48,10 @@ export default function DatabaseManager({ jwtToken }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${token}`,
+          'X-Server-Id': activeServer?.id || ''
         },
-        body: JSON.stringify({ engine, dbName })
+        body: JSON.stringify({ engine, dbName, serverId: activeServer?.id, host: activeServer?.ipAddress || activeServer?.ftpHost })
       })
       const data = await res.json()
       if (data.success && data.schema) {
@@ -93,8 +94,10 @@ export default function DatabaseManager({ jwtToken }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
+          'Authorization': `Bearer ${token}`,
+          'X-Server-Id': activeServer?.id || ''
+        },
+        body: JSON.stringify({ serverId: activeServer?.id, host: activeServer?.ipAddress || activeServer?.ftpHost })
       })
       const data = await res.json()
       if (data.success && data.databases.length > 0) {

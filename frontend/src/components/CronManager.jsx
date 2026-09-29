@@ -4,7 +4,7 @@ import {
   Calendar, Terminal, Trash2, Zap
 } from 'lucide-react'
 
-export default function CronManager({ jwtToken }) {
+export default function CronManager({ jwtToken, activeServer }) {
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -18,7 +18,10 @@ export default function CronManager({ jwtToken }) {
     setLoading(true)
     try {
       const res = await fetch('/api/studio/cron/list', {
-        headers: { 'Authorization': jwtToken ? `Bearer ${jwtToken}` : '' }
+        headers: {
+          'Authorization': jwtToken ? `Bearer ${jwtToken}` : '',
+          'X-Server-Id': activeServer?.id || ''
+        }
       })
       const data = await res.json()
       if (data.success && data.jobs) {
@@ -33,7 +36,7 @@ export default function CronManager({ jwtToken }) {
 
   useEffect(() => {
     fetchCronJobs()
-  }, [jwtToken])
+  }, [jwtToken, activeServer])
 
   const handlePreset = (presetSchedule, defaultCmd) => {
     setSchedule(presetSchedule)
