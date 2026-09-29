@@ -48,18 +48,21 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
     setLoading(true)
     const tok = jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
     try {
+      const srvId = activeServer?.id || ''
       const [metricsRes, projectsRes] = await Promise.all([
         fetch('/api/studio/server-metrics', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${tok}`
+            'Authorization': `Bearer ${tok}`,
+            'X-Server-Id': srvId
           },
           body: JSON.stringify({ host: activeServer ? (activeServer.ipAddress || activeServer.host) : '187.127.165.128' })
         }).catch(() => null),
-        fetch('/api/studio/projects', {
+        fetch(`/api/studio/projects?serverId=${srvId}`, {
           headers: {
-            'Authorization': `Bearer ${tok}`
+            'Authorization': `Bearer ${tok}`,
+            'X-Server-Id': srvId
           }
         }).catch(() => null)
       ])

@@ -84,7 +84,7 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
 
   useEffect(() => {
     fetchProjects()
-  }, [])
+  }, [activeServer])
 
   useEffect(() => {
     if (selectedProject) {
@@ -95,8 +95,12 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
 
   const fetchProjects = async () => {
     try {
-      const res = await fetch('/api/studio/projects', {
-        headers: { 'Authorization': `Bearer ${jwtToken}` }
+      const srvId = activeServer?.id || ''
+      const res = await fetch(`/api/studio/projects?serverId=${srvId}`, {
+        headers: {
+          'Authorization': `Bearer ${jwtToken}`,
+          'X-Server-Id': srvId
+        }
       })
       const data = await res.json()
       if (data.success && data.projects.length > 0) {

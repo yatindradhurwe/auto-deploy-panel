@@ -29,7 +29,11 @@ export default function LogsTelemetryManager({ jwtToken, activeServer }) {
     const tok = getEffectiveToken()
     const host = getEffectiveHost()
     try {
-      const headers = { 'Content-Type': 'application/json' }
+      const srvId = activeServer?.id || ''
+      const headers = {
+        'Content-Type': 'application/json',
+        'X-Server-Id': srvId
+      }
       if (tok) headers['Authorization'] = `Bearer ${tok}`
 
       const [metricsRes, projectsRes] = await Promise.all([
@@ -38,7 +42,7 @@ export default function LogsTelemetryManager({ jwtToken, activeServer }) {
           headers,
           body: JSON.stringify({ host })
         }).catch(() => null),
-        fetch('/api/studio/projects', { headers }).catch(() => null)
+        fetch(`/api/studio/projects?serverId=${srvId}`, { headers }).catch(() => null)
       ])
 
       let combinedProcesses = []

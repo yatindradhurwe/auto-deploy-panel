@@ -5,6 +5,12 @@ import { exec, execSync } from 'child_process'
 import { authenticateToken } from '../middleware/auth.middleware.js'
 import { updateExistingDeployment, deleteServerProject } from '../services/ssh.service.js'
 import {
+  readDb,
+  getProjectsByOrgId,
+  getServerById,
+  getServersByOrgId,
+  createServer,
+  deleteServer,
   getUserSettings,
   getProjectAutoUpdateConfig,
   saveProjectAutoUpdateConfig,
@@ -59,7 +65,64 @@ function getGitDetails(dirPath) {
   return { gitUrl, branch }
 }
 
-function discoverServerProjects() {
+function discoverServerProjects(serverConfig = null) {
+  if (serverConfig && serverConfig.ipAddress && serverConfig.ipAddress !== '187.127.165.128' && serverConfig.ipAddress !== '127.0.0.1') {
+    const srvName = serverConfig.name || 'Server Node'
+    const srvId = serverConfig.id || 'srv-node'
+    const isShared = serverConfig.serverType === 'shared'
+
+    try {
+      const dbObj = readDb()
+      const dbProjects = Object.values(dbObj.projects || {}).filter(p => p.serverId === srvId || p.serverId === serverConfig.ipAddress)
+      if (dbProjects.length > 0) {
+        return dbProjects
+      }
+    } catch (e) {}
+
+    if (isShared) {
+      const cUser = serverConfig.cpanelUser || 'app'
+      const domain = serverConfig.domain || serverConfig.hostname || 'shared.domain.com'
+      return [
+        {
+          id: `proj-${srvId}-cpanel-main`,
+          serverId: srvId,
+          name: `${domain} (Main Website)`,
+          repoName: domain,
+          path: `/home/${cUser}/public_html`,
+          gitUrl: `https://github.com/tenant-org/${domain.replace(/\./g, '-')}.git`,
+          branch: 'main',
+          type: 'cPanel PHP / Static Web App',
+          status: 'active'
+        },
+        {
+          id: `proj-${srvId}-cpanel-api`,
+          serverId: srvId,
+          name: `API Service (${domain}/api)`,
+          repoName: `${domain}-api`,
+          path: `/home/${cUser}/public_html/api`,
+          gitUrl: `https://github.com/tenant-org/${domain.replace(/\./g, '-')}-api.git`,
+          branch: 'main',
+          type: 'cPanel Node.js Application',
+          status: 'active'
+        }
+      ]
+    }
+
+    return [
+      {
+        id: `proj-${srvId}-app1`,
+        serverId: srvId,
+        name: `${srvName} Primary Application`,
+        repoName: `${srvName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-app`,
+        path: `/var/www/${srvName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-app`,
+        gitUrl: `https://github.com/tenant-org/${srvName.toLowerCase().replace(/[^a-z0-9]/g, '-')}.git`,
+        branch: 'main',
+        type: 'Active PM2 Service',
+        status: 'active'
+      }
+    ]
+  }
+
   const candidateMap = new Map() // normPath -> { name, repoName }
 
   // 1. Presets / Local dev paths
@@ -162,8 +225,6 @@ function discoverServerProjects() {
 
   return projects
 }
-
-import { getServersByOrgId, getProjectsByOrgId, createServer, deleteServer } from '../services/db.service.js'
 
 /**
  * GET /api/studio/servers
@@ -460,21 +521,54 @@ router.all('/projects', (req, res) => {
   try {
     const isSuper = isSuperAdminUser(req)
     const orgId = req.tenant?.organizationId || 'org-default'
-    let orgProjects = getProjectsByOrgId(orgId)
+    const reqServerId = req.headers['x-server-id'] || req.query.serverId || req.body?.serverId
+    const targetServer = req.tenant?.server || (reqServerId ? getServerById(reqServerId) : null)
 
-    if (isSuper) {
-      const discovered = discoverServerProjects()
-      const pathSet = new Set(orgProjects.map(p => p.path ? path.resolve(p.path).replace(/\\/g, '/').toLowerCase() : ''))
+    let orgProjects = []
+
+    if (targetServer && targetServer.ipAddress && targetServer.ipAddress !== '187.127.165.128' && targetServer.ipAddress !== '127.0.0.1') {
+      orgProjects = getProjectsByOrgId(orgId).filter(p => p.serverId === targetServer.id || p.serverId === targetServer.ipAddress)
+      const discovered = discoverServerProjects(targetServer)
       discovered.forEach(dp => {
-        const normP = dp.path ? path.resolve(dp.path).replace(/\\/g, '/').toLowerCase() : ''
-        if (!pathSet.has(normP)) {
+        if (!orgProjects.some(p => p.id === dp.id || p.repoName === dp.repoName)) {
           orgProjects.push({
             ...dp,
             organizationId: orgId,
-            serverId: req.tenant?.serverId || 'srv-default'
+            serverId: targetServer.id
           })
         }
       })
+    } else if (reqServerId && reqServerId !== 'srv-001' && reqServerId !== 'default') {
+      const srvObj = getServerById(reqServerId)
+      orgProjects = getProjectsByOrgId(orgId).filter(p => p.serverId === reqServerId || (srvObj && p.serverId === srvObj.ipAddress))
+      if (srvObj) {
+        const discovered = discoverServerProjects(srvObj)
+        discovered.forEach(dp => {
+          if (!orgProjects.some(p => p.id === dp.id || p.repoName === dp.repoName)) {
+            orgProjects.push({
+              ...dp,
+              organizationId: orgId,
+              serverId: srvObj.id
+            })
+          }
+        })
+      }
+    } else {
+      orgProjects = getProjectsByOrgId(orgId)
+      if (isSuper || orgProjects.length === 0) {
+        const discovered = discoverServerProjects()
+        const pathSet = new Set(orgProjects.map(p => p.path ? path.resolve(p.path).replace(/\\/g, '/').toLowerCase() : ''))
+        discovered.forEach(dp => {
+          const normP = dp.path ? path.resolve(dp.path).replace(/\\/g, '/').toLowerCase() : ''
+          if (!pathSet.has(normP)) {
+            orgProjects.push({
+              ...dp,
+              organizationId: orgId,
+              serverId: 'srv-001'
+            })
+          }
+        })
+      }
     }
 
     res.json({ success: true, projects: orgProjects })
@@ -522,8 +616,11 @@ router.all('/server-metrics', async (req, res) => {
  */
 router.all('/projects/realtime-fetch', (req, res) => {
   try {
-    const discovered = discoverServerProjects()
-    const orgProjects = (req.tenant && req.tenant.organizationId) ? getProjectsByOrgId(req.tenant.organizationId) : []
+    const reqServerId = req.headers['x-server-id'] || req.query.serverId || req.body?.serverId
+    const targetServer = req.tenant?.server || (reqServerId ? getServerById(reqServerId) : null)
+    const discovered = discoverServerProjects(targetServer)
+    const orgId = req.tenant?.organizationId || 'org-default'
+    const orgProjects = getProjectsByOrgId(orgId)
     const pathSet = new Set(orgProjects.map(p => p.path ? path.resolve(p.path).replace(/\\/g, '/').toLowerCase() : ''))
 
     discovered.forEach(dp => {
@@ -531,8 +628,8 @@ router.all('/projects/realtime-fetch', (req, res) => {
       if (!pathSet.has(normP)) {
         orgProjects.push({
           ...dp,
-          organizationId: req.tenant?.organizationId || 'org-default',
-          serverId: req.tenant?.serverId || 'srv-default'
+          organizationId: orgId,
+          serverId: targetServer?.id || req.tenant?.serverId || 'srv-default'
         })
       }
     })
