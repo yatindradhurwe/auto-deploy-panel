@@ -349,6 +349,8 @@ export function getRealDatabases(serverConfig = null) {
 
       return resolve(customDbs)
     }
+
+    exec('netstat -tulpn 2>/dev/null || ss -tulpn 2>/dev/null', (err, stdout) => {
       const output = stdout || ''
       const hasPg = output.includes(':5432') || output.includes('postgres')
       const hasMy = output.includes(':3306') || output.includes('mysqld')
