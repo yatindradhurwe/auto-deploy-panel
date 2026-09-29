@@ -76,21 +76,72 @@ router.get('/servers', authenticateToken, requireTenant, (req, res) => {
  */
 router.post('/servers', authenticateToken, requireTenant, (req, res) => {
   try {
-    const { name, hostname, ipAddress, port = 22, username = 'root', password, domain } = req.body
-    
-    if (!ipAddress) {
-      return res.status(400).json({ error: 'Server IP Address is required.' })
-    }
-
-    const server = createServer({
-      organizationId: req.tenant.organizationId,
-      name: name || `VPS (${ipAddress})`,
-      hostname: hostname || ipAddress,
+    const {
+      name,
+      serverType = 'vps',
+      provider = 'custom',
+      authType = 'password',
+      hostname,
       ipAddress,
       port,
       username,
-      status: 'online',
-      domain: domain || ''
+      password,
+      sshKey,
+      domain,
+      cpanelUrl,
+      cpanelUser,
+      cpanelApiToken,
+      ftpHost,
+      ftpPort,
+      ftpUser,
+      ftpPassword,
+      webRootPath,
+      sharedDbHost,
+      sharedDbUser,
+      sharedDbPassword,
+      cloudProvider,
+      cloudApiKey,
+      cloudRegion,
+      cloudInstanceId
+    } = req.body
+    
+    const host = ipAddress || ftpHost || hostname || cpanelUrl
+    if (!host && serverType !== 'cloud') {
+      return res.status(400).json({ error: 'Server IP Address, Hostname, or FTP/cPanel host is required.' })
+    }
+
+    const typeLabel = serverType === 'shared' ? 'Shared Server' : serverType === 'cloud' ? 'Cloud Instance' : 'VPS Node'
+
+    const server = createServer({
+      organizationId: req.tenant.organizationId,
+      createdBy: req.user ? req.user.id : null,
+      name: name || `${typeLabel} (${host || cloudProvider || 'Cloud'})`,
+      serverType: serverType.toLowerCase(),
+      provider,
+      authType,
+      hostname: hostname || host || '',
+      ipAddress: ipAddress || ftpHost || '',
+      port: port || (serverType === 'shared' ? 21 : 22),
+      username: username || ftpUser || cpanelUser || 'root',
+      password: password || ftpPassword || '',
+      sshKey: sshKey || '',
+      domain: domain || '',
+      cpanelUrl,
+      cpanelUser,
+      cpanelApiToken,
+      ftpHost,
+      ftpPort,
+      ftpUser,
+      ftpPassword,
+      webRootPath,
+      sharedDbHost,
+      sharedDbUser,
+      sharedDbPassword,
+      cloudProvider,
+      cloudApiKey,
+      cloudRegion,
+      cloudInstanceId,
+      status: 'online'
     })
 
     res.json({ success: true, server })

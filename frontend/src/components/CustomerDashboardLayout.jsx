@@ -312,10 +312,10 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
                   <div className="flex items-center space-x-3">
                     <button
                       onClick={() => setActiveTab('servers')}
-                      className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-xl font-bold text-xs flex items-center space-x-2 border border-slate-700"
+                      className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-xl font-bold text-xs flex items-center space-x-2 border border-slate-700 cursor-pointer"
                     >
                       <Plus className="w-4 h-4 text-cyan-400" />
-                      <span>+ Connect VPS Server</span>
+                      <span>+ Connect Server (VPS / Shared / Cloud)</span>
                     </button>
                     <button
                       onClick={() => setActiveTab('deployments')}

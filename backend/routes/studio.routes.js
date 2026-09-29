@@ -253,33 +253,85 @@ router.post('/servers/scan', async (req, res) => {
 })
 
 /**
+ * Helper to verify if user is Super Admin
+ */
+const isSuperAdminUser = (req) => {
+  return req.user && (req.user.id === 'admin-001' || (req.user.role && req.user.role.toLowerCase().includes('admin')) || req.user.email === 'admin@tipcrm.com')
+}
+
+/**
  * POST /api/studio/servers/add
  */
-router.post('/servers/add', authenticateToken, (req, res) => {
-  const { name, host, port = 22, username = 'root', domain } = req.body
-  if (!name || !host) return res.status(400).json({ error: 'Server name and IP address are required' })
-
-  const created = {
-    id: `srv-${Date.now()}`,
+router.post('/servers/add', (req, res) => {
+  const {
     name,
+    serverType = 'vps',
+    provider = 'custom',
+    authType = 'password',
     host,
-    port: parseInt(port) || 22,
+    ipAddress,
+    port,
     username,
-    status: 'online',
-    os: 'Ubuntu 22.04 LTS (x86_64)',
-    cpuUsage: 8,
-    ramUsage: 38,
-    diskUsage: 28,
-    activeApps: 2,
-    domain: domain || `${host}.com`,
-    lastConnected: new Date().toISOString()
+    password,
+    sshKey,
+    domain,
+    cpanelUrl,
+    cpanelUser,
+    cpanelApiToken,
+    ftpHost,
+    ftpPort,
+    ftpUser,
+    ftpPassword,
+    webRootPath,
+    sharedDbHost,
+    sharedDbUser,
+    sharedDbPassword,
+    cloudProvider,
+    cloudApiKey,
+    cloudRegion,
+    cloudInstanceId
+  } = req.body
+
+  const targetHost = ipAddress || host || ftpHost || cpanelUrl
+  if (!name || (!targetHost && serverType !== 'cloud')) {
+    return res.status(400).json({ error: 'Server name and Host/IP address are required' })
   }
 
-  DEFAULT_SERVERS.push(created)
+  const created = createServer({
+    organizationId: req.tenant?.organizationId || 'org-default',
+    createdBy: req.user ? req.user.id : null,
+    name,
+    serverType: serverType.toLowerCase(),
+    provider,
+    authType,
+    hostname: targetHost || '',
+    ipAddress: ipAddress || host || ftpHost || '',
+    port: parseInt(port) || (serverType === 'shared' ? 21 : 22),
+    username: username || ftpUser || cpanelUser || 'root',
+    password: password || ftpPassword || '',
+    sshKey: sshKey || '',
+    domain: domain || '',
+    cpanelUrl,
+    cpanelUser,
+    cpanelApiToken,
+    ftpHost,
+    ftpPort,
+    ftpUser,
+    ftpPassword,
+    webRootPath,
+    sharedDbHost,
+    sharedDbUser,
+    sharedDbPassword,
+    cloudProvider,
+    cloudApiKey,
+    cloudRegion,
+    cloudInstanceId,
+    status: 'online'
+  })
 
   res.json({
     success: true,
-    message: `Server node '${name}' (${host}) added and connected successfully!`,
+    message: `Server node '${name}' connected successfully!`,
     server: created
   })
 })
@@ -374,17 +426,15 @@ router.post('/cron/add', (req, res) => {
  * GET /api/studio/webhooks/logs
  */
 router.get('/webhooks/logs', (req, res) => {
-  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
-    const orgAuditLogs = getWebhookAuditLogs().filter(l => l.organizationId === req.tenant.organizationId)
-    return res.json({ success: true, logs: orgAuditLogs })
+  const orgId = req.tenant?.organizationId || 'org-default'
+  const isSuper = isSuperAdminUser(req)
+  const logs = getWebhookAuditLogs()
+
+  if (!isSuper && orgId !== 'org-default') {
+    return res.json({ success: true, logs: logs.filter(l => l.organizationId === orgId) })
   }
 
-  res.json({
-    success: true,
-    logs: [
-      { id: 'wh-101', event: 'push', repo: 'yatindradhurwe/auto-deploy-panel', branch: 'main', status: 'success', timestamp: new Date().toISOString(), output: 'Auto-deploy triggered: GitHub push event received.' }
-    ]
-  })
+  res.json({ success: true, logs })
 })
 
 /**
@@ -401,24 +451,28 @@ router.all('/logs/telemetry', (req, res) => {
 
 /**
  * GET & POST /api/studio/projects
- * Returns list of ALL server applications, active PM2 services & organization projects
+ * Returns list of server applications & organization projects strictly scoped by tenant
  */
 router.all('/projects', (req, res) => {
   try {
-    const discovered = discoverServerProjects()
-    const orgProjects = (req.tenant && req.tenant.organizationId) ? getProjectsByOrgId(req.tenant.organizationId) : []
-    const pathSet = new Set(orgProjects.map(p => p.path ? path.resolve(p.path).replace(/\\/g, '/').toLowerCase() : ''))
+    const isSuper = isSuperAdminUser(req)
+    const orgId = req.tenant?.organizationId || 'org-default'
+    let orgProjects = getProjectsByOrgId(orgId)
 
-    discovered.forEach(dp => {
-      const normP = dp.path ? path.resolve(dp.path).replace(/\\/g, '/').toLowerCase() : ''
-      if (!pathSet.has(normP)) {
-        orgProjects.push({
-          ...dp,
-          organizationId: req.tenant?.organizationId || 'org-default',
-          serverId: req.tenant?.serverId || 'srv-default'
-        })
-      }
-    })
+    if (isSuper) {
+      const discovered = discoverServerProjects()
+      const pathSet = new Set(orgProjects.map(p => p.path ? path.resolve(p.path).replace(/\\/g, '/').toLowerCase() : ''))
+      discovered.forEach(dp => {
+        const normP = dp.path ? path.resolve(dp.path).replace(/\\/g, '/').toLowerCase() : ''
+        if (!pathSet.has(normP)) {
+          orgProjects.push({
+            ...dp,
+            organizationId: orgId,
+            serverId: req.tenant?.serverId || 'srv-default'
+          })
+        }
+      })
+    }
 
     res.json({ success: true, projects: orgProjects })
   } catch (err) {
