@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Server, Activity, Cpu, HardDrive, ShieldCheck, Plus, RefreshCw, Terminal, CheckCircle2, Clock, Globe, Key, AlertTriangle, Cloud, Layers, Database, Lock, Eye, Trash2, X } from 'lucide-react'
 
-export default function ServerManager({ jwtToken, onSelectServer }) {
+export default function ServerManager({ jwtToken, activeServer, onSelectServer }) {
   const [servers, setServers] = useState([])
   const [loading, setLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
@@ -619,15 +619,31 @@ export default function ServerManager({ jwtToken, onSelectServer }) {
                 <span>{srv.status || 'online'}</span>
               </div>
 
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setSelectedServerDetails(srv)
-                }}
-                className="text-cyan-400 hover:text-cyan-300 font-medium flex items-center gap-1"
-              >
-                <Eye className="w-3.5 h-3.5" /> View Details
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (onSelectServer) onSelectServer(srv.id)
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition flex items-center gap-1 cursor-pointer ${
+                    srv.id === activeServer?.id
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm shadow-emerald-500/10'
+                      : 'bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  {srv.id === activeServer?.id ? 'Active Selected Node' : 'Switch Server'}
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setSelectedServerDetails(srv)
+                  }}
+                  className="text-slate-400 hover:text-cyan-300 font-medium flex items-center gap-1 text-[11px] p-1"
+                >
+                  <Eye className="w-3.5 h-3.5" /> Details
+                </button>
+              </div>
             </div>
           </div>
         ))}

@@ -295,6 +295,30 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
 
         {/* Central Customer Area */}
         <main className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-6 w-full">
+          {/* Active Workspace Server Context Switcher Bar */}
+          <div className="bg-gradient-to-r from-slate-900 via-slate-900/95 to-blue-950/40 border border-slate-800 rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 shadow-md">
+            <div className="flex items-center space-x-2.5 overflow-x-auto no-scrollbar">
+              <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
+              <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider flex-shrink-0">Active Workspace Server:</span>
+              <span className="text-xs font-bold text-cyan-300 flex-shrink-0">{activeServer?.name || 'Production Server Node 01'}</span>
+              <span className="text-[10px] font-mono text-slate-300 bg-slate-950 px-2 py-0.5 rounded border border-slate-800 flex-shrink-0">
+                {activeServer?.ipAddress || activeServer?.ftpHost || activeServer?.hostname || '187.127.165.128'}
+              </span>
+              <span className="text-[10px] uppercase font-bold text-amber-400 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 flex-shrink-0">
+                {activeServer?.serverType || 'VPS'} Node
+              </span>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <span className="text-xs text-slate-400 font-medium hidden sm:inline">Switch Target Server:</span>
+              <ServerSelectorDropdown
+                activeServerId={activeServerId}
+                onServerSelect={(id) => setActiveServerId(id)}
+                apiBaseUrl={apiBaseUrl}
+              />
+            </div>
+          </div>
+
           {activeTab === 'dashboard' && (
             <div className="space-y-8 max-w-7xl mx-auto">
               {/* Welcome Banner */}
