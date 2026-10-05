@@ -2,7 +2,15 @@ const { Client } = require('ssh2')
 const conn = new Client()
 
 conn.on('ready', () => {
-  conn.exec('pm2 status ; echo "=== PM2 ERROR LOGS ===" ; tail -n 40 /root/.pm2/logs/auto-deploy-panel-error.log ; echo "=== PM2 OUT LOGS ===" ; tail -n 30 /root/.pm2/logs/auto-deploy-panel-out.log', (err, stream) => {
+  const script = `
+    echo "=== PM2 STATUS ==="
+    pm2 status
+    echo "=== NGINX CONFIG FOR AUTOMATE DEPLOYMENT ==="
+    cat /etc/nginx/sites-enabled/*automate* 2>/dev/null || cat /etc/nginx/sites-available/*automate* 2>/dev/null || grep -rn "automate-deployment" /etc/nginx/
+    echo "=== PM2 RECENT ERROR LOGS ==="
+    tail -n 30 /root/.pm2/logs/auto-deploy-panel-error.log
+  `
+  conn.exec(script, (err, stream) => {
     if (err) {
       console.error(err)
       conn.end()
