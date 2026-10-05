@@ -4,7 +4,7 @@ import {
   AlertTriangle, RefreshCw, Layers, ArrowRight, ArrowLeft, Play, Lock, Cpu, Sparkles, X, Check
 } from 'lucide-react'
 
-export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = '', onDeploymentSuccess }) {
+export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = '', onDeploymentSuccess, onBackToHub, initialTemplate }) {
   const [step, setStep] = useState(1) // 1: Repo, 2: Config, 3: Server/Domain, 4: Live Execution
   const [githubToken, setGithubToken] = useState(() => localStorage.getItem('autodeploy_github_token') || '')
   const [tokenSavedMsg, setTokenSavedMsg] = useState(false)
@@ -52,6 +52,21 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
       }))
     }
   }, [activeServer])
+
+  useEffect(() => {
+    if (initialTemplate) {
+      const cleanName = (initialTemplate.id || initialTemplate.name || 'template-app').toLowerCase().replace(/[^a-z0-9]/g, '-')
+      const repoUrl = initialTemplate.repoUrl || initialTemplate.gitUrl || 'https://github.com/yatindradhurwe/auto-deploy-panel.git'
+      setDeployForm(prev => ({
+        ...prev,
+        gitUrl: repoUrl,
+        repoName: initialTemplate.name || 'Template App',
+        appName: cleanName,
+        remoteDir: `/var/www/${cleanName}`,
+        domain: `${cleanName}.yjtechnosoft.com`
+      }))
+    }
+  }, [initialTemplate])
 
   const autoDetectStackForRepo = async (targetGitUrl, repoNameStr) => {
     const url = targetGitUrl || deployForm.gitUrl

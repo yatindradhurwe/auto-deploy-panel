@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import {
   Layers, Search, Grid, List, ExternalLink, Globe, Play, Sparkles, Code,
   Server, RefreshCw, CheckCircle2, ChevronDown, Bell, User, Plus, FolderGit2,
-  Trash2, ShieldCheck, DownloadCloud, Activity, Zap, HardDrive
+  Trash2, ShieldCheck, DownloadCloud, Activity, Zap, HardDrive, ShoppingBag
 } from 'lucide-react'
 
 export default function AllProjectsHub({
@@ -11,7 +11,8 @@ export default function AllProjectsHub({
   currentUser,
   onOpenProjectStudio,
   onChangeServerNode,
-  onTabChange
+  onTabChange,
+  activeHubTab = 'projects'
 }) {
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
@@ -86,31 +87,62 @@ export default function AllProjectsHub({
           <nav className="hidden lg:flex items-center space-x-1 font-mono text-xs">
             <button
               onClick={() => onTabChange && onTabChange('projects')}
-              className="px-3 py-1.5 rounded-lg font-bold text-white bg-white/10 border border-white/10"
+              className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                activeHubTab === 'projects' || activeHubTab === 'dashboard'
+                  ? 'text-white bg-white/10 border border-white/10'
+                  : 'text-slate-400 hover:text-white'
+              }`}
             >
               Projects
             </button>
             <button
-              onClick={() => onTabChange && onTabChange('email')}
-              className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white transition"
+              onClick={() => onTabChange && onTabChange('marketplace')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer flex items-center space-x-1.5 ${
+                activeHubTab === 'marketplace'
+                  ? 'text-amber-300 bg-amber-500/20 border border-amber-500/40'
+                  : 'text-amber-300 hover:text-white'
+              }`}
             >
-              Email Box
+              <ShoppingBag className="w-3.5 h-3.5 text-amber-400" />
+              <span>Marketplace</span>
             </button>
             <button
               onClick={() => onTabChange && onTabChange('databases')}
-              className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white transition"
+              className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                activeHubTab === 'databases'
+                  ? 'text-white bg-white/10 border border-white/10'
+                  : 'text-slate-400 hover:text-white'
+              }`}
             >
               Databases
             </button>
             <button
+              onClick={() => onTabChange && onTabChange('email')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                activeHubTab === 'email'
+                  ? 'text-white bg-white/10 border border-white/10'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Email Box
+            </button>
+            <button
               onClick={() => onTabChange && onTabChange('servers')}
-              className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white transition"
+              className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                activeHubTab === 'servers'
+                  ? 'text-white bg-white/10 border border-white/10'
+                  : 'text-slate-400 hover:text-white'
+              }`}
             >
               Servers
             </button>
             <button
               onClick={() => onTabChange && onTabChange('audit-logs')}
-              className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white transition"
+              className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                activeHubTab === 'audit-logs'
+                  ? 'text-white bg-white/10 border border-white/10'
+                  : 'text-slate-400 hover:text-white'
+              }`}
             >
               Audit Logs
             </button>

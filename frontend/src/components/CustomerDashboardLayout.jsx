@@ -25,6 +25,7 @@ import AIAgentStudioDrawer from './AIAgentStudioDrawer'
 import ProjectDedicatedStudio from './ProjectDedicatedStudio'
 import AllProjectsHub from './AllProjectsHub'
 import ServerConnectLanding from './ServerConnectLanding'
+import MarketplaceView from './MarketplaceView'
 
 import DeploymentWizard from './DeploymentWizard'
 
@@ -39,6 +40,7 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
   const [loadingServers, setLoadingServers] = useState(true)
   const [showAiDrawer, setShowAiDrawer] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [templateToDeploy, setTemplateToDeploy] = useState(null)
   
   // Connect Server Form state inside customer dashboard
   const [connectForm, setConnectForm] = useState({
@@ -254,7 +256,94 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
     )
   }
 
+  const renderHubSubView = (component, title) => (
+    <div className="min-h-screen bg-[#07090E] text-slate-100 flex flex-col font-sans">
+      <header className="h-16 bg-[#0B0E17]/90 backdrop-blur-xl border-b border-white/10 px-6 flex items-center justify-between z-30 shrink-0">
+        <div className="flex items-center space-x-4">
+          <button
+            onClick={() => setActiveTab('projects')}
+            className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 rounded-xl text-xs font-mono font-bold transition flex items-center space-x-1.5 cursor-pointer shadow-md"
+          >
+            <ChevronLeft className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Back to Projects Hub</span>
+          </button>
+          <div className="h-5 w-px bg-slate-800"></div>
+          <div className="flex items-center space-x-2 font-mono text-xs">
+            <span className="text-slate-400">Hub</span>
+            <span className="text-slate-600">/</span>
+            <span className="font-extrabold text-white">{title}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-3 text-xs font-mono">
+          <ServerSelectorDropdown
+            activeServerId={activeServerId}
+            onServerSelect={(id) => setActiveServerId(id)}
+            apiBaseUrl={apiBaseUrl}
+          />
+          <button
+            onClick={() => setActiveTab('deployments')}
+            className="px-3.5 py-1.5 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-extrabold rounded-xl shadow-lg flex items-center space-x-1.5 transition cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>1-Click Deploy</span>
+          </button>
+        </div>
+      </header>
+      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8">
+        {component}
+      </main>
+    </div>
+  )
+
   if (viewStep === 'hub') {
+    if (activeTab === 'marketplace') {
+      return (
+        <MarketplaceView
+          onBackToHub={() => setActiveTab('projects')}
+          onDeployTemplate={(tpl) => {
+            setTemplateToDeploy(tpl)
+            setActiveTab('deployments')
+          }}
+        />
+      )
+    }
+
+    if (activeTab === 'deployments') {
+      return renderHubSubView(
+        <DeploymentWizard
+          jwtToken={jwtToken}
+          activeServer={activeServer}
+          apiBaseUrl={apiBaseUrl}
+          onDeploymentSuccess={() => fetchTenantServers()}
+          onBackToHub={() => setActiveTab('projects')}
+          initialTemplate={templateToDeploy}
+        />,
+        '1-Click Automated Deployment'
+      )
+    }
+
+    if (activeTab === 'databases') {
+      return renderHubSubView(
+        <DatabaseManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />,
+        'Database Management Suite'
+      )
+    }
+
+    if (activeTab === 'email') {
+      return renderHubSubView(
+        <EmailManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />,
+        'Domain Email Inbox'
+      )
+    }
+
+    if (activeTab === 'audit-logs') {
+      return renderHubSubView(
+        <AuditLogViewer apiBaseUrl={apiBaseUrl} />,
+        'Audit Logs & Security'
+      )
+    }
+
     return (
       <AllProjectsHub
         server={activeServer}
@@ -262,10 +351,8 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
         currentUser={currentUser}
         onOpenProjectStudio={(p) => setActiveWorkspaceProject(p)}
         onChangeServerNode={() => setViewStep('servers')}
-        onTabChange={(tabId) => {
-          setActiveTab(tabId)
-          setViewStep('classic')
-        }}
+        onTabChange={(tabId) => setActiveTab(tabId)}
+        activeHubTab={activeTab}
       />
     )
   }
