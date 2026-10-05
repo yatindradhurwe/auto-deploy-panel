@@ -239,7 +239,7 @@ router.post('/ai-execute-fix', async (req, res) => {
   }
 })
 
-import { getUserSettings, saveUserSettings } from '../services/db.service.js'
+import { getUserSettings, saveUserSettings, createProject, saveProjectAutoUpdateConfig } from '../services/db.service.js'
 
 /**
  * GET /api/deploy/get-github-token
@@ -433,6 +433,42 @@ router.post('/deploy', async (req, res) => {
     await executeDeployment(req.body, onLog)
     deploySession.status = 'success'
     onLog(`[FINISHED] Deployment completed successfully!`, false, 'END')
+
+    try {
+      const appName = req.body.appName || req.body.repoName || 'my-app'
+      const orgId = req.tenant?.organizationId || 'org-default'
+      const serverId = req.tenant?.serverId || req.body.serverId || 'srv-001'
+      const domain = req.body.domain || ''
+      const gitUrl = req.body.gitRepoUrl || req.body.gitUrl || ''
+      const branch = req.body.branch || 'main'
+      const port = req.body.backendPort || 5050
+      const remoteDir = req.body.remoteDir || `/var/www/${appName}`
+
+      createProject({
+        organizationId: orgId,
+        serverId: serverId,
+        name: appName,
+        repoName: appName,
+        path: remoteDir,
+        gitUrl,
+        branch,
+        framework: req.body.framework || 'Node.js App',
+        port,
+        domain,
+        status: 'active'
+      })
+
+      saveProjectAutoUpdateConfig(appName, {
+        enabled: true,
+        autoSyncInterval: 5,
+        branch,
+        gitRepoUrl: gitUrl,
+        projectPath: remoteDir,
+        host: req.body.host || '187.127.165.128'
+      })
+    } catch (saveErr) {
+      console.warn('Post-deployment project registration warning:', saveErr.message)
+    }
   } catch (err) {
     deploySession.status = 'failed'
     onLog(`[FAILED] Deployment error: ${err.message}`, true, 'END')

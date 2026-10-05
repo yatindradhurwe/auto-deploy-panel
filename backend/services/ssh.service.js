@@ -530,10 +530,20 @@ EOF
     // Step 6: SSL Provisioning via Certbot
     if (setupSsl) {
       onLog(`\n==========================================\n[STEP 6/6] Auto-Provisioning SSL Certificate via Certbot...\n==========================================\n`, false, 'SSL')
+      const sslEmail = config.email || config.sslEmail || 'admin@yjtechnosoft.com'
       const certbotCmd = `
-        echo "Running Certbot SSL setup for ${domain}..."
-        certbot --nginx -d ${domain} --non-interactive --agree-tos --register-unsafely-without-email --redirect || true
-        systemctl reload nginx
+        echo "Verifying Certbot & Nginx SSL plugin installation on target server..."
+        if ! command -v certbot >/dev/null 2>&1; then
+          echo "Installing certbot and python3-certbot-nginx package..."
+          if command -v apt-get >/dev/null 2>&1; then
+            apt-get update -y && apt-get install -y certbot python3-certbot-nginx || true
+          elif command -v yum >/dev/null 2>&1; then
+            yum install -y certbot python-certbot-nginx || true
+          fi
+        fi
+        echo "Executing Certbot SSL certificate issuance for ${domain}..."
+        certbot --nginx -d ${domain} --non-interactive --agree-tos -m ${sslEmail} --redirect || certbot --nginx -d ${domain} --non-interactive --agree-tos --register-unsafely-without-email --redirect || true
+        systemctl reload nginx || true
       `
       await runCommandStream(conn, certbotCmd, onLog, true)
     } else {
