@@ -252,44 +252,51 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
   return (
     <div className="min-h-screen bg-[#07090E] text-slate-100 flex flex-col font-sans overflow-hidden">
       
-      {/* Top Header Navigation Bar */}
-      <header className="h-14 bg-[#0B0E17] border-b border-white/10 px-4 flex items-center justify-between z-30 shrink-0">
+      {/* Top Header Navigation Bar (Apple macOS Style) */}
+      <header className="h-16 bg-[#0B0E17]/85 backdrop-blur-2xl border-b border-white/10 px-6 flex items-center justify-between z-30 shrink-0 shadow-2xl">
         
-        {/* Left: Back to Home & Project Breadcrumb */}
-        <div className="flex items-center space-x-3">
+        {/* Left: macOS Window Traffic Lights, Back to Dashboard & Project Breadcrumb */}
+        <div className="flex items-center space-x-4">
+          {/* macOS Traffic Lights */}
+          <div className="flex items-center space-x-2 mr-1">
+            <span className="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E] shadow-sm"></span>
+            <span className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123] shadow-sm"></span>
+            <span className="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29] shadow-sm"></span>
+          </div>
+
           <button
             onClick={onBackToDashboard}
-            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700/80 rounded-xl text-xs font-bold font-mono flex items-center space-x-1.5 transition cursor-pointer shadow-md"
+            className="px-3 py-1.5 bg-slate-900/80 hover:bg-slate-800 text-slate-300 border border-white/10 rounded-xl text-xs font-bold font-mono flex items-center space-x-1.5 transition cursor-pointer shadow-md backdrop-blur-md"
           >
             <ArrowLeft className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Back to Dashboard</span>
+            <span>Dashboard</span>
           </button>
 
-          <div className="h-5 w-px bg-slate-800"></div>
+          <div className="h-4 w-px bg-white/10"></div>
 
           <div className="flex items-center space-x-2 font-mono text-xs">
-            <span className="text-slate-400">Projects</span>
+            <span className="text-slate-400 font-medium">Projects</span>
             <span className="text-slate-600">/</span>
-            <span className="font-extrabold text-white flex items-center gap-1.5">
+            <span className="font-extrabold text-white flex items-center gap-1.5 tracking-tight text-sm">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
               {project?.name || 'Selected Project'}
             </span>
-            <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-800 px-2 py-0.5 rounded-full font-bold uppercase">
+            <span className="text-[10px] bg-cyan-950/80 text-cyan-300 border border-cyan-500/30 px-2.5 py-0.5 rounded-full font-bold uppercase backdrop-blur-md">
               {project?.type || 'Web Application'}
             </span>
           </div>
         </div>
 
         {/* Center: Canvas View Selector & Device Frame Controls */}
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-3">
           {/* Main View Mode Selector */}
-          <div className="bg-slate-950 p-1 rounded-xl border border-slate-800 flex items-center space-x-1 font-mono text-xs">
+          <div className="bg-slate-950/80 p-1.5 rounded-2xl border border-white/10 flex items-center space-x-1.5 font-mono text-xs backdrop-blur-md shadow-inner">
             <button
               onClick={() => setActiveCanvasTab('preview')}
-              className={`px-3 py-1 rounded-lg font-bold flex items-center space-x-1.5 transition cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-xl font-bold flex items-center space-x-1.5 transition-all cursor-pointer ${
                 activeCanvasTab === 'preview'
-                  ? 'bg-cyan-500 text-slate-950 shadow-sm'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-gradient-to-r from-cyan-500 to-indigo-600 text-white shadow-lg shadow-cyan-500/20'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
               }`}
             >
               <Globe className="w-3.5 h-3.5" />
@@ -298,10 +305,10 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
 
             <button
               onClick={() => setActiveCanvasTab('code')}
-              className={`px-3 py-1 rounded-lg font-bold flex items-center space-x-1.5 transition cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-xl font-bold flex items-center space-x-1.5 transition-all cursor-pointer ${
                 activeCanvasTab === 'code'
-                  ? 'bg-purple-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/20'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
               }`}
             >
               <Code className="w-3.5 h-3.5" />
@@ -310,10 +317,10 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
 
             <button
               onClick={() => setActiveCanvasTab('database')}
-              className={`px-3 py-1 rounded-lg font-bold flex items-center space-x-1.5 transition cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-xl font-bold flex items-center space-x-1.5 transition-all cursor-pointer ${
                 activeCanvasTab === 'database'
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
               }`}
             >
               <Database className="w-3.5 h-3.5" />
@@ -322,10 +329,10 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
 
             <button
               onClick={() => setActiveCanvasTab('env')}
-              className={`px-3 py-1 rounded-lg font-bold flex items-center space-x-1.5 transition cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-xl font-bold flex items-center space-x-1.5 transition-all cursor-pointer ${
                 activeCanvasTab === 'env'
-                  ? 'bg-amber-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/20'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
               }`}
             >
               <Key className="w-3.5 h-3.5" />
@@ -334,10 +341,10 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
 
             <button
               onClick={() => setActiveCanvasTab('logs')}
-              className={`px-3 py-1 rounded-lg font-bold flex items-center space-x-1.5 transition cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-xl font-bold flex items-center space-x-1.5 transition-all cursor-pointer ${
                 activeCanvasTab === 'logs'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
               }`}
             >
               <Terminal className="w-3.5 h-3.5" />
@@ -346,10 +353,10 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
 
             <button
               onClick={() => setActiveCanvasTab('git')}
-              className={`px-3 py-1 rounded-lg font-bold flex items-center space-x-1.5 transition cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-xl font-bold flex items-center space-x-1.5 transition-all cursor-pointer ${
                 activeCanvasTab === 'git'
-                  ? 'bg-rose-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/20'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
               }`}
             >
               <FolderGit2 className="w-3.5 h-3.5" />
@@ -359,12 +366,12 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
 
           {/* Device Frame Toggle (Active when preview is selected) */}
           {activeCanvasTab === 'preview' && (
-            <div className="bg-slate-950 p-1 rounded-xl border border-slate-800 flex items-center space-x-1">
+            <div className="bg-slate-950/80 p-1 rounded-2xl border border-white/10 flex items-center space-x-1 backdrop-blur-md">
               <button
                 onClick={() => setDeviceMode('desktop')}
                 title="Desktop View (100%)"
-                className={`p-1.5 rounded-lg transition cursor-pointer ${
-                  deviceMode === 'desktop' ? 'bg-slate-800 text-cyan-400' : 'text-slate-400 hover:text-white'
+                className={`p-2 rounded-xl transition-all cursor-pointer ${
+                  deviceMode === 'desktop' ? 'bg-white/15 text-cyan-400 shadow-sm' : 'text-slate-400 hover:text-white'
                 }`}
               >
                 <Monitor className="w-4 h-4" />
@@ -373,8 +380,8 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
               <button
                 onClick={() => setDeviceMode('mobile')}
                 title="Mobile View (375px)"
-                className={`p-1.5 rounded-lg transition cursor-pointer ${
-                  deviceMode === 'mobile' ? 'bg-slate-800 text-cyan-400' : 'text-slate-400 hover:text-white'
+                className={`p-2 rounded-xl transition-all cursor-pointer ${
+                  deviceMode === 'mobile' ? 'bg-white/15 text-cyan-400 shadow-sm' : 'text-slate-400 hover:text-white'
                 }`}
               >
                 <Smartphone className="w-4 h-4" />
@@ -384,11 +391,11 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
         </div>
 
         {/* Right: Publish & Open Site Controls */}
-        <div className="flex items-center space-x-2.5">
+        <div className="flex items-center space-x-3">
           <button
             onClick={() => setIframeKey((k) => k + 1)}
             title="Refresh Live Preview"
-            className="p-2 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-xl border border-slate-800 transition cursor-pointer"
+            className="p-2.5 bg-slate-900/80 hover:bg-slate-800 text-slate-300 rounded-xl border border-white/10 transition cursor-pointer shadow-md"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
@@ -397,7 +404,7 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
             href={getDirectPreviewUrl()}
             target="_blank"
             rel="noreferrer"
-            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 rounded-xl text-xs font-bold font-mono flex items-center space-x-1.5 transition"
+            className="px-4 py-2 bg-slate-900/80 hover:bg-slate-800 text-cyan-300 border border-white/10 hover:border-cyan-500/40 rounded-xl text-xs font-bold font-mono flex items-center space-x-1.5 transition shadow-md"
           >
             <ExternalLink className="w-3.5 h-3.5 text-cyan-400" />
             <span>Open Site</span>
