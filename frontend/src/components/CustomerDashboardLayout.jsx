@@ -23,12 +23,15 @@ import AuditLogViewer from './AuditLogViewer'
 import AICopilotDrawer from './AICopilotDrawer'
 import AIAgentStudioDrawer from './AIAgentStudioDrawer'
 import ProjectDedicatedStudio from './ProjectDedicatedStudio'
+import AllProjectsHub from './AllProjectsHub'
+import ServerConnectLanding from './ServerConnectLanding'
 
 import DeploymentWizard from './DeploymentWizard'
 
 export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogout, apiBaseUrl = '' }) {
   const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'servers' | 'projects' | 'deployments' | 'databases' | 'code' | 'env' | 'domains' | 'logs' | 'email' | 'team' | 'billing' | 'settings'
   const [activeWorkspaceProject, setActiveWorkspaceProject] = useState(null)
+  const [viewStep, setViewStep] = useState('hub') // 'hub' | 'servers' | 'classic'
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [servers, setServers] = useState([])
@@ -209,6 +212,64 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
     )
   }
 
+  if (viewStep === 'servers') {
+    return (
+      <ServerConnectLanding
+        servers={servers}
+        loadingServers={loadingServers}
+        onSelectServer={(srv) => {
+          if (srv && srv.id) {
+            setActiveServerId(srv.id)
+          }
+          setViewStep('hub')
+        }}
+        onConnectServer={async (srvForm, callback) => {
+          setConnecting(true)
+          try {
+            const res = await fetch(`${apiBaseUrl}/api/agent/servers`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${jwtToken}`
+              },
+              body: JSON.stringify(srvForm)
+            })
+            const data = await res.json()
+            if (data.success && data.server) {
+              await fetchTenantServers()
+              setActiveServerId(data.server.id)
+              setViewStep('hub')
+              if (callback) callback()
+            } else {
+              alert(data.error || 'Failed to connect server.')
+            }
+          } catch (err) {
+            alert('Error connecting server: ' + err.message)
+          } finally {
+            setConnecting(false)
+          }
+        }}
+        connecting={connecting}
+      />
+    )
+  }
+
+  if (viewStep === 'hub') {
+    return (
+      <AllProjectsHub
+        server={activeServer}
+        jwtToken={jwtToken}
+        currentUser={currentUser}
+        onOpenProjectStudio={(p) => setActiveWorkspaceProject(p)}
+        onChangeServerNode={() => setViewStep('servers')}
+        onTabChange={(tabId) => {
+          setActiveTab(tabId)
+          setViewStep('classic')
+        }}
+      />
+    )
+  }
+
   return (
     <div className="min-h-screen bg-[#07090E] text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
       {/* Customer Header */}
@@ -239,6 +300,15 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
           </div>
 
           <div className="flex items-center space-x-1.5 sm:space-x-3 overflow-x-auto no-scrollbar">
+            <button
+              onClick={() => setViewStep('hub')}
+              className="text-xs bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700 px-2.5 sm:px-3 py-1.5 rounded-xl font-bold flex items-center space-x-1.5 transition cursor-pointer shrink-0"
+              title="Return to Projects Hub"
+            >
+              <ChevronLeft className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="hidden sm:inline">Projects Hub</span>
+            </button>
+
             <ServerSelectorDropdown
               activeServerId={activeServerId}
               onServerSelect={(id) => setActiveServerId(id)}
