@@ -74,7 +74,7 @@ export default function AllProjectsHub({
   const getProjectWebsiteUrl = (proj) => {
     if (proj.domain && proj.domain.trim()) {
       let d = proj.domain.trim()
-      d = d.replace(/^https?:\/\//i, '').replace(/\/+$/, '')
+      d = d.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '')
       if (d) return `https://${d}`
     }
     const name = (proj.repoName || proj.name || '').toLowerCase()

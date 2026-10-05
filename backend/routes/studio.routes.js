@@ -93,9 +93,10 @@ function getNginxDomainMap() {
             const serverNameMatch = content.match(/server_name\s+([^;]+);/)
             if (serverNameMatch) {
               const rawNames = serverNameMatch[1].trim().split(/\s+/)
-              const validDomain = rawNames.find(n => n && !n.includes('_') && n !== 'localhost' && n !== '$host')
+              let validDomain = rawNames.find(n => n && !n.includes('_') && n !== 'localhost' && n !== '$host')
 
               if (validDomain) {
+                validDomain = validDomain.replace(/^www\./i, '')
                 const rootMatch = content.match(/root\s+([^;]+);/)
                 if (rootMatch) {
                   let rootP = rootMatch[1].trim().replace(/\\/g, '/')
@@ -335,7 +336,7 @@ function discoverServerProjects(serverConfig = null) {
       name: displayName,
       repoName: meta.repoName || folderName,
       path: dirPath,
-      domain: projectDomain || null,
+      domain: projectDomain ? projectDomain.replace(/^www\./i, '') : null,
       gitUrl: gitUrl || `https://github.com/yatindradhurwe/${folderName}.git`,
       branch: branch || 'main',
       type: isRunningPm2 ? 'Active PM2 Service' : (fs.existsSync(path.join(dirPath, 'package.json')) ? 'Node.js App' : 'Web Application'),

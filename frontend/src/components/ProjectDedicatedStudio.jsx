@@ -48,7 +48,7 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
     // 1. Explicit domain property on project
     if (project.domain && project.domain.trim()) {
       let dom = project.domain.trim()
-      dom = dom.replace(/^https?:\/\//i, '').replace(/\/+$/, '')
+      dom = dom.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '')
       if (dom) return `https://${dom}`
     }
 
