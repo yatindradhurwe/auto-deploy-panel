@@ -709,6 +709,27 @@ router.get('/preview-proxy', (req, res) => {
   }
 })
 
+function getCandidateScore(proj) {
+  let score = 0
+  const normP = (proj.path || '').toLowerCase()
+  const folderName = path.basename(normP)
+  const dom = (proj.domain || '').toLowerCase().replace(/^https?:\/\//i, '').replace(/^www\./i, '')
+
+  if (dom && (folderName === dom || dom.includes(folderName) || folderName.includes(dom.replace(/\.[a-z]+$/, '')))) {
+    score += 100
+  }
+  if (proj.repoName && dom && proj.repoName.toLowerCase().includes(dom.replace(/\.[a-z]+$/, ''))) {
+    score += 50
+  }
+  if (normP.includes('-prd') || normP.includes('production') || normP.includes('/var/www/')) {
+    score += 30
+  }
+  if (folderName === 'app' || folderName === 'html' || folderName === 'test') {
+    score -= 80
+  }
+  return score
+}
+
 /**
  * GET & POST /api/studio/projects
  * Returns list of server applications & organization projects strictly scoped by tenant
@@ -725,30 +746,57 @@ router.all('/projects', (req, res) => {
 
     const allCandidates = [...orgProjects, ...discovered]
 
-    const finalProjects = []
-    const seenPaths = new Set()
-    const seenDomains = new Set()
-    const seenRepoNames = new Set()
+    const domainMap = new Map()
+    const pathMap = new Map()
 
     allCandidates.forEach(p => {
       const normP = p.path ? path.resolve(p.path).replace(/\\/g, '/').toLowerCase() : ''
       let dom = p.domain ? p.domain.trim().toLowerCase().replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '') : null
-      const repo = (p.repoName || p.name || '').trim().toLowerCase()
 
-      if (normP && seenPaths.has(normP)) return
-      if (dom && seenDomains.has(dom)) return
-      if (repo && repo.length > 3 && seenRepoNames.has(repo)) return
+      if (!dom) {
+        if (normP && !pathMap.has(normP)) {
+          pathMap.set(normP, p)
+        }
+        return
+      }
 
-      if (normP) seenPaths.add(normP)
-      if (dom) seenDomains.add(dom)
-      if (repo && repo.length > 3) seenRepoNames.add(repo)
+      if (!domainMap.has(dom)) {
+        domainMap.set(dom, p)
+      } else {
+        const existing = domainMap.get(dom)
+        const currentScore = getCandidateScore(p)
+        const existingScore = getCandidateScore(existing)
+        if (currentScore > existingScore) {
+          domainMap.set(dom, p)
+        }
+      }
+    })
 
-      finalProjects.push({
-        ...p,
-        organizationId: orgId,
-        serverId: targetServer?.id || 'srv-001',
-        domain: dom
-      })
+    const finalProjects = []
+    const seenPaths = new Set()
+
+    domainMap.forEach((p, dom) => {
+      const normP = p.path ? path.resolve(p.path).replace(/\\/g, '/').toLowerCase() : ''
+      if (!seenPaths.has(normP)) {
+        seenPaths.add(normP)
+        finalProjects.push({
+          ...p,
+          organizationId: orgId,
+          serverId: targetServer?.id || 'srv-001',
+          domain: dom
+        })
+      }
+    })
+
+    pathMap.forEach((p, normP) => {
+      if (!seenPaths.has(normP)) {
+        seenPaths.add(normP)
+        finalProjects.push({
+          ...p,
+          organizationId: orgId,
+          serverId: targetServer?.id || 'srv-001'
+        })
+      }
     })
 
     res.json({ success: true, projects: finalProjects })
