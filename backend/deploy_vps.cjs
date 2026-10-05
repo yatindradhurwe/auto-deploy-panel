@@ -51,7 +51,9 @@ conn.on('ready', () => {
         npm install
       fi
 
-      echo "[4/4] Reloading PM2 & Nginx..."
+      echo "[4/4] Starting & Reloading PM2 Services & Nginx..."
+      cd $PANEL_DIR
+      pm2 describe auto-deploy-panel >/dev/null 2>&1 || pm2 start backend/server.js --name auto-deploy-panel
       pm2 reload all || pm2 restart all || true
       pm2 save || true
       nginx -t && systemctl reload nginx || true

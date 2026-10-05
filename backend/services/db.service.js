@@ -222,7 +222,10 @@ export function readDb() {
     if (!parsed.webhookEvents) parsed.webhookEvents = {}
     return parsed
   } catch (e) {
-    console.error('[DB-SERVICE] Error reading db.json, returning default:', e)
+    console.error('[DB-SERVICE] Error reading db.json, repairing with initial schema:', e)
+    try {
+      fs.writeFileSync(DB_PATH, JSON.stringify(INITIAL_DB, null, 2), 'utf-8')
+    } catch (err) {}
     return INITIAL_DB
   }
 }
