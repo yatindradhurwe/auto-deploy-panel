@@ -183,13 +183,18 @@ function discoverServerProjects(serverConfig = null) {
   const candidateMap = new Map() // normPath -> { name, repoName }
 
   // 1. Presets / Local dev paths
-  const localAppRoot = path.resolve(process.cwd(), '..').replace(/\\/g, '/')
-  const localCrmRoot = path.resolve(process.cwd(), '../../crm-export').replace(/\\/g, '/')
+  let currentWorkDir = process.cwd().replace(/\\/g, '/')
+  if (currentWorkDir.endsWith('/backend')) {
+    currentWorkDir = path.resolve(currentWorkDir, '..').replace(/\\/g, '/')
+  }
 
-  if (fs.existsSync(localAppRoot)) {
+  const localAppRoot = currentWorkDir
+  const localCrmRoot = path.resolve(currentWorkDir, '../crm-export').replace(/\\/g, '/')
+
+  if (fs.existsSync(localAppRoot) && localAppRoot !== '/var/www' && localAppRoot !== '/var/www/' && localAppRoot !== '/' && !localAppRoot.endsWith(':/')) {
     candidateMap.set(localAppRoot, { name: 'AutoDeploy Panel (This Studio)', repoName: 'auto-deploy-panel', domain: 'automate-deployment.yjtechnosoft.com' })
   }
-  if (fs.existsSync(localCrmRoot)) {
+  if (fs.existsSync(localCrmRoot) && localCrmRoot !== '/var/www' && localCrmRoot !== '/') {
     candidateMap.set(localCrmRoot, { name: 'TOP Income Producer CRM (crm-export)', repoName: 'crm-export', domain: 'tip-crm.yjtechnosoft.com' })
   }
 
@@ -201,13 +206,16 @@ function discoverServerProjects(serverConfig = null) {
       entries.forEach(entry => {
         if (entry.isDirectory() && entry.name !== 'html') {
           const fullP = path.join(varWww, entry.name).replace(/\\/g, '/')
-          if (!candidateMap.has(fullP)) {
+          if (!candidateMap.has(fullP) && fullP !== '/var/www') {
             candidateMap.set(fullP, { name: entry.name, repoName: entry.name })
           }
         }
       })
     } catch (e) {}
   }
+
+  candidateMap.delete('/var/www')
+  candidateMap.delete('/var/www/')
 
   // 3. Scan /home/*/htdocs/* subdirectories
   const homeDir = '/home'

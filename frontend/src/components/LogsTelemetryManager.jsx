@@ -69,14 +69,31 @@ export default function LogsTelemetryManager({ jwtToken, activeServer, project, 
 
       if (project || initialApp) {
         const targetApp = (initialApp || project?.repoName || project?.name || '').toLowerCase()
-        if (targetApp) {
-          const matched = combinedProcesses.filter(p =>
-            p.name.toLowerCase() === targetApp ||
-            p.name.toLowerCase().includes(targetApp) ||
-            targetApp.includes(p.name.toLowerCase())
-          )
+        const targetPath = (project?.path || '').replace(/\\/g, '/').toLowerCase()
+
+        if (targetApp || targetPath) {
+          const matched = combinedProcesses.filter(p => {
+            const procCwd = (p.cwd || '').replace(/\\/g, '/').toLowerCase()
+            const procName = (p.name || '').toLowerCase()
+
+            if (procCwd && targetPath && (procCwd === targetPath || procCwd.endsWith(targetPath) || targetPath.endsWith(procCwd))) {
+              return true
+            }
+            if (procName && targetApp && (procName === targetApp || procName === targetApp.replace(/[^a-z0-9]/g, '-') || targetApp.includes(procName))) {
+              return true
+            }
+            return false
+          })
+
           if (matched.length > 0) {
-            combinedProcesses = matched
+            const uniqueMap = new Map()
+            matched.forEach(p => {
+              const key = `${p.name}-${p.cwd || ''}`
+              if (!uniqueMap.has(key)) {
+                uniqueMap.set(key, p)
+              }
+            })
+            combinedProcesses = Array.from(uniqueMap.values())
           } else {
             combinedProcesses = [
               {
