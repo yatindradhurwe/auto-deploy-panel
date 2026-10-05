@@ -254,41 +254,41 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
   return (
     <div className="min-h-screen bg-[#07090E] text-slate-100 flex flex-col font-sans overflow-hidden">
       
-      {/* Top Header Navigation Bar (Apple macOS Responsive & Premium Baseline Layout) */}
-      <header className="min-h-[4rem] bg-[#0B0E17]/90 backdrop-blur-2xl border-b border-white/10 px-4 lg:px-6 py-2 flex flex-wrap lg:flex-nowrap items-center justify-between gap-3 z-30 shrink-0 shadow-2xl sticky top-0">
+      {/* Top Header Navigation Bar (Fits 100% in Viewport, Icon-Only Project Settings) */}
+      <header className="h-14 bg-[#0B0E17]/90 backdrop-blur-2xl border-b border-white/10 px-3 lg:px-5 flex items-center justify-between gap-2 z-30 shrink-0 shadow-2xl sticky top-0 overflow-x-auto scrollbar-none">
         
         {/* Left: Back to Dashboard & Project Breadcrumb */}
-        <div className="flex items-center space-x-3 shrink-0">
+        <div className="flex items-center space-x-2.5 shrink-0">
           <button
             onClick={onBackToDashboard}
-            className="h-8.5 px-3 bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-white/10 hover:border-cyan-500/40 rounded-xl text-xs font-bold font-mono inline-flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-md backdrop-blur-md shrink-0"
+            className="h-8.5 px-2.5 bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-white/10 hover:border-cyan-500/40 rounded-xl text-xs font-bold font-mono inline-flex items-center justify-center space-x-1 transition-all cursor-pointer shadow-md backdrop-blur-md shrink-0"
           >
             <ArrowLeft className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-            <span>Dashboard</span>
+            <span className="hidden sm:inline">Dashboard</span>
           </button>
 
           <div className="h-4 w-px bg-white/15 hidden sm:block shrink-0"></div>
 
-          <div className="flex items-center space-x-2 font-mono text-xs shrink-0">
-            <span className="text-slate-400 font-medium hidden sm:inline">Projects</span>
-            <span className="text-slate-600 hidden sm:inline">/</span>
+          <div className="flex items-center space-x-1.5 font-mono text-xs shrink-0">
+            <span className="text-slate-400 font-medium hidden md:inline">Projects</span>
+            <span className="text-slate-600 hidden md:inline">/</span>
             <span className="font-extrabold text-white flex items-center gap-1.5 tracking-tight text-xs sm:text-sm">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
-              <span className="truncate max-w-[100px] sm:max-w-[160px] lg:max-w-[200px] inline-block align-middle">{project?.name || 'Selected Project'}</span>
+              <span className="truncate max-w-[90px] sm:max-w-[140px] md:max-w-[180px] inline-block align-middle">{project?.name || 'Selected Project'}</span>
             </span>
-            <span className="text-[10px] bg-cyan-950/90 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full font-bold uppercase backdrop-blur-md hidden sm:inline-block shrink-0">
+            <span className="text-[10px] bg-cyan-950/90 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full font-bold uppercase backdrop-blur-md hidden lg:inline-block shrink-0">
               {project?.type || 'Web App'}
             </span>
           </div>
         </div>
 
         {/* Center: Canvas View Selector & Device Frame Controls */}
-        <div className="flex items-center space-x-2.5 overflow-x-auto scrollbar-none py-0.5 max-w-full justify-center shrink-0">
+        <div className="flex items-center space-x-2 overflow-x-auto scrollbar-none py-0.5 max-w-full justify-center shrink-0">
           {/* Main View Mode Selector */}
           <div className="bg-slate-950/90 p-1 rounded-2xl border border-white/10 inline-flex items-center space-x-1 font-mono text-xs backdrop-blur-xl shadow-inner overflow-x-auto scrollbar-none shrink-0">
             <button
               onClick={() => setActiveCanvasTab('preview')}
-              className={`h-8 px-3.5 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`h-8 px-3 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
                 activeCanvasTab === 'preview'
                   ? 'bg-gradient-to-r from-cyan-500 via-indigo-600 to-indigo-700 text-white shadow-md shadow-cyan-500/25 ring-1 ring-cyan-400/40'
                   : 'text-slate-400 hover:text-white hover:bg-white/10'
@@ -300,7 +300,7 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
 
             <button
               onClick={() => setActiveCanvasTab('code')}
-              className={`h-8 px-3.5 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`h-8 px-3 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
                 activeCanvasTab === 'code'
                   ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-600/25 ring-1 ring-purple-400/40'
                   : 'text-slate-400 hover:text-white hover:bg-white/10'
@@ -312,7 +312,7 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
 
             <button
               onClick={() => setActiveCanvasTab('database')}
-              className={`h-8 px-3.5 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`h-8 px-3 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
                 activeCanvasTab === 'database'
                   ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-600/25 ring-1 ring-emerald-400/40'
                   : 'text-slate-400 hover:text-white hover:bg-white/10'
@@ -324,7 +324,7 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
 
             <button
               onClick={() => setActiveCanvasTab('env')}
-              className={`h-8 px-3.5 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`h-8 px-3 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
                 activeCanvasTab === 'env'
                   ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-md shadow-amber-600/25 ring-1 ring-amber-400/40'
                   : 'text-slate-400 hover:text-white hover:bg-white/10'
@@ -336,7 +336,7 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
 
             <button
               onClick={() => setActiveCanvasTab('logs')}
-              className={`h-8 px-3.5 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`h-8 px-3 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
                 activeCanvasTab === 'logs'
                   ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-600/25 ring-1 ring-indigo-400/40'
                   : 'text-slate-400 hover:text-white hover:bg-white/10'
@@ -348,14 +348,14 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
 
             <button
               onClick={() => setActiveCanvasTab('git')}
-              className={`h-8 px-3.5 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`h-8 px-3 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
                 activeCanvasTab === 'git'
                   ? 'bg-gradient-to-r from-rose-600 to-pink-600 text-white shadow-md shadow-rose-600/25 ring-1 ring-rose-400/40'
                   : 'text-slate-400 hover:text-white hover:bg-white/10'
               }`}
             >
               <FolderGit2 className="w-3.5 h-3.5 shrink-0" />
-              <span>Git Sync & Push</span>
+              <span>Git Sync</span>
             </button>
           </div>
 
@@ -385,51 +385,51 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
           )}
         </div>
 
-        {/* Right: Refresh, Settings, Open Site, Publish & Delete Action Buttons */}
-        <div className="flex items-center space-x-2 shrink-0 justify-end ml-auto lg:ml-0">
+        {/* Right: Refresh, Settings (Icon Only), Open Site, Publish & Delete Action Buttons */}
+        <div className="flex items-center space-x-1.5 shrink-0 justify-end ml-auto">
           <button
             onClick={() => setIframeKey((k) => k + 1)}
             title="Refresh Live Preview"
-            className="h-8.5 px-2.5 bg-slate-900/90 hover:bg-slate-800 text-slate-300 rounded-xl border border-white/10 hover:border-white/20 inline-flex items-center justify-center transition cursor-pointer shadow-md shrink-0"
+            className="h-8.5 w-8.5 bg-slate-900/90 hover:bg-slate-800 text-slate-300 rounded-xl border border-white/10 hover:border-white/20 inline-flex items-center justify-center transition cursor-pointer shadow-md shrink-0"
           >
             <RefreshCw className="w-4 h-4 shrink-0" />
           </button>
 
+          {/* Project Settings Button - Uses Icon Only to preserve horizontal viewport width */}
           <button
             onClick={() => setShowSettingsModal(true)}
             title="Project settings"
-            className="h-8.5 px-3 bg-slate-900/90 hover:bg-slate-800 text-cyan-300 border border-white/10 hover:border-cyan-500/40 rounded-xl text-xs font-mono font-bold inline-flex items-center justify-center space-x-1.5 transition cursor-pointer shadow-md shrink-0"
+            className="h-8.5 w-8.5 bg-slate-900/90 hover:bg-slate-800 text-cyan-300 border border-white/10 hover:border-cyan-500/40 rounded-xl font-mono text-xs font-bold inline-flex items-center justify-center transition cursor-pointer shadow-md shrink-0"
           >
             <Settings className="w-4 h-4 text-cyan-400 shrink-0" />
-            <span className="hidden md:inline">Project settings</span>
           </button>
 
           <a
             href={getDirectPreviewUrl()}
             target="_blank"
             rel="noreferrer"
-            className="h-8.5 px-3 bg-slate-900/90 hover:bg-slate-800 text-cyan-300 border border-white/10 hover:border-cyan-500/40 rounded-xl text-xs font-bold font-mono inline-flex items-center justify-center space-x-1.5 transition shadow-md whitespace-nowrap shrink-0"
+            className="h-8.5 px-2.5 bg-slate-900/90 hover:bg-slate-800 text-cyan-300 border border-white/10 hover:border-cyan-500/40 rounded-xl text-xs font-bold font-mono inline-flex items-center justify-center space-x-1.5 transition shadow-md whitespace-nowrap shrink-0"
+            title="Open Live Website ↗"
           >
             <ExternalLink className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-            <span className="hidden sm:inline">Open Site</span>
+            <span className="hidden xl:inline">Open Site</span>
           </a>
 
           <button
             onClick={handlePublishServerUpdate}
             disabled={publishing}
-            className="h-8.5 px-3.5 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-extrabold rounded-xl text-xs font-mono shadow-lg shadow-cyan-500/20 inline-flex items-center justify-center space-x-1.5 transition transform hover:scale-[1.02] cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
+            className="h-8.5 px-3 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-extrabold rounded-xl text-xs font-mono shadow-lg shadow-cyan-500/20 inline-flex items-center justify-center space-x-1.5 transition transform hover:scale-[1.02] cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
           >
             <Upload className={`w-3.5 h-3.5 shrink-0 ${publishing ? 'animate-spin' : ''}`} />
-            <span>{publishing ? 'Publishing...' : 'Publish & Update'}</span>
+            <span>{publishing ? 'Publishing...' : 'Publish'}</span>
           </button>
 
           <button
             onClick={() => setShowDeleteModal(true)}
             title="Delete Project & Clear All Files, Database, PM2 and Email"
-            className="h-8.5 px-2.5 bg-rose-950/80 hover:bg-rose-900/90 text-rose-300 border border-rose-800/80 rounded-xl inline-flex items-center justify-center space-x-1 text-xs font-mono font-bold transition cursor-pointer shrink-0"
+            className="h-8.5 w-8.5 bg-rose-950/80 hover:bg-rose-900/90 text-rose-300 border border-rose-800/80 rounded-xl inline-flex items-center justify-center transition cursor-pointer shrink-0"
           >
             <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />
-            <span className="hidden xl:inline">Delete</span>
           </button>
         </div>
       </header>
