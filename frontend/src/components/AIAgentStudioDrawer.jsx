@@ -23,7 +23,7 @@ export default function AIAgentStudioDrawer({
 
   const [activeTab, setActiveTab] = useState('agent') // 'agent' | 'analysis' | 'history'
   const [projectsList, setProjectsList] = useState([])
-  const [selectedProjectPath, setSelectedProjectPath] = useState(projectPath || '')
+  const [selectedProjectPath, setSelectedProjectPath] = useState('')
   const [projectContext, setProjectContext] = useState(null)
 
   const [analyzingContext, setAnalyzingContext] = useState(false)
@@ -32,33 +32,40 @@ export default function AIAgentStudioDrawer({
 
   const [currentPlan, setCurrentPlan] = useState(null)
   const [executionResult, setExecutionResult] = useState(null)
+  const [errorMsg, setErrorMsg] = useState(null)
   const [activeStepStage, setActiveStepStage] = useState('')
   const [historyLogs, setHistoryLogs] = useState([])
   const [appliedFix, setAppliedFix] = useState(false)
 
-  // Sync selected project path when prop changes
+  // Resolve safe JWT token
+  const getEffectiveToken = () => {
+    return jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
+  }
+
+  // Resolve safe project path
+  const getEffectivePath = () => {
+    return selectedProjectPath || projectPath || (projectsList.length > 0 ? projectsList[0].path : '/var/www/auto-deploy-panel')
+  }
+
+  // Synchronize initial project path prop
   useEffect(() => {
-    if (projectPath && projectPath !== selectedProjectPath) {
+    if (projectPath) {
       setSelectedProjectPath(projectPath)
     }
   }, [projectPath])
 
   // Load API keys from localStorage
   useEffect(() => {
-    const savedKey = localStorage.getItem(`autodeploy_key_${provider}`)
+    const savedKey = localStorage.getItem(`autodeploy_key_${provider}`) || localStorage.getItem('autodeploy_gemini_key')
     setApiKey(savedKey || '')
   }, [provider])
 
-  // Load available projects and analyze context when drawer opens
+  // Fetch projects and scan context when drawer opens
   useEffect(() => {
     if (isOpen) {
       fetchProjects()
-      if (selectedProjectPath || projectPath) {
-        handleAnalyzeProject(selectedProjectPath || projectPath)
-        fetchHistory(selectedProjectPath || projectPath)
-      }
     }
-  }, [isOpen, selectedProjectPath])
+  }, [isOpen])
 
   const handleKeyChange = (val) => {
     setApiKey(val)
@@ -67,48 +74,58 @@ export default function AIAgentStudioDrawer({
 
   const fetchProjects = async () => {
     try {
+      const token = getEffectiveToken()
       const res = await fetch('/api/studio/projects', {
-        headers: { Authorization: `Bearer ${jwtToken}` }
+        headers: { Authorization: token ? `Bearer ${token}` : '' }
       })
       const data = await res.json()
-      if (data.projects) {
+      if (data.projects && Array.isArray(data.projects)) {
         setProjectsList(data.projects)
         if (!selectedProjectPath && data.projects.length > 0) {
-          setSelectedProjectPath(data.projects[0].path)
+          const defaultPath = data.projects[0].path
+          setSelectedProjectPath(defaultPath)
+          handleAnalyzeProject(defaultPath)
+          fetchHistory(defaultPath)
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('Projects fetch notice:', e.message)
+    }
   }
 
   const handleAnalyzeProject = async (pPath) => {
-    const pathTarget = pPath || selectedProjectPath || projectPath
-    if (!pathTarget) return
+    const targetP = pPath || getEffectivePath()
     setAnalyzingContext(true)
+    setErrorMsg(null)
     try {
+      const token = getEffectiveToken()
       const res = await fetch('/api/studio/ai/agent/analyze', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwtToken}`
+          'Authorization': token ? `Bearer ${token}` : ''
         },
-        body: JSON.stringify({ projectPath: pathTarget })
+        body: JSON.stringify({ projectPath: targetP })
       })
       const data = await res.json()
       if (data.success && data.context) {
         setProjectContext(data.context)
+      } else if (data.error) {
+        setErrorMsg(`Context analysis warning: ${data.error}`)
       }
     } catch (e) {
+      setErrorMsg(`Failed to connect for project analysis: ${e.message}`)
     } finally {
       setAnalyzingContext(false)
     }
   }
 
   const fetchHistory = async (pPath) => {
-    const pathTarget = pPath || selectedProjectPath || projectPath
-    if (!pathTarget) return
+    const targetP = pPath || getEffectivePath()
     try {
-      const res = await fetch(`/api/studio/ai/agent/history?projectPath=${encodeURIComponent(pathTarget)}`, {
-        headers: { Authorization: `Bearer ${jwtToken}` }
+      const token = getEffectiveToken()
+      const res = await fetch(`/api/studio/ai/agent/history?projectPath=${encodeURIComponent(targetP)}`, {
+        headers: { Authorization: token ? `Bearer ${token}` : '' }
       })
       const data = await res.json()
       if (data.success && data.history) {
@@ -119,13 +136,17 @@ export default function AIAgentStudioDrawer({
 
   // Generate Plan & Unified Diff Preview
   const handleGeneratePlan = async (customPrompt = '') => {
-    const promptToUse = customPrompt || userPrompt
-    if (!promptToUse.trim()) {
-      alert('Please enter a natural-language command for the AI Project Agent.')
+    const promptToUse = (customPrompt || userPrompt || '').trim()
+    if (!promptToUse) {
+      setErrorMsg('Please type a natural-language instruction or select a quick preset command.')
       return
     }
 
+    const targetP = getEffectivePath()
+    const token = getEffectiveToken()
+
     setLoadingPlan(true)
+    setErrorMsg(null)
     setCurrentPlan(null)
     setExecutionResult(null)
     setAppliedFix(false)
@@ -136,11 +157,11 @@ export default function AIAgentStudioDrawer({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwtToken}`
+          'Authorization': token ? `Bearer ${token}` : ''
         },
         body: JSON.stringify({
           userPrompt: promptToUse,
-          projectPath: selectedProjectPath || projectPath,
+          projectPath: targetP,
           provider,
           apiKey
         })
@@ -148,11 +169,12 @@ export default function AIAgentStudioDrawer({
       const data = await res.json()
       if (data.success && data.plan) {
         setCurrentPlan(data.plan)
+        setActiveStepStage('Planning')
       } else {
-        alert(`Plan generation failed: ${data.error || 'Unknown error'}`)
+        setErrorMsg(`AI Agent Plan Error: ${data.error || 'Failed to generate execution plan'}`)
       }
     } catch (err) {
-      alert(`Agent Request Failed: ${err.message}`)
+      setErrorMsg(`Request failed: ${err.message}`)
     } finally {
       setLoadingPlan(false)
     }
@@ -161,7 +183,9 @@ export default function AIAgentStudioDrawer({
   // Execute Approved Plan
   const handleExecutePlan = async () => {
     if (!currentPlan) return
+    const token = getEffectiveToken()
     setExecutingPlan(true)
+    setErrorMsg(null)
     setActiveStepStage('Editing')
 
     try {
@@ -169,7 +193,7 @@ export default function AIAgentStudioDrawer({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwtToken}`
+          'Authorization': token ? `Bearer ${token}` : ''
         },
         body: JSON.stringify({
           planId: currentPlan.planId,
@@ -182,12 +206,12 @@ export default function AIAgentStudioDrawer({
       if (data.success) {
         setExecutionResult(data)
         setActiveStepStage('Deploy')
-        fetchHistory(selectedProjectPath || projectPath)
+        fetchHistory(getEffectivePath())
       } else {
-        alert(`Execution failed: ${data.error}`)
+        setErrorMsg(`Execution failed: ${data.error}`)
       }
     } catch (err) {
-      alert(`Execution Request Failed: ${err.message}`)
+      setErrorMsg(`Execution Request Error: ${err.message}`)
     } finally {
       setExecutingPlan(false)
     }
@@ -195,13 +219,14 @@ export default function AIAgentStudioDrawer({
 
   const handleClearHistory = async () => {
     try {
+      const token = getEffectiveToken()
       await fetch('/api/studio/ai/agent/clear-history', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwtToken}`
+          'Authorization': token ? `Bearer ${token}` : ''
         },
-        body: JSON.stringify({ projectPath: selectedProjectPath || projectPath })
+        body: JSON.stringify({ projectPath: getEffectivePath() })
       })
       setHistoryLogs([])
     } catch (e) {}
@@ -253,11 +278,14 @@ export default function AIAgentStudioDrawer({
             <Layers className="w-4 h-4 text-cyan-400 shrink-0" />
             <span className="text-slate-400 font-mono text-[11px] shrink-0">Selected Project:</span>
             <select
-              value={selectedProjectPath}
+              value={getEffectivePath()}
               onChange={(e) => {
-                setSelectedProjectPath(e.target.value)
+                const newP = e.target.value
+                setSelectedProjectPath(newP)
+                handleAnalyzeProject(newP)
+                fetchHistory(newP)
                 if (onSelectProject) {
-                  const found = projectsList.find(p => p.path === e.target.value)
+                  const found = projectsList.find(p => p.path === newP)
                   if (found) onSelectProject(found)
                 }
               }}
@@ -318,6 +346,17 @@ export default function AIAgentStudioDrawer({
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
           
+          {/* Global Error Banner */}
+          {errorMsg && (
+            <div className="p-3 bg-rose-950/80 border border-rose-500/50 rounded-xl text-rose-300 font-mono text-xs flex items-start gap-2 animate-in fade-in duration-200">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">{errorMsg}</div>
+              <button onClick={() => setErrorMsg(null)} className="text-rose-400 hover:text-white">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           {activeTab === 'agent' && (
             <>
               {/* Provider Selection Bar */}
@@ -402,7 +441,8 @@ export default function AIAgentStudioDrawer({
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <button
                     onClick={() => handleGeneratePlan("Analyze my complete project structure, framework, APIs, database, and logs")}
-                    className="p-2.5 bg-slate-950 hover:bg-slate-900 border border-slate-800 rounded-xl text-left text-slate-300 transition flex items-center gap-2 cursor-pointer"
+                    disabled={loadingPlan || executingPlan}
+                    className="p-2.5 bg-slate-950 hover:bg-slate-900 border border-slate-800 rounded-xl text-left text-slate-300 transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
                   >
                     <Search className="w-4 h-4 text-cyan-400 shrink-0" />
                     <span>Analyze my project</span>
@@ -410,7 +450,8 @@ export default function AIAgentStudioDrawer({
 
                   <button
                     onClick={() => handleGeneratePlan("Add a new feature with responsive UI component and backend API endpoint")}
-                    className="p-2.5 bg-slate-950 hover:bg-slate-900 border border-slate-800 rounded-xl text-left text-slate-300 transition flex items-center gap-2 cursor-pointer"
+                    disabled={loadingPlan || executingPlan}
+                    className="p-2.5 bg-slate-950 hover:bg-slate-900 border border-slate-800 rounded-xl text-left text-slate-300 transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
                   >
                     <Sparkles className="w-4 h-4 text-purple-400 shrink-0" />
                     <span>Add a feature</span>
@@ -418,7 +459,8 @@ export default function AIAgentStudioDrawer({
 
                   <button
                     onClick={() => handleGeneratePlan("Diagnose and fix bugs, missing error catches, and runtime exceptions")}
-                    className="p-2.5 bg-slate-950 hover:bg-slate-900 border border-slate-800 rounded-xl text-left text-slate-300 transition flex items-center gap-2 cursor-pointer"
+                    disabled={loadingPlan || executingPlan}
+                    className="p-2.5 bg-slate-950 hover:bg-slate-900 border border-slate-800 rounded-xl text-left text-slate-300 transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
                   >
                     <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
                     <span>Fix bugs / errors</span>
@@ -426,7 +468,8 @@ export default function AIAgentStudioDrawer({
 
                   <button
                     onClick={() => handleGeneratePlan("Refactor code for performance, modular architecture, and security hardening")}
-                    className="p-2.5 bg-slate-950 hover:bg-slate-900 border border-slate-800 rounded-xl text-left text-slate-300 transition flex items-center gap-2 cursor-pointer"
+                    disabled={loadingPlan || executingPlan}
+                    className="p-2.5 bg-slate-950 hover:bg-slate-900 border border-slate-800 rounded-xl text-left text-slate-300 transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
                   >
                     <Zap className="w-4 h-4 text-amber-400 shrink-0" />
                     <span>Optimize performance</span>
@@ -434,7 +477,8 @@ export default function AIAgentStudioDrawer({
 
                   <button
                     onClick={() => handleGeneratePlan("Inspect database configuration, schema structures, and verify query speed")}
-                    className="p-2.5 bg-slate-950 hover:bg-slate-900 border border-slate-800 rounded-xl text-left text-slate-300 transition flex items-center gap-2 cursor-pointer"
+                    disabled={loadingPlan || executingPlan}
+                    className="p-2.5 bg-slate-950 hover:bg-slate-900 border border-slate-800 rounded-xl text-left text-slate-300 transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
                   >
                     <Database className="w-4 h-4 text-emerald-400 shrink-0" />
                     <span>Update database</span>
@@ -442,7 +486,8 @@ export default function AIAgentStudioDrawer({
 
                   <button
                     onClick={() => handleGeneratePlan("Run automated build checks and verification tests across the codebase")}
-                    className="p-2.5 bg-slate-950 hover:bg-slate-900 border border-slate-800 rounded-xl text-left text-slate-300 transition flex items-center gap-2 cursor-pointer"
+                    disabled={loadingPlan || executingPlan}
+                    className="p-2.5 bg-slate-950 hover:bg-slate-900 border border-slate-800 rounded-xl text-left text-slate-300 transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
                   >
                     <Terminal className="w-4 h-4 text-indigo-400 shrink-0" />
                     <span>Run tests / build</span>
@@ -492,9 +537,14 @@ export default function AIAgentStudioDrawer({
                 <textarea
                   value={userPrompt}
                   onChange={(e) => setUserPrompt(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && e.ctrlKey && handleGeneratePlan()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      handleGeneratePlan()
+                    }
+                  }}
                   rows={3}
-                  placeholder="e.g. Add JWT authentication middleware to /api routes and create login form..."
+                  placeholder="Type any command here (e.g., 'Add JWT auth middleware', 'Fix Nginx port error'). Press Enter to execute..."
                   className="w-full p-3 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-500 text-xs font-mono focus:border-cyan-500 focus:outline-none resize-none"
                 ></textarea>
 
@@ -511,7 +561,7 @@ export default function AIAgentStudioDrawer({
                   ) : (
                     <>
                       <Send className="w-4 h-4" />
-                      <span>Generate AI Action Plan & File Diff</span>
+                      <span>Execute Natural Command</span>
                     </>
                   )}
                 </button>
