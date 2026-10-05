@@ -69,6 +69,20 @@ export default function AllProjectsHub({
     return gradients[index % gradients.length]
   }
 
+  const getProjectWebsiteUrl = (proj) => {
+    if (proj.domain && proj.domain.trim()) {
+      let d = proj.domain.trim()
+      return d.startsWith('http') ? d : `https://${d}`
+    }
+    const name = (proj.repoName || proj.name || '').toLowerCase()
+    if (name.includes('auto-deploy') || name.includes('autodeploy')) return 'https://automate-deployment.yjtechnosoft.com'
+    if (name.includes('crm') || name.includes('tip')) return 'https://tip-crm.yjtechnosoft.com'
+    if (name.includes('litigation')) return 'https://litigation.yjtechnosoft.com'
+    if (name.includes('estate')) return 'https://estate.yjtechnosoft.com'
+    const slug = name.replace(/[^a-z0-9]/g, '-') || 'app'
+    return `https://${slug}.yjtechnosoft.com`
+  }
+
   return (
     <div className="min-h-screen bg-[#07090E] text-slate-100 flex flex-col font-sans">
       
@@ -316,8 +330,8 @@ export default function AllProjectsHub({
                       <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80"></span>
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80"></span>
                     </div>
-                    <span className="text-[10px] font-mono text-slate-500 truncate max-w-[140px]">
-                      {proj.domain || proj.repoName || 'app.site.com'}
+                    <span className="text-[10px] font-mono text-cyan-400 truncate max-w-[160px]">
+                      {getProjectWebsiteUrl(proj).replace(/^https?:\/\//, '')}
                     </span>
                   </div>
 
@@ -365,7 +379,7 @@ export default function AllProjectsHub({
                   </div>
 
                   <div className="text-[11px] text-slate-500 flex items-center justify-between border-t border-slate-900 pt-2">
-                    <span className="truncate max-w-[180px]">{proj.domain || proj.path}</span>
+                    <span className="truncate max-w-[200px] text-cyan-400">{getProjectWebsiteUrl(proj)}</span>
                     <span className="text-slate-600 text-[10px]">Updated Today</span>
                   </div>
 

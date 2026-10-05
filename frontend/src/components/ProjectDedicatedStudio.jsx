@@ -41,8 +41,51 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
 
   // Determine Live Web URL for Preview
   const getDirectPreviewUrl = () => {
-    if (!project) return 'http://187.127.165.128:5050'
-    if (project.domain) return project.domain.startsWith('http') ? project.domain : `https://${project.domain}`
+    if (!project) return 'https://automate-deployment.yjtechnosoft.com'
+
+    // 1. Explicit domain property on project
+    if (project.domain && project.domain.trim()) {
+      let dom = project.domain.trim()
+      if (dom.startsWith('http://') || dom.startsWith('https://')) return dom
+      return `https://${dom}`
+    }
+
+    const cleanName = (project.repoName || project.name || '').toLowerCase()
+
+    // 2. Known project domain mappings
+    if (cleanName.includes('auto-deploy') || cleanName.includes('autodeploy')) {
+      return 'https://automate-deployment.yjtechnosoft.com'
+    }
+    if (cleanName.includes('crm') || cleanName.includes('tip')) {
+      return 'https://tip-crm.yjtechnosoft.com'
+    }
+    if (cleanName.includes('litigation')) {
+      return 'https://litigation.yjtechnosoft.com'
+    }
+    if (cleanName.includes('estate')) {
+      return 'https://estate.yjtechnosoft.com'
+    }
+
+    // 3. Server domain or website host
+    const srvDomain = activeServer?.domain || activeServer?.hostname
+    const isIp = (str) => !str || /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(str)
+
+    let baseDomain = 'yjtechnosoft.com'
+    if (srvDomain && !isIp(srvDomain)) {
+      baseDomain = srvDomain.replace(/^https?:\/\//, '')
+    } else if (typeof window !== 'undefined' && window.location.hostname && !isIp(window.location.hostname) && window.location.hostname !== 'localhost') {
+      baseDomain = window.location.hostname
+    }
+
+    const slug = cleanName.replace(/[^a-z0-9]/g, '-') || 'app'
+    if (baseDomain.includes('.')) {
+      if (baseDomain.startsWith('automate-deployment.') || baseDomain.startsWith('app.')) {
+        const rootDomain = baseDomain.split('.').slice(1).join('.')
+        return `https://${slug}.${rootDomain}`
+      }
+      return `https://${slug}.${baseDomain}`
+    }
+
     const host = activeServer ? (activeServer.ipAddress || activeServer.host) : '187.127.165.128'
     const port = project.backendPort || project.port || 5050
     return `http://${host}:${port}`

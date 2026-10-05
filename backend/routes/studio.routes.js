@@ -220,11 +220,22 @@ function discoverServerProjects(serverConfig = null) {
       displayName = folderName.replace(/[-_.]/g, ' ').toUpperCase()
     }
 
+    let projectDomain = meta.domain || ''
+    const folderSlug = folderName.toLowerCase()
+    if (!projectDomain) {
+      if (folderSlug.includes('auto-deploy')) projectDomain = 'automate-deployment.yjtechnosoft.com'
+      else if (folderSlug.includes('crm') || folderSlug.includes('tip')) projectDomain = 'tip-crm.yjtechnosoft.com'
+      else if (folderSlug.includes('litigation')) projectDomain = 'litigation.yjtechnosoft.com'
+      else if (folderSlug.includes('estate')) projectDomain = 'estate.yjtechnosoft.com'
+      else projectDomain = `${folderSlug.replace(/[^a-z0-9]/g, '-')}.yjtechnosoft.com`
+    }
+
     projects.push({
       id: `proj-${folderName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
       name: displayName,
       repoName: meta.repoName || folderName,
       path: dirPath,
+      domain: projectDomain,
       gitUrl: gitUrl || `https://github.com/yatindradhurwe/${folderName}.git`,
       branch: branch || 'main',
       type: isRunningPm2 ? 'Active PM2 Service' : (fs.existsSync(path.join(dirPath, 'package.json')) ? 'Node.js App' : 'Web Application'),
