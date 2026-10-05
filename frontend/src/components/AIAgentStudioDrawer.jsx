@@ -712,18 +712,18 @@ export default function AIAgentStudioDrawer({
                       Execution Report Summary
                     </span>
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
-                      executionResult.verificationStatus?.includes('PASSED')
+                      safeText(executionResult.verificationStatus)?.includes('PASSED')
                         ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
                         : 'bg-rose-950 text-rose-300 border-rose-800'
                     }`}>
-                      {executionResult.verificationStatus}
+                      {safeText(executionResult.verificationStatus)}
                     </span>
                   </div>
 
                   {executionResult.modifiedFiles?.length > 0 && (
                     <div>
                       <span className="text-slate-400">Modified Files: </span>
-                      <span className="text-cyan-300 font-bold">{executionResult.modifiedFiles.join(', ')}</span>
+                      <span className="text-cyan-300 font-bold">{safeText(executionResult.modifiedFiles.join(', '))}</span>
                     </div>
                   )}
 
@@ -752,7 +752,7 @@ export default function AIAgentStudioDrawer({
                     <div className="space-y-1">
                       <div className="text-slate-400 font-semibold">Verification Log:</div>
                       <pre className="p-2.5 bg-slate-900 rounded-lg text-slate-300 text-[10px] overflow-x-auto whitespace-pre-wrap border border-slate-800">
-                        {executionResult.verificationLog}
+                        {safeText(executionResult.verificationLog)}
                       </pre>
                     </div>
                   )}
@@ -761,7 +761,7 @@ export default function AIAgentStudioDrawer({
                     <div className="space-y-1">
                       <div className="text-amber-400 font-semibold">Git Push Log:</div>
                       <pre className="p-2.5 bg-slate-900 rounded-lg text-amber-300 text-[10px] overflow-x-auto whitespace-pre-wrap border border-slate-800">
-                        {executionResult.gitLog}
+                        {safeText(executionResult.gitLog)}
                       </pre>
                     </div>
                   )}

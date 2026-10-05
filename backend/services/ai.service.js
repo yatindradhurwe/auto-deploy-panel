@@ -617,19 +617,32 @@ export async function executeProjectPlan({ planId, planData, autoCommit = true, 
   let verificationStatus = 'PASSED ✓'
   let verificationLog = 'Clean build verification.'
 
+function ensureString(val) {
+  if (val === null || val === undefined) return ''
+  if (Buffer.isBuffer(val)) return val.toString('utf8')
+  if (typeof val === 'object') {
+    if (val.type === 'Buffer' && Array.isArray(val.data)) {
+      return Buffer.from(val.data).toString('utf8')
+    }
+    if (val.message) return String(val.message)
+    return JSON.stringify(val)
+  }
+  return String(val)
+}
+
   try {
     const vCmd = plan.verificationCommand || 'node --check .'
     if (vCmd) {
       const testOut = execSync(vCmd, { cwd: targetDir, encoding: 'utf8', timeout: 30000, stdio: ['pipe', 'pipe', 'pipe'] })
-      verificationLog = testOut.slice(-500)
+      verificationLog = ensureString(testOut).slice(-500)
     }
     stepperLogs.find((s) => s.stage === 'Testing').status = 'completed'
     stepperLogs.push({ stage: 'Build', status: 'completed', message: 'Build verification passed cleanly.' })
   } catch (err) {
     verificationStatus = 'FAILED ❌'
-    verificationLog = (err.stdout || '') + '\n' + (err.stderr || err.message)
+    verificationLog = ensureString(err.stdout) + '\n' + ensureString(err.stderr) + '\n' + ensureString(err.message)
     stepperLogs.find((s) => s.stage === 'Testing').status = 'failed'
-    stepperLogs.push({ stage: 'Build', status: 'failed', message: `Build failed: ${err.message}` })
+    stepperLogs.push({ stage: 'Build', status: 'failed', message: `Build failed: ${ensureString(err.message)}` })
   }
 
   // Stage 6: Deploy & Git Commit
@@ -639,9 +652,9 @@ export async function executeProjectPlan({ planId, planData, autoCommit = true, 
     try {
       execSync('git add .', { cwd: targetDir, timeout: 5000 })
       execSync(`git commit -m "${(plan.autoCommitMessage || plan.userPrompt).replace(/"/g, "'")}"`, { cwd: targetDir, timeout: 5000 })
-      gitLog = execSync('git push origin main || true', { cwd: targetDir, encoding: 'utf8', timeout: 10000 })
+      gitLog = ensureString(execSync('git push origin main || true', { cwd: targetDir, encoding: 'utf8', timeout: 10000 }))
     } catch (gErr) {
-      gitLog = gErr.stdout || gErr.stderr || gErr.message
+      gitLog = ensureString(gErr.stdout) + '\n' + ensureString(gErr.stderr) + '\n' + ensureString(gErr.message)
     }
   }
 
