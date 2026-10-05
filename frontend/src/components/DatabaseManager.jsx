@@ -108,8 +108,19 @@ export default function DatabaseManager({ jwtToken, activeServer, project }) {
       const data = await res.json()
       if (data.success && data.databases.length > 0) {
         setDatabases(data.databases)
-        const currentEng = data.databases.find((d) => d.engine === activeEngine) || data.databases[0]
-        const defaultDbName = currentEng.activeDbName || currentEng.databasesList?.[0] || ''
+
+        let targetEng = activeEngine
+        let targetDbName = selectedDbName
+
+        if (project) {
+          targetEng = project.dbEngine || project.engine || (project.type?.toLowerCase().includes('php') ? 'mysql' : 'postgresql')
+          targetDbName = project.dbName || project.database || project.repoName || project.name || 'happiness_db'
+          setActiveEngine(targetEng)
+        }
+
+        const currentEng = data.databases.find((d) => d.engine === targetEng) || data.databases[0]
+        const defaultDbName = targetDbName || currentEng.activeDbName || currentEng.databasesList?.[0] || ''
+        
         setSelectedDb(currentEng)
         setSelectedDbName(defaultDbName)
         
@@ -353,13 +364,17 @@ export default function DatabaseManager({ jwtToken, activeServer, project }) {
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <h1 className="text-xl font-extrabold text-white">Multi-Database Server Suite</h1>
-              <span className="text-[10px] bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono font-bold">
-                pgAdmin + phpMyAdmin + MongoDB + Redis + SQLite
+              <h1 className="text-xl font-extrabold text-white">
+                {project ? `${project.name} Connected Database` : 'Multi-Database Server Suite'}
+              </h1>
+              <span className="text-[10px] bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono font-bold uppercase">
+                {project ? activeEngine : 'pgAdmin + phpMyAdmin + MongoDB + Redis + SQLite'}
               </span>
             </div>
             <p className="text-xs text-slate-400 font-mono mt-0.5">
-              Inspect schemas, browse table rows, run custom queries, and manage all databases on target server
+              {project
+                ? `Inspecting database tables, schemas, and live records for project ${project.name} (${selectedDbName})`
+                : 'Inspect schemas, browse table rows, run custom queries, and manage all databases on target server'}
             </p>
           </div>
         </div>
@@ -381,68 +396,70 @@ export default function DatabaseManager({ jwtToken, activeServer, project }) {
         </div>
       </div>
 
-      {/* Database Engines Switcher Bar */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 font-mono text-xs">
-        <button
-          onClick={() => handleEngineChange('postgresql')}
-          className={`px-4 py-2.5 rounded-2xl border flex items-center gap-2 transition cursor-pointer ${
-            activeEngine === 'postgresql'
-              ? 'bg-blue-950/90 text-blue-300 border-blue-500/70 font-bold shadow-lg shadow-blue-950/40 ring-1 ring-blue-500/30'
-              : 'bg-slate-900/70 text-slate-400 border-white/10 hover:text-slate-200 hover:bg-slate-800'
-          }`}
-        >
-          <span className="text-base">🐘</span>
-          <span>pgAdmin (PostgreSQL)</span>
-        </button>
+      {/* Database Engines Switcher Bar (Hidden when in dedicated project studio) */}
+      {!project && (
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 font-mono text-xs">
+          <button
+            onClick={() => handleEngineChange('postgresql')}
+            className={`px-4 py-2.5 rounded-2xl border flex items-center gap-2 transition cursor-pointer ${
+              activeEngine === 'postgresql'
+                ? 'bg-blue-950/90 text-blue-300 border-blue-500/70 font-bold shadow-lg shadow-blue-950/40 ring-1 ring-blue-500/30'
+                : 'bg-slate-900/70 text-slate-400 border-white/10 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <span className="text-base">🐘</span>
+            <span>pgAdmin (PostgreSQL)</span>
+          </button>
 
-        <button
-          onClick={() => handleEngineChange('mysql')}
-          className={`px-4 py-2.5 rounded-2xl border flex items-center gap-2 transition cursor-pointer ${
-            activeEngine === 'mysql'
-              ? 'bg-amber-950/90 text-amber-300 border-amber-500/70 font-bold shadow-lg shadow-amber-950/40 ring-1 ring-amber-500/30'
-              : 'bg-slate-900/70 text-slate-400 border-white/10 hover:text-slate-200 hover:bg-slate-800'
-          }`}
-        >
-          <span className="text-base">🐬</span>
-          <span>phpMyAdmin (MySQL)</span>
-        </button>
+          <button
+            onClick={() => handleEngineChange('mysql')}
+            className={`px-4 py-2.5 rounded-2xl border flex items-center gap-2 transition cursor-pointer ${
+              activeEngine === 'mysql'
+                ? 'bg-amber-950/90 text-amber-300 border-amber-500/70 font-bold shadow-lg shadow-amber-950/40 ring-1 ring-amber-500/30'
+                : 'bg-slate-900/70 text-slate-400 border-white/10 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <span className="text-base">🐬</span>
+            <span>phpMyAdmin (MySQL)</span>
+          </button>
 
-        <button
-          onClick={() => handleEngineChange('mongodb')}
-          className={`px-4 py-2.5 rounded-2xl border flex items-center gap-2 transition cursor-pointer ${
-            activeEngine === 'mongodb'
-              ? 'bg-emerald-950/90 text-emerald-300 border-emerald-500/70 font-bold shadow-lg shadow-emerald-950/40 ring-1 ring-emerald-500/30'
-              : 'bg-slate-900/70 text-slate-400 border-white/10 hover:text-slate-200 hover:bg-slate-800'
-          }`}
-        >
-          <span className="text-base">🍃</span>
-          <span>MongoDB Compass</span>
-        </button>
+          <button
+            onClick={() => handleEngineChange('mongodb')}
+            className={`px-4 py-2.5 rounded-2xl border flex items-center gap-2 transition cursor-pointer ${
+              activeEngine === 'mongodb'
+                ? 'bg-emerald-950/90 text-emerald-300 border-emerald-500/70 font-bold shadow-lg shadow-emerald-950/40 ring-1 ring-emerald-500/30'
+                : 'bg-slate-900/70 text-slate-400 border-white/10 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <span className="text-base">🍃</span>
+            <span>MongoDB Compass</span>
+          </button>
 
-        <button
-          onClick={() => handleEngineChange('redis')}
-          className={`px-4 py-2.5 rounded-2xl border flex items-center gap-2 transition cursor-pointer ${
-            activeEngine === 'redis'
-              ? 'bg-rose-950/90 text-rose-300 border-rose-500/70 font-bold shadow-lg shadow-rose-950/40 ring-1 ring-rose-500/30'
-              : 'bg-slate-900/70 text-slate-400 border-white/10 hover:text-slate-200 hover:bg-slate-800'
-          }`}
-        >
-          <span className="text-base">🔴</span>
-          <span>Redis GUI Console</span>
-        </button>
+          <button
+            onClick={() => handleEngineChange('redis')}
+            className={`px-4 py-2.5 rounded-2xl border flex items-center gap-2 transition cursor-pointer ${
+              activeEngine === 'redis'
+                ? 'bg-rose-950/90 text-rose-300 border-rose-500/70 font-bold shadow-lg shadow-rose-950/40 ring-1 ring-rose-500/30'
+                : 'bg-slate-900/70 text-slate-400 border-white/10 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <span className="text-base">🔴</span>
+            <span>Redis GUI Console</span>
+          </button>
 
-        <button
-          onClick={() => handleEngineChange('sqlite')}
-          className={`px-4 py-2.5 rounded-2xl border flex items-center gap-2 transition cursor-pointer ${
-            activeEngine === 'sqlite'
-              ? 'bg-purple-950/90 text-purple-300 border-purple-500/70 font-bold shadow-lg shadow-purple-950/40 ring-1 ring-purple-500/30'
-              : 'bg-slate-900/70 text-slate-400 border-white/10 hover:text-slate-200 hover:bg-slate-800'
-          }`}
-        >
-          <span className="text-base">📁</span>
-          <span>SQLite Embedded Manager</span>
-        </button>
-      </div>
+          <button
+            onClick={() => handleEngineChange('sqlite')}
+            className={`px-4 py-2.5 rounded-2xl border flex items-center gap-2 transition cursor-pointer ${
+              activeEngine === 'sqlite'
+                ? 'bg-purple-950/90 text-purple-300 border-purple-500/70 font-bold shadow-lg shadow-purple-950/40 ring-1 ring-purple-500/30'
+                : 'bg-slate-900/70 text-slate-400 border-white/10 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <span className="text-base">📁</span>
+            <span>SQLite Embedded Manager</span>
+          </button>
+        </div>
+      )}
 
       {/* Mobile View Switcher Tab Bar (< lg) */}
       <div className="flex lg:hidden bg-slate-900 border border-white/10 p-1 rounded-2xl font-mono text-xs">
@@ -478,27 +495,28 @@ export default function DatabaseManager({ jwtToken, activeServer, project }) {
               <div className="text-white font-extrabold text-sm truncate">{selectedDb.name}</div>
               <div className="text-slate-400 text-[11px] truncate">Host: {selectedDb.host}</div>
 
-              {/* Database Selector Dropdown */}
-              {selectedDb.databasesList && (
-                <div className="pt-1">
-                  <select
-                    value={selectedDbName}
-                    onChange={(e) => handleSelectDbName(e.target.value)}
-                    className="w-full bg-slate-900 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-cyan-300 font-mono focus:outline-none focus:border-cyan-400"
-                  >
-                    {(project && selectedDb.databasesList.some(d => d.toLowerCase().includes((project.dbName || project.database || project.repoName || project.name || '').toLowerCase()) || (project.name || '').toLowerCase().includes(d.toLowerCase()))
-                      ? selectedDb.databasesList.filter((dbName) => {
-                          const targetName = (project.dbName || project.database || project.repoName || project.name || '').toLowerCase()
-                          return dbName.toLowerCase().includes(targetName) || targetName.includes(dbName.toLowerCase())
-                        })
-                      : selectedDb.databasesList
-                    ).map((dbName) => (
-                      <option key={dbName} value={dbName}>
-                        📁 Database: {dbName}
-                      </option>
-                    ))}
-                  </select>
+              {/* Database Selector Display */}
+              {project ? (
+                <div className="pt-1 flex items-center space-x-2 text-xs font-mono text-cyan-300 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 font-bold">
+                  <Database className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                  <span className="truncate">Database: {selectedDbName}</span>
                 </div>
+              ) : (
+                selectedDb.databasesList && (
+                  <div className="pt-1">
+                    <select
+                      value={selectedDbName}
+                      onChange={(e) => handleSelectDbName(e.target.value)}
+                      className="w-full bg-slate-900 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-cyan-300 font-mono focus:outline-none focus:border-cyan-400"
+                    >
+                      {selectedDb.databasesList.map((dbName) => (
+                        <option key={dbName} value={dbName}>
+                          📁 Database: {dbName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )
               )}
             </div>
           )}
