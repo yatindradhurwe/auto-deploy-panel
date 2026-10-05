@@ -21,6 +21,7 @@ import BillingManager from './BillingManager'
 import TeamManager from './TeamManager'
 import AuditLogViewer from './AuditLogViewer'
 import AICopilotDrawer from './AICopilotDrawer'
+import AIAgentStudioDrawer from './AIAgentStudioDrawer'
 
 import DeploymentWizard from './DeploymentWizard'
 
@@ -468,7 +469,12 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
         </main>
       </div>
 
-      <AICopilotDrawer isOpen={showAiDrawer} onClose={() => setShowAiDrawer(false)} logs={[]} config={{ host: activeServer?.ipAddress }} />
+      <AIAgentStudioDrawer
+        isOpen={showAiDrawer}
+        onClose={() => setShowAiDrawer(false)}
+        jwtToken={jwtToken}
+        projectPath={activeServer?.remoteDir || '/var/www/auto-deploy-panel'}
+      />
     </div>
   )
 }

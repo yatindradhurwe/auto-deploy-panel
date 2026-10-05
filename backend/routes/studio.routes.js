@@ -24,7 +24,14 @@ import {
   markEmailAsRead
 } from '../services/db.service.js'
 import { executeProjectAutoUpdate } from '../services/autoupdate.service.js'
-import { runAutonomousCodeAgent } from '../services/ai.service.js'
+import {
+  runAutonomousCodeAgent,
+  buildFullProjectContext,
+  generateProjectPlanAndDiff,
+  executeProjectPlan,
+  getProjectAgentHistory,
+  clearProjectAgentHistory
+} from '../services/ai.service.js'
 import {
   getRealHostMetrics,
   getRealPm2Processes,
@@ -1745,6 +1752,88 @@ router.post('/agent/execute', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('[AI AGENT EXECUTION ERROR]:', err)
     res.status(500).json({ error: err.message || 'AI Agent execution failed' })
+  }
+})
+
+/**
+ * POST /api/studio/ai/agent/analyze
+ * Analyzes selected project context (framework, entries, env, git, pm2, logs)
+ */
+router.post('/ai/agent/analyze', authenticateToken, async (req, res) => {
+  try {
+    const { projectPath } = req.body
+    const context = await buildFullProjectContext(projectPath, req.tenant?.server)
+    res.json({ success: true, context })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+/**
+ * POST /api/studio/ai/agent/plan
+ * Formulates execution plan & unified file diff preview for natural language prompt
+ */
+router.post('/ai/agent/plan', authenticateToken, async (req, res) => {
+  try {
+    const { userPrompt, projectPath, provider, apiKey } = req.body
+    if (!userPrompt) return res.status(400).json({ error: 'userPrompt is required' })
+
+    const plan = await generateProjectPlanAndDiff({
+      userPrompt,
+      projectPath,
+      provider,
+      apiKey,
+      serverConfig: req.tenant?.server
+    })
+    res.json({ success: true, plan })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+/**
+ * POST /api/studio/ai/agent/execute-plan
+ * Executes approved action plan (writes code, runs tests, git commit, PM2 reload)
+ */
+router.post('/ai/agent/execute-plan', authenticateToken, async (req, res) => {
+  try {
+    const { planId, planData, autoCommit = true, autoDeploy = true } = req.body
+    const result = await executeProjectPlan({
+      planId,
+      planData,
+      autoCommit: Boolean(autoCommit),
+      autoDeploy: Boolean(autoDeploy)
+    })
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+/**
+ * GET & POST /api/studio/ai/agent/history
+ * Returns scoped history logs for target project
+ */
+router.all('/ai/agent/history', authenticateToken, (req, res) => {
+  try {
+    const projectPath = req.query.projectPath || req.body?.projectPath
+    const history = getProjectAgentHistory(projectPath)
+    res.json({ success: true, history })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+/**
+ * POST /api/studio/ai/agent/clear-history
+ */
+router.post('/ai/agent/clear-history', authenticateToken, (req, res) => {
+  try {
+    const { projectPath } = req.body
+    clearProjectAgentHistory(projectPath)
+    res.json({ success: true, message: 'Project AI Agent history cleared' })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
   }
 })
 
