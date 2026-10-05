@@ -23,7 +23,8 @@ import {
   deleteEmailAccount,
   getEmailMessages,
   sendEmailMessage,
-  markEmailAsRead
+  markEmailAsRead,
+  purgeProjectAndRelatedResources
 } from '../services/db.service.js'
 import { executeProjectAutoUpdate } from '../services/autoupdate.service.js'
 import {
@@ -880,7 +881,17 @@ router.post('/projects/delete', authenticateToken, async (req, res) => {
   const port = (req.body.port || userSettings.port || '22').toString().trim()
   const username = (req.body.username || userSettings.username || 'root').trim()
   const password = req.body.password || userSettings.password || 'Yatindra@1223'
-  const { appName, projectPath, domain, deletePm2 = true, deleteFiles = true, deleteNginx = true } = req.body
+  const {
+    appName,
+    projectPath,
+    domain,
+    dbName,
+    deletePm2 = true,
+    deleteFiles = true,
+    deleteNginx = true,
+    deleteDb = true,
+    deleteEmail = true
+  } = req.body
 
   try {
     const sshConfig = {
@@ -891,12 +902,19 @@ router.post('/projects/delete', authenticateToken, async (req, res) => {
       appName,
       projectPath,
       domain,
+      dbName,
       deletePm2,
       deleteFiles,
-      deleteNginx
+      deleteNginx,
+      deleteDb,
+      deleteEmail
     }
 
     const result = await deleteServerProject(sshConfig)
+
+    // Purge project records, auto-update settings & email accounts from db.json
+    purgeProjectAndRelatedResources(appName, projectPath, domain)
+
     res.json({ success: true, message: result.message, output: result.output })
   } catch (err) {
     res.status(500).json({ success: false, error: `Failed to delete project: ${err.message}` })

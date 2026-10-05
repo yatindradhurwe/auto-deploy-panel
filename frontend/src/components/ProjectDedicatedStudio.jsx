@@ -3,13 +3,14 @@ import {
   ArrowLeft, ExternalLink, RefreshCw, Send, Sparkles, Bot, Code, Globe,
   Smartphone, Monitor, Play, CheckCircle2, ShieldAlert, Cpu, Database, Key,
   Activity, Layers, FileCode, Plus, Check, CheckCheck, Upload, GitCommit,
-  Terminal, ChevronRight, X, AlertCircle, Eye, Sliders, Shield, Zap, FolderGit2
+  Terminal, ChevronRight, X, AlertCircle, Eye, Sliders, Shield, Zap, FolderGit2, Trash2
 } from 'lucide-react'
 import CodeStudio from './CodeStudio'
 import DatabaseManager from './DatabaseManager'
 import EnvManager from './EnvManager'
 import LogsTelemetryManager from './LogsTelemetryManager'
 import GitSyncWorkspace from './GitSyncWorkspace'
+import DeleteProjectModal from './DeleteProjectModal'
 
 export default function ProjectDedicatedStudio({ project, jwtToken, activeServer, onBackToDashboard }) {
   const [activeCanvasTab, setActiveCanvasTab] = useState('preview') // 'preview' | 'code' | 'database' | 'env' | 'logs'
@@ -32,6 +33,7 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
   const [publishing, setPublishing] = useState(false)
   const [publishSuccessMsg, setPublishSuccessMsg] = useState(null)
   const [iframeKey, setIframeKey] = useState(1)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
 
   const getEffectiveToken = () => {
     return jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
@@ -431,6 +433,15 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
             <Upload className={`w-3.5 h-3.5 ${publishing ? 'animate-spin' : ''}`} />
             <span>{publishing ? 'Publishing...' : 'Publish & Server Update'}</span>
           </button>
+
+          <button
+            onClick={() => setShowDeleteModal(true)}
+            title="Delete Project & Clear All Files, Database, PM2 and Email"
+            className="p-1.5 bg-rose-950/80 hover:bg-rose-900/90 text-rose-300 border border-rose-800 rounded-xl transition cursor-pointer flex items-center space-x-1 text-xs font-mono font-bold"
+          >
+            <Trash2 className="w-4 h-4 text-rose-400" />
+            <span className="hidden md:inline">Delete Project</span>
+          </button>
         </div>
       </header>
 
@@ -716,6 +727,14 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
         </main>
       </div>
 
+      <DeleteProjectModal
+        isOpen={showDeleteModal}
+        project={project}
+        activeServer={activeServer}
+        jwtToken={jwtToken}
+        onClose={() => setShowDeleteModal(false)}
+        onSuccess={() => onBackToDashboard && onBackToDashboard()}
+      />
     </div>
   )
 }

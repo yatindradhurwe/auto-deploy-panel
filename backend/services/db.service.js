@@ -1191,5 +1191,57 @@ export function getEmailAccountByAddress(organizationId, emailAddress) {
   return accounts.find(a => (a.organizationId === organizationId || !organizationId) && a.email === cleanEmail) || null
 }
 
+/**
+ * Purges a project record, its auto-update config, and domain emails from db.json
+ */
+export function purgeProjectAndRelatedResources(appName, projectPath, domain) {
+  const db = readDb()
+  let modified = false
+
+  const targetName = (appName || '').trim().toLowerCase()
+  const targetPath = (projectPath || '').trim().toLowerCase()
+  const targetDomain = (domain || '').trim().toLowerCase().replace(/^https?:\/\//, '')
+
+  // 1. Purge from db.projects
+  if (db.projects) {
+    Object.keys(db.projects).forEach(pk => {
+      const p = db.projects[pk]
+      const pName = (p.name || p.repoName || '').toLowerCase()
+      const pPath = (p.path || '').toLowerCase()
+      const pDomain = (p.domain || '').toLowerCase()
+
+      if (
+        (targetName && (pName === targetName || pk.includes(targetName))) ||
+        (targetPath && pPath === targetPath) ||
+        (targetDomain && pDomain.includes(targetDomain))
+      ) {
+        delete db.projects[pk]
+        modified = true
+      }
+    })
+  }
+
+  // 2. Purge from db.projectAutoUpdates
+  if (db.projectAutoUpdates && targetName && db.projectAutoUpdates[targetName]) {
+    delete db.projectAutoUpdates[targetName]
+    modified = true
+  }
+
+  // 3. Purge domain emails from db.emailAccounts
+  if (db.emailAccounts && Array.isArray(db.emailAccounts) && targetDomain) {
+    const initialLen = db.emailAccounts.length
+    db.emailAccounts = db.emailAccounts.filter(acc => {
+      const accDomain = (acc.domain || acc.email?.split('@')[1] || '').toLowerCase()
+      return !accDomain.includes(targetDomain)
+    })
+    if (db.emailAccounts.length !== initialLen) modified = true
+  }
+
+  if (modified) {
+    writeDb(db)
+  }
+  return modified
+}
+
 
 

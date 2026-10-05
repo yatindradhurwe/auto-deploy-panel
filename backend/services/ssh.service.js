@@ -662,9 +662,13 @@ export async function deleteServerProject(config) {
     const appName = (config.appName || '').trim()
     let remoteDir = (config.projectPath || config.remoteDir || '').trim()
     let domain = (config.domain || '').trim()
+    const dbName = (config.dbName || config.database || (appName ? appName.replace(/[^a-z0-9]/g, '_') + '_db' : '')).trim()
+
     const deletePm2 = config.deletePm2 !== false
     const deleteFiles = config.deleteFiles !== false
     const deleteNginx = config.deleteNginx !== false
+    const deleteDb = config.deleteDb !== false
+    const deleteEmail = config.deleteEmail !== false
 
     // Clean domain name (remove http://, https://, ports, slashes)
     if (domain) {
@@ -677,19 +681,30 @@ export async function deleteServerProject(config) {
     }
 
     let cmd = `${SYSTEM_PATH_EXPORT}\n`
-    cmd += `echo "=== DELETING PROJECT / WEBSITE FROM LIVE SERVER ==="\n`
+    cmd += `echo "=== EXECUTING ISOLATED PROJECT DELETION FOR '${appName || domain}' ==="\n`
 
     if (deletePm2 && appName) {
-      cmd += `echo "Stopping & deleting PM2 process '${appName}'..."\n`
+      cmd += `echo "[1/5] Stopping & deleting PM2 process '${appName}'..."\n`
       cmd += `pm2 delete "${appName}" 2>&1 || pm2 stop "${appName}" 2>&1 || true\n`
       cmd += `pm2 save 2>&1 || true\n`
     }
 
     if (deleteNginx && domain) {
-      cmd += `echo "Removing Nginx site configuration files for domain '${domain}'..."\n`
+      cmd += `echo "[2/5] Removing Nginx site configuration files for domain '${domain}'..."\n`
       cmd += `rm -f /etc/nginx/sites-available/${domain}.conf /etc/nginx/sites-enabled/${domain}.conf 2>&1 || true\n`
       cmd += `rm -f /etc/nginx/sites-available/${domain} /etc/nginx/sites-enabled/${domain} 2>&1 || true\n`
       cmd += `nginx -t 2>&1 && systemctl reload nginx 2>&1 || true\n`
+    }
+
+    if (deleteDb && dbName && dbName !== 'postgres' && dbName !== 'mysql' && dbName !== 'sys') {
+      cmd += `echo "[3/5] Dropping PostgreSQL/MySQL database '${dbName}'..."\n`
+      cmd += `sudo -u postgres dropdb "${dbName}" 2>&1 || sudo -u postgres psql -c "DROP DATABASE IF EXISTS \\"${dbName}\\";" 2>&1 || true\n`
+      cmd += `mysql -u root -e "DROP DATABASE IF EXISTS \\\`${dbName}\\\`;" 2>&1 || true\n`
+    }
+
+    if (deleteEmail && domain) {
+      cmd += `echo "[4/5] Cleaning domain mail spool and accounts for '${domain}'..."\n`
+      cmd += `rm -rf /var/mail/*${domain}* /var/vmail/*${domain}* 2>&1 || true\n`
     }
 
     // Protected directories safety check
@@ -701,13 +716,13 @@ export async function deleteServerProject(config) {
     const isProtected = protectedDirs.includes(remoteDir)
 
     if (deleteFiles && remoteDir && !isProtected && (remoteDir.startsWith('/var/www/') || remoteDir.startsWith('/root/') || remoteDir.startsWith('/home/'))) {
-      cmd += `echo "Removing project directory '${remoteDir}'..."\n`
+      cmd += `echo "[5/5] Removing project directory '${remoteDir}'..."\n`
       cmd += `rm -rf "${remoteDir}" 2>&1 || true\n`
     } else if (deleteFiles && remoteDir && isProtected) {
       cmd += `echo "⚠️ Protected system directory '${remoteDir}' skipped for safety."\n`
     }
 
-    cmd += `echo "=== PROJECT DELETION COMPLETE ==="\n`
+    cmd += `echo "=== ISOLATED PROJECT DELETION COMPLETE ==="\n`
 
     return new Promise((resolve, reject) => {
       conn.exec(cmd, (err, stream) => {

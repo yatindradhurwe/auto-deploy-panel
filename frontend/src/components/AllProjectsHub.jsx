@@ -4,6 +4,7 @@ import {
   Server, RefreshCw, CheckCircle2, ChevronDown, Bell, User, Plus, FolderGit2,
   Trash2, ShieldCheck, DownloadCloud, Activity, Zap, HardDrive, ShoppingBag
 } from 'lucide-react'
+import DeleteProjectModal from './DeleteProjectModal'
 
 export default function AllProjectsHub({
   server,
@@ -20,6 +21,7 @@ export default function AllProjectsHub({
   const [sortOrder, setSortOrder] = useState('custom')
   const [viewMode, setViewMode] = useState('grid') // 'grid' | 'list'
   const [showCreditNotice, setShowCreditNotice] = useState(true)
+  const [projectToDelete, setProjectToDelete] = useState(null)
 
   useEffect(() => {
     fetchProjects()
@@ -383,14 +385,24 @@ export default function AllProjectsHub({
                     <span className="text-slate-600 text-[10px]">Updated Today</span>
                   </div>
 
-                  {/* Direct Action Button */}
-                  <button
-                    onClick={() => onOpenProjectStudio(proj)}
-                    className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-800 hover:border-cyan-500/50 rounded-xl font-extrabold text-xs flex items-center justify-center space-x-1.5 transition cursor-pointer"
-                  >
-                    <Code className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Open Dedicated Project Studio</span>
-                  </button>
+                  {/* Direct Action Buttons */}
+                  <div className="flex items-center space-x-2 pt-1">
+                    <button
+                      onClick={() => onOpenProjectStudio(proj)}
+                      className="flex-1 py-2 bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-800 hover:border-cyan-500/50 rounded-xl font-extrabold text-xs flex items-center justify-center space-x-1.5 transition cursor-pointer"
+                    >
+                      <Code className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Open Dedicated Studio</span>
+                    </button>
+
+                    <button
+                      onClick={() => setProjectToDelete(proj)}
+                      title="Delete Project & Clear All Files, Database, PM2 and Email"
+                      className="p-2 bg-rose-950/80 hover:bg-rose-900/90 text-rose-300 border border-rose-800 rounded-xl text-xs transition cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4 text-rose-400" />
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -398,6 +410,18 @@ export default function AllProjectsHub({
         )}
 
       </main>
+
+      <DeleteProjectModal
+        isOpen={Boolean(projectToDelete)}
+        project={projectToDelete}
+        activeServer={server}
+        jwtToken={jwtToken}
+        onClose={() => setProjectToDelete(null)}
+        onSuccess={() => {
+          fetchProjects()
+          setProjectToDelete(null)
+        }}
+      />
     </div>
   )
 }
