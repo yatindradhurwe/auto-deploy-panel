@@ -61,9 +61,15 @@ export default function DatabaseManager({ jwtToken, activeServer, project }) {
           : engine === 'redis' ? ['db0 (Default Cache)', 'db1 (Session Store)', 'db2 (Queue)']
           : ['db.json', 'autodeploy_saas.db', 'system.db']
 
-        const currentDbList = data.schema.databasesList && data.schema.databasesList.length > 0
+        let currentDbList = data.schema.databasesList && data.schema.databasesList.length > 0
           ? data.schema.databasesList
           : defaultList
+
+        if (project) {
+          const targetName = (project.dbName || project.database || project.repoName || project.name || '').toLowerCase()
+          const matched = currentDbList.filter(d => d.toLowerCase().includes(targetName) || targetName.includes(d.toLowerCase()))
+          currentDbList = matched.length > 0 ? matched : [project.dbName || project.database || `${project.repoName || project.name}_db`]
+        }
 
         setSelectedDb((prev) => ({
           ...prev,
@@ -480,7 +486,13 @@ export default function DatabaseManager({ jwtToken, activeServer, project }) {
                     onChange={(e) => handleSelectDbName(e.target.value)}
                     className="w-full bg-slate-900 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-cyan-300 font-mono focus:outline-none focus:border-cyan-400"
                   >
-                    {selectedDb.databasesList.map((dbName) => (
+                    {(project && selectedDb.databasesList.some(d => d.toLowerCase().includes((project.dbName || project.database || project.repoName || project.name || '').toLowerCase()) || (project.name || '').toLowerCase().includes(d.toLowerCase()))
+                      ? selectedDb.databasesList.filter((dbName) => {
+                          const targetName = (project.dbName || project.database || project.repoName || project.name || '').toLowerCase()
+                          return dbName.toLowerCase().includes(targetName) || targetName.includes(dbName.toLowerCase())
+                        })
+                      : selectedDb.databasesList
+                    ).map((dbName) => (
                       <option key={dbName} value={dbName}>
                         📁 Database: {dbName}
                       </option>

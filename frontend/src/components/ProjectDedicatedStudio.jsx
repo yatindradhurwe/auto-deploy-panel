@@ -37,12 +37,23 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
     return jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
   }
 
+  const [useProxy, setUseProxy] = useState(true)
+
   // Determine Live Web URL for Preview
-  const getPreviewUrl = () => {
+  const getDirectPreviewUrl = () => {
     if (!project) return 'http://187.127.165.128:5050'
-    if (project.domain) return `https://${project.domain}`
+    if (project.domain) return project.domain.startsWith('http') ? project.domain : `https://${project.domain}`
     const host = activeServer ? (activeServer.ipAddress || activeServer.host) : '187.127.165.128'
-    return `http://${host}:${project.backendPort || 5050}`
+    const port = project.backendPort || project.port || 5050
+    return `http://${host}:${port}`
+  }
+
+  const getIframeSrc = () => {
+    const directUrl = getDirectPreviewUrl()
+    if (useProxy) {
+      return `/api/studio/preview-proxy?url=${encodeURIComponent(directUrl)}`
+    }
+    return directUrl
   }
 
   // Load API Key from localStorage
@@ -359,7 +370,7 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
           </button>
 
           <a
-            href={getPreviewUrl()}
+            href={getDirectPreviewUrl()}
             target="_blank"
             rel="noreferrer"
             className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 rounded-xl text-xs font-bold font-mono flex items-center space-x-1.5 transition"
@@ -559,17 +570,41 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
                     <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80"></span>
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80"></span>
                   </div>
-                  <div className="bg-slate-900 px-3 py-0.5 rounded-full border border-slate-800 text-cyan-400 font-bold flex items-center gap-1 text-[10px] truncate max-w-xs">
-                    <Globe className="w-3 h-3 text-cyan-400 shrink-0" />
-                    <span className="truncate">{getPreviewUrl()}</span>
+
+                  <div className="flex items-center space-x-2">
+                    <div className="bg-slate-900 px-3 py-0.5 rounded-full border border-slate-800 text-cyan-400 font-bold flex items-center gap-1 text-[10px] truncate max-w-xs">
+                      <Globe className="w-3 h-3 text-cyan-400 shrink-0" />
+                      <span className="truncate">{getDirectPreviewUrl()}</span>
+                    </div>
+
+                    <button
+                      onClick={() => setUseProxy(!useProxy)}
+                      className={`px-2 py-0.5 rounded text-[9px] font-bold border transition ${
+                        useProxy ? 'bg-cyan-950 text-cyan-300 border-cyan-800' : 'bg-slate-800 text-slate-400 border-slate-700'
+                      }`}
+                      title="Toggle Proxy Mode (Bypasses HTTPS Mixed-Content Iframe Block)"
+                    >
+                      {useProxy ? 'Proxy Stream' : 'Direct URL'}
+                    </button>
                   </div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500">{deviceMode}</span>
+
+                  <div className="flex items-center space-x-2">
+                    <a
+                      href={getDirectPreviewUrl()}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[10px] text-slate-400 hover:text-cyan-300 flex items-center gap-0.5"
+                    >
+                      <span>Open ↗</span>
+                    </a>
+                    <span className="text-[10px] uppercase font-bold text-slate-500">{deviceMode}</span>
+                  </div>
                 </div>
 
                 {/* Interactive Preview Frame */}
                 <iframe
-                  key={iframeKey}
-                  src={getPreviewUrl()}
+                  key={`${iframeKey}-${useProxy ? 'proxy' : 'direct'}`}
+                  src={getIframeSrc()}
                   title="Project Live Preview"
                   className="flex-1 w-full h-full border-0 bg-white"
                 />

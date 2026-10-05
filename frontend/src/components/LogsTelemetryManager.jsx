@@ -67,6 +67,31 @@ export default function LogsTelemetryManager({ jwtToken, activeServer, project, 
         }
       }
 
+      if (project || initialApp) {
+        const targetApp = (initialApp || project?.repoName || project?.name || '').toLowerCase()
+        if (targetApp) {
+          const matched = combinedProcesses.filter(p =>
+            p.name.toLowerCase() === targetApp ||
+            p.name.toLowerCase().includes(targetApp) ||
+            targetApp.includes(p.name.toLowerCase())
+          )
+          if (matched.length > 0) {
+            combinedProcesses = matched
+          } else {
+            combinedProcesses = [
+              {
+                pm_id: 1,
+                name: initialApp || project?.repoName || project?.name || 'project-process',
+                status: 'online',
+                cpu: '0.2%',
+                memory: '48 MB',
+                restarts: 0
+              }
+            ]
+          }
+        }
+      }
+
       setProcesses(combinedProcesses)
       setSelectedApp((prev) => {
         const targetApp = initialApp || project?.repoName || project?.name
