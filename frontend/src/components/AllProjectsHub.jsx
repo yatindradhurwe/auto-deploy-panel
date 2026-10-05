@@ -80,9 +80,10 @@ export default function AllProjectsHub({
     if (name.includes('auto-deploy') || name.includes('autodeploy')) return 'https://automate-deployment.yjtechnosoft.com'
     if (name.includes('crm') || name.includes('tip')) return 'https://tip-crm.yjtechnosoft.com'
     if (name.includes('litigation')) return 'https://litigation.yjtechnosoft.com'
-    if (name.includes('estate')) return 'https://estate.yjtechnosoft.com'
-    const slug = name.replace(/[^a-z0-9]/g, '-') || 'app'
-    return `https://${slug}.yjtechnosoft.com`
+
+    const host = server ? (server.ipAddress || server.host) : '187.127.165.128'
+    const port = proj.backendPort || proj.port || 5050
+    return `http://${host}:${port}`
   }
 
   return (

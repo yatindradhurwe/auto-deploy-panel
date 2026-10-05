@@ -75,6 +75,50 @@ function getGitDetails(dirPath) {
   return { gitUrl, branch }
 }
 
+function getNginxDomainMap() {
+  const domainMapByPath = new Map()
+  const domainMapByPort = new Map()
+
+  const nginxDirs = ['/etc/nginx/sites-enabled', '/etc/nginx/sites-available', '/etc/nginx/conf.d']
+
+  nginxDirs.forEach(dir => {
+    if (fs.existsSync(dir)) {
+      try {
+        const files = fs.readdirSync(dir)
+        files.forEach(file => {
+          const fullPath = path.join(dir, file)
+          if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+            const content = fs.readFileSync(fullPath, 'utf8')
+
+            const serverNameMatch = content.match(/server_name\s+([^;]+);/)
+            if (serverNameMatch) {
+              const rawNames = serverNameMatch[1].trim().split(/\s+/)
+              const validDomain = rawNames.find(n => n && !n.includes('_') && n !== 'localhost' && n !== '$host')
+
+              if (validDomain) {
+                const rootMatch = content.match(/root\s+([^;]+);/)
+                if (rootMatch) {
+                  let rootP = rootMatch[1].trim().replace(/\\/g, '/')
+                  const mainP = rootP.replace(/\/dist\/?$/, '').replace(/\/frontend\/?$/, '').replace(/\/public_html\/?$/, '')
+                  domainMapByPath.set(mainP.toLowerCase(), validDomain)
+                  domainMapByPath.set(rootP.toLowerCase(), validDomain)
+                }
+
+                const proxyMatch = content.match(/proxy_pass\s+http:\/\/(?:127\.0\.0\.1|localhost):(\d+)/)
+                if (proxyMatch) {
+                  domainMapByPort.set(proxyMatch[1], validDomain)
+                }
+              }
+            }
+          }
+        })
+      } catch (e) {}
+    }
+  })
+
+  return { domainMapByPath, domainMapByPort }
+}
+
 function discoverServerProjects(serverConfig = null) {
   if (serverConfig && serverConfig.ipAddress && serverConfig.ipAddress !== '187.127.165.128' && serverConfig.ipAddress !== '127.0.0.1') {
     const srvName = serverConfig.name || 'Server Node'
@@ -99,6 +143,7 @@ function discoverServerProjects(serverConfig = null) {
           name: `${domain} (Main Website)`,
           repoName: domain,
           path: `/home/${cUser}/public_html`,
+          domain: domain,
           gitUrl: `https://github.com/tenant-org/${domain.replace(/\./g, '-')}.git`,
           branch: 'main',
           type: 'cPanel PHP / Static Web App',
@@ -110,6 +155,7 @@ function discoverServerProjects(serverConfig = null) {
           name: `API Service (${domain}/api)`,
           repoName: `${domain}-api`,
           path: `/home/${cUser}/public_html/api`,
+          domain: `${domain}/api`,
           gitUrl: `https://github.com/tenant-org/${domain.replace(/\./g, '-')}-api.git`,
           branch: 'main',
           type: 'cPanel Node.js Application',
@@ -125,6 +171,7 @@ function discoverServerProjects(serverConfig = null) {
         name: `${srvName} Primary Application`,
         repoName: `${srvName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-app`,
         path: `/var/www/${srvName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-app`,
+        domain: serverConfig.domain || null,
         gitUrl: `https://github.com/tenant-org/${srvName.toLowerCase().replace(/[^a-z0-9]/g, '-')}.git`,
         branch: 'main',
         type: 'Active PM2 Service',
@@ -140,10 +187,10 @@ function discoverServerProjects(serverConfig = null) {
   const localCrmRoot = path.resolve(process.cwd(), '../../crm-export').replace(/\\/g, '/')
 
   if (fs.existsSync(localAppRoot)) {
-    candidateMap.set(localAppRoot, { name: 'AutoDeploy Panel (This Studio)', repoName: 'auto-deploy-panel' })
+    candidateMap.set(localAppRoot, { name: 'AutoDeploy Panel (This Studio)', repoName: 'auto-deploy-panel', domain: 'automate-deployment.yjtechnosoft.com' })
   }
   if (fs.existsSync(localCrmRoot)) {
-    candidateMap.set(localCrmRoot, { name: 'TOP Income Producer CRM (crm-export)', repoName: 'crm-export' })
+    candidateMap.set(localCrmRoot, { name: 'TOP Income Producer CRM (crm-export)', repoName: 'crm-export', domain: 'tip-crm.yjtechnosoft.com' })
   }
 
   // 2. Scan /var/www subdirectories
@@ -209,6 +256,8 @@ function discoverServerProjects(serverConfig = null) {
     }
   } catch (e) {}
 
+  const { domainMapByPath, domainMapByPort } = getNginxDomainMap()
+
   const projects = []
 
   candidateMap.forEach((meta, dirPath) => {
@@ -221,14 +270,15 @@ function discoverServerProjects(serverConfig = null) {
       displayName = folderName.replace(/[-_.]/g, ' ').toUpperCase()
     }
 
-    let projectDomain = meta.domain || ''
-    const folderSlug = folderName.toLowerCase()
+    const normDir = dirPath.toLowerCase()
+    let projectDomain = meta.domain || domainMapByPath.get(normDir) || ''
+
     if (!projectDomain) {
-      if (folderSlug.includes('auto-deploy')) projectDomain = 'automate-deployment.yjtechnosoft.com'
-      else if (folderSlug.includes('crm') || folderSlug.includes('tip')) projectDomain = 'tip-crm.yjtechnosoft.com'
-      else if (folderSlug.includes('litigation')) projectDomain = 'litigation.yjtechnosoft.com'
-      else if (folderSlug.includes('estate')) projectDomain = 'estate.yjtechnosoft.com'
-      else projectDomain = `${folderSlug.replace(/[^a-z0-9]/g, '-')}.yjtechnosoft.com`
+      domainMapByPath.forEach((dom, p) => {
+        if (!projectDomain && (p.endsWith('/' + folderName.toLowerCase()) || p.includes(folderName.toLowerCase()))) {
+          projectDomain = dom
+        }
+      })
     }
 
     projects.push({
@@ -236,7 +286,7 @@ function discoverServerProjects(serverConfig = null) {
       name: displayName,
       repoName: meta.repoName || folderName,
       path: dirPath,
-      domain: projectDomain,
+      domain: projectDomain || null,
       gitUrl: gitUrl || `https://github.com/yatindradhurwe/${folderName}.git`,
       branch: branch || 'main',
       type: isRunningPm2 ? 'Active PM2 Service' : (fs.existsSync(path.join(dirPath, 'package.json')) ? 'Node.js App' : 'Web Application'),

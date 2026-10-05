@@ -64,30 +64,8 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
     if (cleanName.includes('litigation')) {
       return 'https://litigation.yjtechnosoft.com'
     }
-    if (cleanName.includes('estate')) {
-      return 'https://estate.yjtechnosoft.com'
-    }
 
-    // 3. Server domain or website host
-    const srvDomain = activeServer?.domain || activeServer?.hostname
-    const isIp = (str) => !str || /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(str)
-
-    let baseDomain = 'yjtechnosoft.com'
-    if (srvDomain && !isIp(srvDomain)) {
-      baseDomain = srvDomain.replace(/^https?:\/\//, '')
-    } else if (typeof window !== 'undefined' && window.location.hostname && !isIp(window.location.hostname) && window.location.hostname !== 'localhost') {
-      baseDomain = window.location.hostname
-    }
-
-    const slug = cleanName.replace(/[^a-z0-9]/g, '-') || 'app'
-    if (baseDomain.includes('.')) {
-      if (baseDomain.startsWith('automate-deployment.') || baseDomain.startsWith('app.')) {
-        const rootDomain = baseDomain.split('.').slice(1).join('.')
-        return `https://${slug}.${rootDomain}`
-      }
-      return `https://${slug}.${baseDomain}`
-    }
-
+    // 3. Direct server IP and port fallback
     const host = activeServer ? (activeServer.ipAddress || activeServer.host) : '187.127.165.128'
     const port = project.backendPort || project.port || 5050
     return `http://${host}:${port}`
