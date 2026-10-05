@@ -3,12 +3,13 @@ import {
   ArrowLeft, ExternalLink, RefreshCw, Send, Sparkles, Bot, Code, Globe,
   Smartphone, Monitor, Play, CheckCircle2, ShieldAlert, Cpu, Database, Key,
   Activity, Layers, FileCode, Plus, Check, CheckCheck, Upload, GitCommit,
-  Terminal, ChevronRight, X, AlertCircle, Eye, Sliders, Shield, Zap
+  Terminal, ChevronRight, X, AlertCircle, Eye, Sliders, Shield, Zap, FolderGit2
 } from 'lucide-react'
 import CodeStudio from './CodeStudio'
 import DatabaseManager from './DatabaseManager'
 import EnvManager from './EnvManager'
 import LogsTelemetryManager from './LogsTelemetryManager'
+import GitSyncWorkspace from './GitSyncWorkspace'
 
 export default function ProjectDedicatedStudio({ project, jwtToken, activeServer, onBackToDashboard }) {
   const [activeCanvasTab, setActiveCanvasTab] = useState('preview') // 'preview' | 'code' | 'database' | 'env' | 'logs'
@@ -307,6 +308,18 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
               <Terminal className="w-3.5 h-3.5" />
               <span>PM2 Logs</span>
             </button>
+
+            <button
+              onClick={() => setActiveCanvasTab('git')}
+              className={`px-3 py-1 rounded-lg font-bold flex items-center space-x-1.5 transition cursor-pointer ${
+                activeCanvasTab === 'git'
+                  ? 'bg-rose-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <FolderGit2 className="w-3.5 h-3.5" />
+              <span>Git Sync & Push</span>
+            </button>
           </div>
 
           {/* Device Frame Toggle (Active when preview is selected) */}
@@ -570,29 +583,54 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
               <CodeStudio
                 jwtToken={jwtToken}
                 activeServer={activeServer}
-                initialProject={project?.repoName || project?.name}
+                initialProject={project?.repoName || project?.name || project?.path}
               />
             </div>
           )}
 
-          {/* Mode 3: Database Manager */}
+          {/* Mode 3: Database Manager (Scoped to Project) */}
           {activeCanvasTab === 'database' && (
             <div className="flex-1 h-full overflow-auto p-4">
-              <DatabaseManager jwtToken={jwtToken} activeServer={activeServer} />
+              <DatabaseManager
+                jwtToken={jwtToken}
+                activeServer={activeServer}
+                project={project}
+              />
             </div>
           )}
 
-          {/* Mode 4: Environment Manager */}
+          {/* Mode 4: Environment Manager (Scoped to Project) */}
           {activeCanvasTab === 'env' && (
             <div className="flex-1 h-full overflow-auto p-4">
-              <EnvManager jwtToken={jwtToken} activeServer={activeServer} />
+              <EnvManager
+                jwtToken={jwtToken}
+                activeServer={activeServer}
+                project={project}
+                initialProject={project?.repoName || project?.name || project?.path}
+              />
             </div>
           )}
 
-          {/* Mode 5: PM2 Logs & Telemetry */}
+          {/* Mode 5: PM2 Logs & Telemetry (Scoped to Project) */}
           {activeCanvasTab === 'logs' && (
             <div className="flex-1 h-full overflow-auto p-4">
-              <LogsTelemetryManager jwtToken={jwtToken} activeServer={activeServer} />
+              <LogsTelemetryManager
+                jwtToken={jwtToken}
+                activeServer={activeServer}
+                project={project}
+                initialApp={project?.repoName || project?.name}
+              />
+            </div>
+          )}
+
+          {/* Mode 6: Git Pull & Push Sync Center */}
+          {activeCanvasTab === 'git' && (
+            <div className="flex-1 h-full overflow-auto p-4">
+              <GitSyncWorkspace
+                project={project}
+                jwtToken={jwtToken}
+                activeServer={activeServer}
+              />
             </div>
           )}
 

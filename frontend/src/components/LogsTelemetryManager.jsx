@@ -4,10 +4,10 @@ import {
   Search, Copy, Check, Filter, Cpu, HardDrive, ShieldCheck, Zap, AlertCircle
 } from 'lucide-react'
 
-export default function LogsTelemetryManager({ jwtToken, activeServer }) {
+export default function LogsTelemetryManager({ jwtToken, activeServer, project, initialApp }) {
   const [processes, setProcesses] = useState([])
   const [loading, setLoading] = useState(true)
-  const [selectedApp, setSelectedApp] = useState('')
+  const [selectedApp, setSelectedApp] = useState(initialApp || project?.repoName || project?.name || '')
   const [logs, setLogs] = useState('')
   const [loadingLogs, setLoadingLogs] = useState(false)
   const [logSearch, setLogSearch] = useState('')
@@ -69,6 +69,11 @@ export default function LogsTelemetryManager({ jwtToken, activeServer }) {
 
       setProcesses(combinedProcesses)
       setSelectedApp((prev) => {
+        const targetApp = initialApp || project?.repoName || project?.name
+        if (targetApp && combinedProcesses.length > 0) {
+          const matched = combinedProcesses.find(p => p.name === targetApp || p.name.includes(targetApp))
+          if (matched) return matched.name
+        }
         if (!prev && combinedProcesses.length > 0) return combinedProcesses[0].name
         if (prev && !combinedProcesses.some(p => p.name === prev) && combinedProcesses.length > 0) return combinedProcesses[0].name
         return prev || (combinedProcesses.length > 0 ? combinedProcesses[0].name : '')

@@ -4,12 +4,12 @@ import {
   FileText, Layers, Terminal, Server, Plus, Trash2, Download, Edit3, X, AlertTriangle, ChevronRight, Check
 } from 'lucide-react'
 
-export default function DatabaseManager({ jwtToken, activeServer }) {
+export default function DatabaseManager({ jwtToken, activeServer, project }) {
   const [databases, setDatabases] = useState([])
   const [activeEngine, setActiveEngine] = useState('postgresql') // 'postgresql' | 'mysql' | 'mongodb' | 'redis' | 'sqlite'
   const [mobileTab, setMobileTab] = useState('workbench') // 'explorer' | 'workbench'
   const [selectedDb, setSelectedDb] = useState(null)
-  const [selectedDbName, setSelectedDbName] = useState('')
+  const [selectedDbName, setSelectedDbName] = useState(project?.dbName || project?.name || '')
   const [selectedTable, setSelectedTable] = useState(null)
   const [activeSubTab, setActiveSubTab] = useState('data') // 'data' | 'structure' | 'console'
   const [tableSearchQuery, setTableSearchQuery] = useState('')

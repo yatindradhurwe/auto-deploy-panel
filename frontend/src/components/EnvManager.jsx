@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Key, Save, Plus, Trash2, Eye, EyeOff, RefreshCw, FileText, CheckCircle2, Lock, Sparkles, Folder, Code } from 'lucide-react'
 
-export default function EnvManager({ jwtToken, activeServer }) {
+export default function EnvManager({ jwtToken, activeServer, project, initialProject }) {
   const [projects, setProjects] = useState([])
   const [selectedProject, setSelectedProject] = useState(null)
   const [envVars, setEnvVars] = useState([])
@@ -15,7 +15,7 @@ export default function EnvManager({ jwtToken, activeServer }) {
 
   useEffect(() => {
     fetchProjects()
-  }, [activeServer])
+  }, [activeServer, project, initialProject])
 
   useEffect(() => {
     if (selectedProject) {
@@ -34,10 +34,27 @@ export default function EnvManager({ jwtToken, activeServer }) {
       const data = await res.json()
       if (data.success && data.projects.length > 0) {
         setProjects(data.projects)
-        setSelectedProject(data.projects[0])
+        const target = initialProject || project?.repoName || project?.name || project?.path
+        if (target) {
+          const matched = data.projects.find((p) =>
+            p.repoName === target || p.name === target || p.path === target || p.name?.includes(target)
+          )
+          if (matched) {
+            setSelectedProject(matched)
+            return
+          }
+        }
+        if (project && project.path) {
+          setSelectedProject(project)
+        } else {
+          setSelectedProject(data.projects[0])
+        }
+      } else if (project && project.path) {
+        setSelectedProject(project)
       }
     } catch (e) {
       console.error('Failed to load projects', e)
+      if (project && project.path) setSelectedProject(project)
     }
   }
 
