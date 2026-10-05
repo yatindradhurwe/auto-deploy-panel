@@ -721,30 +721,37 @@ router.all('/projects', (req, res) => {
     const targetServer = req.tenant?.server || (reqServerId ? getServerById(reqServerId) : null)
 
     let orgProjects = getProjectsByOrgId(orgId) || []
-
     const discovered = discoverServerProjects(targetServer)
-    const pathSet = new Set(orgProjects.map(p => p.path ? path.resolve(p.path).replace(/\\/g, '/').toLowerCase() : ''))
 
-    discovered.forEach(dp => {
-      const normP = dp.path ? path.resolve(dp.path).replace(/\\/g, '/').toLowerCase() : ''
-      if (!pathSet.has(normP)) {
-        orgProjects.push({
-          ...dp,
-          organizationId: orgId,
-          serverId: targetServer?.id || 'srv-001'
-        })
-        pathSet.add(normP)
-      } else {
-        const existing = orgProjects.find(p => p.path && path.resolve(p.path).replace(/\\/g, '/').toLowerCase() === normP)
-        if (existing) {
-          if (dp.domain) existing.domain = dp.domain
-          if (dp.type) existing.type = dp.type
-          if (dp.status) existing.status = dp.status
-        }
-      }
+    const allCandidates = [...orgProjects, ...discovered]
+
+    const finalProjects = []
+    const seenPaths = new Set()
+    const seenDomains = new Set()
+    const seenRepoNames = new Set()
+
+    allCandidates.forEach(p => {
+      const normP = p.path ? path.resolve(p.path).replace(/\\/g, '/').toLowerCase() : ''
+      let dom = p.domain ? p.domain.trim().toLowerCase().replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '') : null
+      const repo = (p.repoName || p.name || '').trim().toLowerCase()
+
+      if (normP && seenPaths.has(normP)) return
+      if (dom && seenDomains.has(dom)) return
+      if (repo && repo.length > 3 && seenRepoNames.has(repo)) return
+
+      if (normP) seenPaths.add(normP)
+      if (dom) seenDomains.add(dom)
+      if (repo && repo.length > 3) seenRepoNames.add(repo)
+
+      finalProjects.push({
+        ...p,
+        organizationId: orgId,
+        serverId: targetServer?.id || 'srv-001',
+        domain: dom
+      })
     })
 
-    res.json({ success: true, projects: orgProjects })
+    res.json({ success: true, projects: finalProjects })
   } catch (err) {
     res.status(500).json({ success: false, error: err.message })
   }
