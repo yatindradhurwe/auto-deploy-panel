@@ -39,7 +39,7 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
     return jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
   }
 
-  const [useProxy, setUseProxy] = useState(true)
+  const [useProxy, setUseProxy] = useState(false)
 
   // Determine Live Web URL for Preview
   const getDirectPreviewUrl = () => {
@@ -48,8 +48,8 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
     // 1. Explicit domain property on project
     if (project.domain && project.domain.trim()) {
       let dom = project.domain.trim()
-      if (dom.startsWith('http://') || dom.startsWith('https://')) return dom
-      return `https://${dom}`
+      dom = dom.replace(/^https?:\/\//i, '').replace(/\/+$/, '')
+      if (dom) return `https://${dom}`
     }
 
     const cleanName = (project.repoName || project.name || '').toLowerCase()

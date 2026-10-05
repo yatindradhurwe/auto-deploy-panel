@@ -74,7 +74,8 @@ export default function AllProjectsHub({
   const getProjectWebsiteUrl = (proj) => {
     if (proj.domain && proj.domain.trim()) {
       let d = proj.domain.trim()
-      return d.startsWith('http') ? d : `https://${d}`
+      d = d.replace(/^https?:\/\//i, '').replace(/\/+$/, '')
+      if (d) return `https://${d}`
     }
     const name = (proj.repoName || proj.name || '').toLowerCase()
     if (name.includes('auto-deploy') || name.includes('autodeploy')) return 'https://automate-deployment.yjtechnosoft.com'

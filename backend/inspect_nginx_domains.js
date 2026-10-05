@@ -11,11 +11,7 @@ const config = {
 }
 
 conn.on('ready', () => {
-  const cmd = `
-    cd /var/www/auto-deploy-panel/backend
-    TOKEN=$(node -e "const jwt=require('jsonwebtoken'); console.log(jwt.sign({id:'admin-001', email:'admin@tipcrm.com', role:'admin'}, process.env.JWT_SECRET || 'autodeploy_secret_key_2026_prod'));")
-    curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:4040/api/studio/projects
-  `
+  const cmd = `grep -rn "server_name" /etc/nginx/sites-enabled/ /etc/nginx/conf.d/ 2>/dev/null`
   
   conn.exec(cmd, (err, stream) => {
     if (err) {
@@ -24,7 +20,7 @@ conn.on('ready', () => {
       return
     }
     stream.on('close', () => conn.end())
-    stream.on('data', d => console.log('RAW RESPONSE:\n', d.toString()))
+    stream.on('data', d => console.log('NGINX DOMAINS:\n', d.toString()))
     stream.stderr.on('data', d => process.stderr.write(d.toString()))
   })
 })

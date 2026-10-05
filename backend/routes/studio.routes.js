@@ -266,12 +266,24 @@ function discoverServerProjects(serverConfig = null) {
 
   const { domainMapByPath, domainMapByPort } = getNginxDomainMap()
 
+  // Consolidate subdirectories (e.g. /var/www/my-app/backend -> merge into /var/www/my-app)
+  const candidatePaths = Array.from(candidateMap.keys())
+  candidatePaths.forEach(p => {
+    const parentDir = path.dirname(p).replace(/\\/g, '/')
+    if (candidateMap.has(parentDir) && parentDir !== '/var/www' && parentDir !== '/home' && parentDir !== '/') {
+      const childMeta = candidateMap.get(p)
+      const parentMeta = candidateMap.get(parentDir)
+      if (childMeta.domain && !parentMeta.domain) parentMeta.domain = childMeta.domain
+      candidateMap.delete(p)
+    }
+  })
+
   const projects = []
 
   candidateMap.forEach((meta, dirPath) => {
     const folderName = path.basename(dirPath)
     const { gitUrl, branch } = getGitDetails(dirPath)
-    const isRunningPm2 = pm2Cwds.has(dirPath) || meta.name === 'auto-deploy-panel' || meta.name === 'tip-crm-backend'
+    const isRunningPm2 = Array.from(pm2Cwds).some(cwd => cwd === dirPath || cwd.startsWith(dirPath + '/') || dirPath.startsWith(cwd + '/')) || meta.name === 'auto-deploy-panel' || meta.name === 'tip-crm-backend'
 
     let displayName = meta.name
     if (displayName === folderName) {
