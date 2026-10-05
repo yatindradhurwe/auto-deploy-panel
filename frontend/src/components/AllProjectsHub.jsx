@@ -90,31 +90,24 @@ export default function AllProjectsHub({
   return (
     <div className="min-h-screen bg-[#07090E] text-slate-100 flex flex-col font-sans">
       
-      {/* Top Navigation Header (Apple macOS Aesthetic) */}
-      <header className="h-16 bg-[#0B0E17]/85 backdrop-blur-2xl border-b border-white/10 px-6 flex items-center justify-between z-30 shrink-0 sticky top-0 shadow-2xl">
+      {/* Top Navigation Header (Apple macOS Responsive & Clean Alignment) */}
+      <header className="min-h-[4rem] bg-[#0B0E17]/90 backdrop-blur-2xl border-b border-white/10 px-4 lg:px-6 py-2 flex flex-wrap lg:flex-nowrap items-center justify-between gap-3 z-30 shrink-0 sticky top-0 shadow-2xl">
         
-        {/* Left: macOS Traffic Lights, Logo & Top Header Nav Tabs */}
-        <div className="flex items-center space-x-5">
-          {/* macOS Traffic Lights */}
-          <div className="flex items-center space-x-2">
-            <span className="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E] shadow-sm"></span>
-            <span className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123] shadow-sm"></span>
-            <span className="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29] shadow-sm"></span>
-          </div>
-
-          <div className="h-4 w-px bg-white/10"></div>
-
-          <div className="flex items-center space-x-2.5 cursor-pointer group" onClick={onChangeServerNode}>
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-500 via-indigo-600 to-purple-600 flex items-center justify-center font-black text-white shadow-lg shadow-cyan-500/20 group-hover:scale-105 transition-transform">
+        {/* Left: Logo & Top Header Nav Tabs */}
+        <div className="flex items-center space-x-4 shrink-0">
+          <div className="flex items-center space-x-2.5 cursor-pointer group shrink-0" onClick={onChangeServerNode}>
+            <div className="w-8.5 h-8.5 rounded-xl bg-gradient-to-tr from-cyan-500 via-indigo-600 to-purple-600 flex items-center justify-center font-black text-white shadow-lg shadow-cyan-500/20 group-hover:scale-105 transition-transform">
               ⚡
             </div>
             <span className="font-extrabold text-white text-base tracking-tight group-hover:text-cyan-400 transition-colors">AutoDeploy</span>
           </div>
 
-          <nav className="hidden lg:flex items-center space-x-1.5 font-mono text-xs bg-slate-950/60 backdrop-blur-md p-1 rounded-2xl border border-white/10 shadow-inner">
+          <div className="h-4 w-px bg-white/10 hidden md:block shrink-0"></div>
+
+          <nav className="hidden md:flex items-center space-x-1.5 font-mono text-xs bg-slate-950/80 backdrop-blur-md p-1 rounded-2xl border border-white/10 shadow-inner overflow-x-auto scrollbar-none">
             <button
               onClick={() => onTabChange && onTabChange('projects')}
-              className={`px-3.5 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
+              className={`h-8 px-3.5 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap inline-flex items-center justify-center shrink-0 ${
                 activeHubTab === 'projects' || activeHubTab === 'dashboard'
                   ? 'text-white bg-white/15 border border-white/20 shadow-md backdrop-blur-md'
                   : 'text-slate-400 hover:text-white hover:bg-white/5'
@@ -124,18 +117,18 @@ export default function AllProjectsHub({
             </button>
             <button
               onClick={() => onTabChange && onTabChange('marketplace')}
-              className={`px-3.5 py-1.5 rounded-xl font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+              className={`h-8 px-3.5 rounded-xl font-bold transition-all cursor-pointer inline-flex items-center justify-center space-x-1.5 whitespace-nowrap shrink-0 ${
                 activeHubTab === 'marketplace'
                   ? 'text-amber-300 bg-amber-500/25 border border-amber-500/40 shadow-md'
                   : 'text-amber-300/80 hover:text-amber-300 hover:bg-amber-500/10'
               }`}
             >
-              <ShoppingBag className="w-3.5 h-3.5 text-amber-400" />
+              <ShoppingBag className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               <span>Marketplace</span>
             </button>
             <button
               onClick={() => onTabChange && onTabChange('databases')}
-              className={`px-3.5 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
+              className={`h-8 px-3.5 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap inline-flex items-center justify-center shrink-0 ${
                 activeHubTab === 'databases'
                   ? 'text-white bg-white/15 border border-white/20 shadow-md'
                   : 'text-slate-400 hover:text-white hover:bg-white/5'
@@ -145,7 +138,7 @@ export default function AllProjectsHub({
             </button>
             <button
               onClick={() => onTabChange && onTabChange('email')}
-              className={`px-3.5 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
+              className={`h-8 px-3.5 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap inline-flex items-center justify-center shrink-0 ${
                 activeHubTab === 'email'
                   ? 'text-white bg-white/15 border border-white/20 shadow-md'
                   : 'text-slate-400 hover:text-white hover:bg-white/5'
@@ -155,7 +148,7 @@ export default function AllProjectsHub({
             </button>
             <button
               onClick={() => onTabChange && onTabChange('servers')}
-              className={`px-3.5 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
+              className={`h-8 px-3.5 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap inline-flex items-center justify-center shrink-0 ${
                 activeHubTab === 'servers'
                   ? 'text-white bg-white/15 border border-white/20 shadow-md'
                   : 'text-slate-400 hover:text-white hover:bg-white/5'
@@ -165,7 +158,7 @@ export default function AllProjectsHub({
             </button>
             <button
               onClick={() => onTabChange && onTabChange('audit-logs')}
-              className={`px-3.5 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
+              className={`h-8 px-3.5 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap inline-flex items-center justify-center shrink-0 ${
                 activeHubTab === 'audit-logs'
                   ? 'text-white bg-white/15 border border-white/20 shadow-md'
                   : 'text-slate-400 hover:text-white hover:bg-white/5'
@@ -177,44 +170,44 @@ export default function AllProjectsHub({
         </div>
 
         {/* Right Controls: Search, Server Selector, User Avatar, Upgrade */}
-        <div className="flex items-center space-x-3 font-mono text-xs">
+        <div className="flex items-center space-x-2.5 font-mono text-xs shrink-0 justify-end ml-auto lg:ml-0">
           
-          <div className="relative hidden md:block">
+          <div className="relative hidden lg:block">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3.5 top-2.5" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search... Ctrl K"
-              className="pl-9 pr-3.5 py-1.5 bg-slate-950/80 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/80 focus:ring-2 focus:ring-cyan-500/20 w-48 transition-all shadow-inner"
+              className="h-8.5 pl-9 pr-3.5 bg-slate-950/80 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/80 focus:ring-2 focus:ring-cyan-500/20 w-48 transition-all shadow-inner"
             />
           </div>
 
           {/* Connected Server Node Dropdown */}
           <button
             onClick={onChangeServerNode}
-            className="px-3.5 py-1.5 bg-slate-900/80 hover:bg-slate-800 text-cyan-300 border border-white/10 hover:border-cyan-500/40 rounded-xl font-bold flex items-center space-x-2 transition cursor-pointer shadow-md backdrop-blur-md"
+            className="h-8.5 px-3 bg-slate-900/90 hover:bg-slate-800 text-cyan-300 border border-white/10 hover:border-cyan-500/40 rounded-xl font-bold inline-flex items-center justify-center space-x-2 transition cursor-pointer shadow-md backdrop-blur-md shrink-0"
           >
-            <Server className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="truncate max-w-[130px] font-sans font-semibold">{server?.name || 'Server Node'}</span>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+            <Server className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <span className="truncate max-w-[130px] font-sans font-semibold text-xs">{server?.name || 'Server Node'}</span>
+            <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
           </button>
 
           {/* User Profile Avatar Badge */}
-          <div className="flex items-center space-x-2 pl-2 border-l border-white/10">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center font-bold text-white text-[11px] shadow-md ring-2 ring-white/10">
+          <div className="flex items-center space-x-2 pl-1.5 border-l border-white/10 shrink-0">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center font-bold text-white text-[11px] shadow-md ring-2 ring-white/10 shrink-0">
               {currentUser?.name ? currentUser.name.slice(0, 2).toUpperCase() : 'YD'}
             </div>
-            <span className="hidden sm:inline text-slate-200 font-semibold text-xs tracking-tight">
+            <span className="hidden xl:inline text-slate-200 font-semibold text-xs tracking-tight shrink-0">
               {currentUser?.name || 'Yatindra Dhurwe'}
             </span>
           </div>
 
           <button
             onClick={() => onTabChange && onTabChange('deployments')}
-            className="px-4 py-1.5 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-extrabold rounded-xl shadow-lg shadow-cyan-500/20 flex items-center space-x-1.5 transition transform hover:scale-[1.02] cursor-pointer"
+            className="h-8.5 px-3.5 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-extrabold rounded-xl shadow-lg shadow-cyan-500/20 inline-flex items-center justify-center space-x-1.5 transition transform hover:scale-[1.02] cursor-pointer whitespace-nowrap shrink-0"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-3.5 h-3.5 shrink-0" />
             <span>1-Click Deploy</span>
           </button>
         </div>

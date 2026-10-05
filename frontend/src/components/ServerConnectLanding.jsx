@@ -27,26 +27,18 @@ export default function ServerConnectLanding({ servers, loadingServers, onSelect
       {/* Landing Top Header (Apple macOS Glass Translucent Header) */}
       <header className="h-16 border-b border-white/10 bg-[#0B0E17]/80 backdrop-blur-2xl px-6 flex items-center justify-between z-30 sticky top-0 shadow-[0_4px_25px_rgba(0,0,0,0.5)]">
         
-        {/* Left: macOS Window Traffic Lights & Logo */}
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2 pr-2 border-r border-white/10">
-            <span className="w-3 h-3 rounded-full bg-[#FF5F56] shadow-inner inline-block hover:opacity-80 cursor-pointer"></span>
-            <span className="w-3 h-3 rounded-full bg-[#FFBD2E] shadow-inner inline-block hover:opacity-80 cursor-pointer"></span>
-            <span className="w-3 h-3 rounded-full bg-[#27C93F] shadow-inner inline-block hover:opacity-80 cursor-pointer"></span>
+        {/* Left: Logo & Title */}
+        <div className="flex items-center space-x-3">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-500 via-indigo-600 to-purple-600 flex items-center justify-center font-black text-white shadow-lg shadow-cyan-500/20">
+            ⚡
           </div>
-
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-500 via-indigo-600 to-purple-600 flex items-center justify-center font-black text-white shadow-lg shadow-cyan-500/20">
-              ⚡
-            </div>
-            <div>
-              <h1 className="font-extrabold text-white text-sm tracking-tight flex items-center gap-2 font-sans">
-                AutoDeploy <span className="font-mono text-cyan-400 text-xs font-semibold">Studio macOS</span>
-                <span className="text-[10px] bg-cyan-950/80 border border-cyan-800/80 text-cyan-300 font-mono px-2 py-0.5 rounded-full uppercase font-bold tracking-wider">
-                  v2.0 SaaS
-                </span>
-              </h1>
-            </div>
+          <div>
+            <h1 className="font-extrabold text-white text-sm tracking-tight flex items-center gap-2 font-sans">
+              AutoDeploy <span className="font-mono text-cyan-400 text-xs font-semibold">Studio SaaS</span>
+              <span className="text-[10px] bg-cyan-950/80 border border-cyan-800/80 text-cyan-300 font-mono px-2 py-0.5 rounded-full uppercase font-bold tracking-wider">
+                v2.0 Active
+              </span>
+            </h1>
           </div>
         </div>
 
