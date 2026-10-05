@@ -202,6 +202,17 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
     }
   }
 
+  const safeText = (val) => {
+    if (val === null || val === undefined) return ''
+    if (typeof val === 'object') {
+      if (val.text) return String(val.text)
+      if (val.message) return String(val.message)
+      if (val.data && Array.isArray(val.data)) return String(val.data)
+      return JSON.stringify(val)
+    }
+    return String(val)
+  }
+
   return (
     <div className="min-h-screen bg-[#07090E] text-slate-100 flex flex-col font-sans overflow-hidden">
       
@@ -398,7 +409,7 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
           {errorMsg && (
             <div className="p-3 bg-rose-950/80 border-b border-rose-500/40 text-rose-300 font-mono text-[11px] flex items-start gap-2">
               <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">{errorMsg}</div>
+              <div className="flex-1 min-w-0">{safeText(errorMsg)}</div>
             </div>
           )}
 
@@ -406,7 +417,7 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
           {publishSuccessMsg && (
             <div className="p-3 bg-emerald-950/80 border-b border-emerald-500/40 text-emerald-300 font-mono text-[11px] flex items-start gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">{publishSuccessMsg}</div>
+              <div className="flex-1 min-w-0">{safeText(publishSuccessMsg)}</div>
             </div>
           )}
 
@@ -428,7 +439,7 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
                       : 'bg-slate-900 text-slate-200 border border-slate-800 rounded-tl-none'
                   }`}
                 >
-                  {msg.content}
+                  {safeText(msg.content)}
                 </div>
 
                 {/* Proposed Execution Plan Card */}
@@ -445,7 +456,7 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
                       {msg.plan.planSteps?.map((st, idx) => (
                         <div key={idx} className="flex items-center gap-1.5">
                           <span className="text-cyan-400 font-bold">{idx + 1}.</span>
-                          <span>{st.description}</span>
+                          <span>{safeText(st.description)}</span>
                         </div>
                       ))}
                     </div>

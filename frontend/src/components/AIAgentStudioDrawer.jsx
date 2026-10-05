@@ -232,6 +232,17 @@ export default function AIAgentStudioDrawer({
     } catch (e) {}
   }
 
+  const safeText = (val) => {
+    if (val === null || val === undefined) return ''
+    if (typeof val === 'object') {
+      if (val.text) return String(val.text)
+      if (val.message) return String(val.message)
+      if (val.data && Array.isArray(val.data)) return String(val.data)
+      return JSON.stringify(val)
+    }
+    return String(val)
+  }
+
   if (!isOpen) return null
 
   // Stepper Stage List
@@ -350,7 +361,7 @@ export default function AIAgentStudioDrawer({
           {errorMsg && (
             <div className="p-3 bg-rose-950/80 border border-rose-500/50 rounded-xl text-rose-300 font-mono text-xs flex items-start gap-2 animate-in fade-in duration-200">
               <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">{errorMsg}</div>
+              <div className="flex-1 min-w-0">{safeText(errorMsg)}</div>
               <button onClick={() => setErrorMsg(null)} className="text-rose-400 hover:text-white">
                 <X className="w-3.5 h-3.5" />
               </button>
