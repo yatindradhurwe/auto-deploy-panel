@@ -252,13 +252,13 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
   return (
     <div className="min-h-screen bg-[#07090E] text-slate-100 flex flex-col font-sans overflow-hidden">
       
-      {/* Top Header Navigation Bar (Apple macOS Style) */}
-      <header className="h-16 bg-[#0B0E17]/85 backdrop-blur-2xl border-b border-white/10 px-6 flex items-center justify-between z-30 shrink-0 shadow-2xl">
+      {/* Top Header Navigation Bar (Apple macOS Responsive & Premium Baseline Layout) */}
+      <header className="min-h-[4rem] bg-[#0B0E17]/90 backdrop-blur-2xl border-b border-white/10 px-4 lg:px-6 py-2 flex flex-wrap lg:flex-nowrap items-center justify-between gap-3 z-30 shrink-0 shadow-2xl sticky top-0">
         
         {/* Left: macOS Window Traffic Lights, Back to Dashboard & Project Breadcrumb */}
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-3 shrink-0">
           {/* macOS Traffic Lights */}
-          <div className="flex items-center space-x-2 mr-1">
+          <div className="flex items-center space-x-2 mr-1 shrink-0">
             <span className="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E] shadow-sm"></span>
             <span className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123] shadow-sm"></span>
             <span className="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29] shadow-sm"></span>
@@ -266,166 +266,166 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
 
           <button
             onClick={onBackToDashboard}
-            className="px-3 py-1.5 bg-slate-900/80 hover:bg-slate-800 text-slate-300 border border-white/10 rounded-xl text-xs font-bold font-mono flex items-center space-x-1.5 transition cursor-pointer shadow-md backdrop-blur-md"
+            className="h-8.5 px-3 bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-white/10 hover:border-cyan-500/40 rounded-xl text-xs font-bold font-mono inline-flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-md backdrop-blur-md shrink-0"
           >
-            <ArrowLeft className="w-3.5 h-3.5 text-cyan-400" />
+            <ArrowLeft className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
             <span>Dashboard</span>
           </button>
 
-          <div className="h-4 w-px bg-white/10"></div>
+          <div className="h-4 w-px bg-white/15 hidden sm:block shrink-0"></div>
 
-          <div className="flex items-center space-x-2 font-mono text-xs">
-            <span className="text-slate-400 font-medium">Projects</span>
-            <span className="text-slate-600">/</span>
-            <span className="font-extrabold text-white flex items-center gap-1.5 tracking-tight text-sm">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              {project?.name || 'Selected Project'}
+          <div className="flex items-center space-x-2 font-mono text-xs shrink-0">
+            <span className="text-slate-400 font-medium hidden sm:inline">Projects</span>
+            <span className="text-slate-600 hidden sm:inline">/</span>
+            <span className="font-extrabold text-white flex items-center gap-1.5 tracking-tight text-xs sm:text-sm">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+              <span className="truncate max-w-[100px] sm:max-w-[160px] lg:max-w-[200px] inline-block align-middle">{project?.name || 'Selected Project'}</span>
             </span>
-            <span className="text-[10px] bg-cyan-950/80 text-cyan-300 border border-cyan-500/30 px-2.5 py-0.5 rounded-full font-bold uppercase backdrop-blur-md">
-              {project?.type || 'Web Application'}
+            <span className="text-[10px] bg-cyan-950/90 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full font-bold uppercase backdrop-blur-md hidden sm:inline-block shrink-0">
+              {project?.type || 'Web App'}
             </span>
           </div>
         </div>
 
         {/* Center: Canvas View Selector & Device Frame Controls */}
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-2.5 overflow-x-auto scrollbar-none py-0.5 max-w-full justify-center shrink-0">
           {/* Main View Mode Selector */}
-          <div className="bg-slate-950/80 p-1.5 rounded-2xl border border-white/10 flex items-center space-x-1.5 font-mono text-xs backdrop-blur-md shadow-inner">
+          <div className="bg-slate-950/90 p-1 rounded-2xl border border-white/10 inline-flex items-center space-x-1 font-mono text-xs backdrop-blur-xl shadow-inner overflow-x-auto scrollbar-none shrink-0">
             <button
               onClick={() => setActiveCanvasTab('preview')}
-              className={`px-3.5 py-1.5 rounded-xl font-bold flex items-center space-x-1.5 transition-all cursor-pointer ${
+              className={`h-8 px-3.5 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
                 activeCanvasTab === 'preview'
-                  ? 'bg-gradient-to-r from-cyan-500 to-indigo-600 text-white shadow-lg shadow-cyan-500/20'
-                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+                  ? 'bg-gradient-to-r from-cyan-500 via-indigo-600 to-indigo-700 text-white shadow-md shadow-cyan-500/25 ring-1 ring-cyan-400/40'
+                  : 'text-slate-400 hover:text-white hover:bg-white/10'
               }`}
             >
-              <Globe className="w-3.5 h-3.5" />
+              <Globe className="w-3.5 h-3.5 shrink-0" />
               <span>Live Preview</span>
             </button>
 
             <button
               onClick={() => setActiveCanvasTab('code')}
-              className={`px-3.5 py-1.5 rounded-xl font-bold flex items-center space-x-1.5 transition-all cursor-pointer ${
+              className={`h-8 px-3.5 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
                 activeCanvasTab === 'code'
-                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/20'
-                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-600/25 ring-1 ring-purple-400/40'
+                  : 'text-slate-400 hover:text-white hover:bg-white/10'
               }`}
             >
-              <Code className="w-3.5 h-3.5" />
+              <Code className="w-3.5 h-3.5 shrink-0" />
               <span>Code Studio</span>
             </button>
 
             <button
               onClick={() => setActiveCanvasTab('database')}
-              className={`px-3.5 py-1.5 rounded-xl font-bold flex items-center space-x-1.5 transition-all cursor-pointer ${
+              className={`h-8 px-3.5 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
                 activeCanvasTab === 'database'
-                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20'
-                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-600/25 ring-1 ring-emerald-400/40'
+                  : 'text-slate-400 hover:text-white hover:bg-white/10'
               }`}
             >
-              <Database className="w-3.5 h-3.5" />
+              <Database className="w-3.5 h-3.5 shrink-0" />
               <span>Database</span>
             </button>
 
             <button
               onClick={() => setActiveCanvasTab('env')}
-              className={`px-3.5 py-1.5 rounded-xl font-bold flex items-center space-x-1.5 transition-all cursor-pointer ${
+              className={`h-8 px-3.5 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
                 activeCanvasTab === 'env'
-                  ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/20'
-                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+                  ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-md shadow-amber-600/25 ring-1 ring-amber-400/40'
+                  : 'text-slate-400 hover:text-white hover:bg-white/10'
               }`}
             >
-              <Key className="w-3.5 h-3.5" />
+              <Key className="w-3.5 h-3.5 shrink-0" />
               <span>.env Keys</span>
             </button>
 
             <button
               onClick={() => setActiveCanvasTab('logs')}
-              className={`px-3.5 py-1.5 rounded-xl font-bold flex items-center space-x-1.5 transition-all cursor-pointer ${
+              className={`h-8 px-3.5 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
                 activeCanvasTab === 'logs'
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+                  ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-600/25 ring-1 ring-indigo-400/40'
+                  : 'text-slate-400 hover:text-white hover:bg-white/10'
               }`}
             >
-              <Terminal className="w-3.5 h-3.5" />
+              <Terminal className="w-3.5 h-3.5 shrink-0" />
               <span>PM2 Logs</span>
             </button>
 
             <button
               onClick={() => setActiveCanvasTab('git')}
-              className={`px-3.5 py-1.5 rounded-xl font-bold flex items-center space-x-1.5 transition-all cursor-pointer ${
+              className={`h-8 px-3.5 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
                 activeCanvasTab === 'git'
-                  ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/20'
-                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+                  ? 'bg-gradient-to-r from-rose-600 to-pink-600 text-white shadow-md shadow-rose-600/25 ring-1 ring-rose-400/40'
+                  : 'text-slate-400 hover:text-white hover:bg-white/10'
               }`}
             >
-              <FolderGit2 className="w-3.5 h-3.5" />
+              <FolderGit2 className="w-3.5 h-3.5 shrink-0" />
               <span>Git Sync & Push</span>
             </button>
           </div>
 
           {/* Device Frame Toggle (Active when preview is selected) */}
           {activeCanvasTab === 'preview' && (
-            <div className="bg-slate-950/80 p-1 rounded-2xl border border-white/10 flex items-center space-x-1 backdrop-blur-md">
+            <div className="bg-slate-950/90 p-1 rounded-2xl border border-white/10 inline-flex items-center space-x-1 backdrop-blur-xl shrink-0">
               <button
                 onClick={() => setDeviceMode('desktop')}
                 title="Desktop View (100%)"
-                className={`p-2 rounded-xl transition-all cursor-pointer ${
-                  deviceMode === 'desktop' ? 'bg-white/15 text-cyan-400 shadow-sm' : 'text-slate-400 hover:text-white'
+                className={`h-8 w-8 rounded-xl inline-flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+                  deviceMode === 'desktop' ? 'bg-white/20 text-cyan-300 shadow-sm' : 'text-slate-400 hover:text-white hover:bg-white/5'
                 }`}
               >
-                <Monitor className="w-4 h-4" />
+                <Monitor className="w-4 h-4 shrink-0" />
               </button>
 
               <button
                 onClick={() => setDeviceMode('mobile')}
                 title="Mobile View (375px)"
-                className={`p-2 rounded-xl transition-all cursor-pointer ${
-                  deviceMode === 'mobile' ? 'bg-white/15 text-cyan-400 shadow-sm' : 'text-slate-400 hover:text-white'
+                className={`h-8 w-8 rounded-xl inline-flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+                  deviceMode === 'mobile' ? 'bg-white/20 text-cyan-300 shadow-sm' : 'text-slate-400 hover:text-white hover:bg-white/5'
                 }`}
               >
-                <Smartphone className="w-4 h-4" />
+                <Smartphone className="w-4 h-4 shrink-0" />
               </button>
             </div>
           )}
         </div>
 
-        {/* Right: Publish & Open Site Controls */}
-        <div className="flex items-center space-x-3">
+        {/* Right: Refresh, Open Site, Publish & Delete Action Buttons */}
+        <div className="flex items-center space-x-2 shrink-0 justify-end ml-auto lg:ml-0">
           <button
             onClick={() => setIframeKey((k) => k + 1)}
             title="Refresh Live Preview"
-            className="p-2.5 bg-slate-900/80 hover:bg-slate-800 text-slate-300 rounded-xl border border-white/10 transition cursor-pointer shadow-md"
+            className="h-8.5 px-2.5 bg-slate-900/90 hover:bg-slate-800 text-slate-300 rounded-xl border border-white/10 hover:border-white/20 inline-flex items-center justify-center transition cursor-pointer shadow-md shrink-0"
           >
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className="w-4 h-4 shrink-0" />
           </button>
 
           <a
             href={getDirectPreviewUrl()}
             target="_blank"
             rel="noreferrer"
-            className="px-4 py-2 bg-slate-900/80 hover:bg-slate-800 text-cyan-300 border border-white/10 hover:border-cyan-500/40 rounded-xl text-xs font-bold font-mono flex items-center space-x-1.5 transition shadow-md"
+            className="h-8.5 px-3 bg-slate-900/90 hover:bg-slate-800 text-cyan-300 border border-white/10 hover:border-cyan-500/40 rounded-xl text-xs font-bold font-mono inline-flex items-center justify-center space-x-1.5 transition shadow-md whitespace-nowrap shrink-0"
           >
-            <ExternalLink className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Open Site</span>
+            <ExternalLink className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <span className="hidden sm:inline">Open Site</span>
           </a>
 
           <button
             onClick={handlePublishServerUpdate}
             disabled={publishing}
-            className="px-4 py-1.5 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-extrabold rounded-xl text-xs font-mono shadow-lg flex items-center space-x-1.5 transition cursor-pointer disabled:opacity-50"
+            className="h-8.5 px-3.5 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-extrabold rounded-xl text-xs font-mono shadow-lg shadow-cyan-500/20 inline-flex items-center justify-center space-x-1.5 transition transform hover:scale-[1.02] cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
           >
-            <Upload className={`w-3.5 h-3.5 ${publishing ? 'animate-spin' : ''}`} />
-            <span>{publishing ? 'Publishing...' : 'Publish & Server Update'}</span>
+            <Upload className={`w-3.5 h-3.5 shrink-0 ${publishing ? 'animate-spin' : ''}`} />
+            <span>{publishing ? 'Publishing...' : 'Publish & Update'}</span>
           </button>
 
           <button
             onClick={() => setShowDeleteModal(true)}
             title="Delete Project & Clear All Files, Database, PM2 and Email"
-            className="p-1.5 bg-rose-950/80 hover:bg-rose-900/90 text-rose-300 border border-rose-800 rounded-xl transition cursor-pointer flex items-center space-x-1 text-xs font-mono font-bold"
+            className="h-8.5 px-2.5 bg-rose-950/80 hover:bg-rose-900/90 text-rose-300 border border-rose-800/80 rounded-xl inline-flex items-center justify-center space-x-1 text-xs font-mono font-bold transition cursor-pointer shrink-0"
           >
-            <Trash2 className="w-4 h-4 text-rose-400" />
-            <span className="hidden md:inline">Delete Project</span>
+            <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />
+            <span className="hidden xl:inline">Delete</span>
           </button>
         </div>
       </header>
