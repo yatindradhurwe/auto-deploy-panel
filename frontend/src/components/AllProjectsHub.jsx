@@ -151,8 +151,12 @@ export default function AllProjectsHub({
             </span>
           </div>
 
-          <button className="px-3.5 py-1.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-extrabold rounded-xl shadow-md transition cursor-pointer">
-            Get Pro Plan
+          <button
+            onClick={() => onTabChange && onTabChange('deployments')}
+            className="px-3.5 py-1.5 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-extrabold rounded-xl shadow-lg flex items-center space-x-1.5 transition cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>1-Click Deploy</span>
           </button>
         </div>
       </header>
@@ -173,15 +177,25 @@ export default function AllProjectsHub({
             </p>
           </div>
 
-          {/* Filter Search Input */}
-          <div className="w-full md:w-72">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Name, project ID or domain..."
-              className="w-full px-4 py-2 bg-slate-950 border border-slate-800 rounded-2xl text-xs text-slate-100 placeholder-slate-500 font-mono focus:border-cyan-500 focus:outline-none shadow-inner"
-            />
+          <div className="flex items-center space-x-3 w-full md:w-auto">
+            {/* Filter Search Input */}
+            <div className="flex-1 md:w-64">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Name, project ID or domain..."
+                className="w-full px-4 py-2 bg-slate-950 border border-slate-800 rounded-2xl text-xs text-slate-100 placeholder-slate-500 font-mono focus:border-cyan-500 focus:outline-none shadow-inner"
+              />
+            </div>
+
+            <button
+              onClick={() => onTabChange && onTabChange('deployments')}
+              className="px-4 py-2 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-extrabold text-xs rounded-2xl shadow-lg flex items-center space-x-2 shrink-0 transition cursor-pointer"
+            >
+              <Zap className="w-4 h-4 text-amber-300" />
+              <span>+ New Project / 1-Click Deploy</span>
+            </button>
           </div>
         </div>
 

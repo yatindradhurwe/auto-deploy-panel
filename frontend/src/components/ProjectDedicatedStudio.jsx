@@ -51,7 +51,8 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
   const getIframeSrc = () => {
     const directUrl = getDirectPreviewUrl()
     if (useProxy) {
-      return `/api/studio/preview-proxy?url=${encodeURIComponent(directUrl)}`
+      const tok = getEffectiveToken()
+      return `/api/studio/preview-proxy?url=${encodeURIComponent(directUrl)}&token=${encodeURIComponent(tok)}`
     }
     return directUrl
   }
