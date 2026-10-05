@@ -54,14 +54,14 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
 
     const cleanName = (project.repoName || project.name || '').toLowerCase()
 
-    // 2. Known project domain mappings
-    if (cleanName.includes('auto-deploy') || cleanName.includes('autodeploy')) {
+    // 2. Known project domain mappings (Exact matches only)
+    if (cleanName === 'auto-deploy-panel' || cleanName === 'autodeploy') {
       return 'https://automate-deployment.yjtechnosoft.com'
     }
-    if (cleanName.includes('crm') || cleanName.includes('tip')) {
+    if (cleanName === 'tip-crm' || cleanName === 'crm-export') {
       return 'https://tip-crm.yjtechnosoft.com'
     }
-    if (cleanName.includes('litigation')) {
+    if (cleanName === 'litigation') {
       return 'https://litigation.yjtechnosoft.com'
     }
 

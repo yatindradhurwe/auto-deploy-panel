@@ -119,6 +119,28 @@ function getNginxDomainMap() {
   return { domainMapByPath, domainMapByPort }
 }
 
+function getProjectPort(dirPath) {
+  try {
+    const envPath = path.join(dirPath, '.env')
+    if (fs.existsSync(envPath)) {
+      const content = fs.readFileSync(envPath, 'utf8')
+      const match = content.match(/^PORT\s*=\s*(\d+)/m)
+      if (match) return match[1]
+    }
+  } catch (e) {}
+
+  try {
+    const pkgPath = path.join(dirPath, 'package.json')
+    if (fs.existsSync(pkgPath)) {
+      const content = fs.readFileSync(pkgPath, 'utf8')
+      const match = content.match(/-p\s+(\d+)|PORT=(\d+)|port\s+(\d+)/)
+      if (match) return match[1] || match[2] || match[3]
+    }
+  } catch (e) {}
+
+  return null
+}
+
 function discoverServerProjects(serverConfig = null) {
   if (serverConfig && serverConfig.ipAddress && serverConfig.ipAddress !== '187.127.165.128' && serverConfig.ipAddress !== '127.0.0.1') {
     const srvName = serverConfig.name || 'Server Node'
@@ -299,6 +321,13 @@ function discoverServerProjects(serverConfig = null) {
           projectDomain = dom
         }
       })
+    }
+
+    if (!projectDomain) {
+      const pPort = getProjectPort(dirPath) || meta.port
+      if (pPort && domainMapByPort.has(String(pPort))) {
+        projectDomain = domainMapByPort.get(String(pPort))
+      }
     }
 
     projects.push({

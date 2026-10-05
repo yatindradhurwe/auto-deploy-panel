@@ -78,9 +78,9 @@ export default function AllProjectsHub({
       if (d) return `https://${d}`
     }
     const name = (proj.repoName || proj.name || '').toLowerCase()
-    if (name.includes('auto-deploy') || name.includes('autodeploy')) return 'https://automate-deployment.yjtechnosoft.com'
-    if (name.includes('crm') || name.includes('tip')) return 'https://tip-crm.yjtechnosoft.com'
-    if (name.includes('litigation')) return 'https://litigation.yjtechnosoft.com'
+    if (name === 'auto-deploy-panel' || name === 'autodeploy') return 'https://automate-deployment.yjtechnosoft.com'
+    if (name === 'tip-crm' || name === 'crm-export') return 'https://tip-crm.yjtechnosoft.com'
+    if (name === 'litigation') return 'https://litigation.yjtechnosoft.com'
 
     const host = server ? (server.ipAddress || server.host) : '187.127.165.128'
     const port = proj.backendPort || proj.port || 5050
