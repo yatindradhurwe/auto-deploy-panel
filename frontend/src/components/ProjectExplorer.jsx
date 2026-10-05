@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Layers, Play, Square, RefreshCw, Cpu, Activity, Clock, Terminal, AlertCircle, CheckCircle2, ChevronRight, HardDrive, Code, DownloadCloud, X, Check, Globe, Trash2, Zap, Copy, GitBranch, Webhook, Settings, Plus, FolderGit2 } from 'lucide-react'
 import DeploymentWizard from './DeploymentWizard'
 
-export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio }) {
+export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio, onOpenProjectStudio }) {
   const [processes, setProcesses] = useState([])
   const [serverStats, setServerStats] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -560,11 +560,11 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
                     <span>Pull Live</span>
                   </button>
                   <button
-                    onClick={() => onOpenInStudio && onOpenInStudio(proj.name)}
-                    className="px-2.5 py-1 bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border border-cyan-800 rounded-xl text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                    onClick={() => onOpenProjectStudio ? onOpenProjectStudio(proj) : (onOpenInStudio && onOpenInStudio(proj.name))}
+                    className="px-3 py-1.5 bg-gradient-to-r from-cyan-500 via-indigo-500 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-slate-950 rounded-xl text-[11px] font-extrabold flex items-center gap-1.5 cursor-pointer shadow-md"
                   >
-                    <Code className="w-3 h-3 text-cyan-400" />
-                    <span>Studio</span>
+                    <Code className="w-3.5 h-3.5 text-slate-950 font-bold" />
+                    <span>Open Project Studio</span>
                   </button>
                 </div>
               </div>

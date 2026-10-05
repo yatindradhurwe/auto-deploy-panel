@@ -22,11 +22,13 @@ import TeamManager from './TeamManager'
 import AuditLogViewer from './AuditLogViewer'
 import AICopilotDrawer from './AICopilotDrawer'
 import AIAgentStudioDrawer from './AIAgentStudioDrawer'
+import ProjectDedicatedStudio from './ProjectDedicatedStudio'
 
 import DeploymentWizard from './DeploymentWizard'
 
 export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogout, apiBaseUrl = '' }) {
   const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'servers' | 'projects' | 'deployments' | 'databases' | 'code' | 'env' | 'domains' | 'logs' | 'email' | 'team' | 'billing' | 'settings'
+  const [activeWorkspaceProject, setActiveWorkspaceProject] = useState(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [servers, setServers] = useState([])
@@ -195,6 +197,17 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
       ]
     }
   ]
+
+  if (activeWorkspaceProject) {
+    return (
+      <ProjectDedicatedStudio
+        project={activeWorkspaceProject}
+        jwtToken={jwtToken}
+        activeServer={activeServer}
+        onBackToDashboard={() => setActiveWorkspaceProject(null)}
+      />
+    )
+  }
 
   return (
     <div className="min-h-screen bg-[#07090E] text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
@@ -453,10 +466,10 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
           )}
 
           {activeTab === 'servers' && <ServerManager jwtToken={jwtToken} activeServer={activeServer} onSelectServer={(id) => setActiveServerId(id)} apiBaseUrl={apiBaseUrl} />}
-          {activeTab === 'projects' && <ProjectExplorer jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'projects' && <ProjectExplorer jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} onOpenProjectStudio={(p) => setActiveWorkspaceProject(p)} />}
           {activeTab === 'deployments' && <DeploymentWizard jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} onDeploymentSuccess={() => fetchTenantServers()} />}
           {activeTab === 'databases' && <DatabaseManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
-          {activeTab === 'code' && <CodeStudio jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'code' && <CodeStudio jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} onOpenProjectStudio={(p) => setActiveWorkspaceProject(p)} />}
           {activeTab === 'env' && <EnvManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'domains' && <DomainSSLManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'cron' && <CronManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
