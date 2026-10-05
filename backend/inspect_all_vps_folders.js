@@ -11,10 +11,7 @@ const config = {
 }
 
 conn.on('ready', () => {
-  const cmd = `
-    echo "=== DIRECTORIES IN /var/www ==="
-    ls -d /var/www/*/
-  `
+  const cmd = `curl -s http://127.0.0.1:4040/api/studio/projects`
   
   conn.exec(cmd, (err, stream) => {
     if (err) {
@@ -23,7 +20,17 @@ conn.on('ready', () => {
       return
     }
     stream.on('close', () => conn.end())
-    stream.on('data', d => process.stdout.write(d.toString()))
+    stream.on('data', d => {
+      try {
+        const json = JSON.parse(d.toString())
+        console.log('Total returned projects:', json.projects ? json.projects.length : 0)
+        if (json.projects) {
+          json.projects.forEach(p => console.log(' ->', p.name, '|', p.path, '|', p.domain))
+        }
+      } catch (e) {
+        console.log(d.toString())
+      }
+    })
     stream.stderr.on('data', d => process.stderr.write(d.toString()))
   })
 })

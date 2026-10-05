@@ -678,52 +678,29 @@ router.all('/projects', (req, res) => {
     const reqServerId = req.headers['x-server-id'] || req.query.serverId || req.body?.serverId
     const targetServer = req.tenant?.server || (reqServerId ? getServerById(reqServerId) : null)
 
-    let orgProjects = []
+    let orgProjects = getProjectsByOrgId(orgId) || []
 
-    if (targetServer && targetServer.ipAddress && targetServer.ipAddress !== '187.127.165.128' && targetServer.ipAddress !== '127.0.0.1') {
-      orgProjects = getProjectsByOrgId(orgId).filter(p => p.serverId === targetServer.id || p.serverId === targetServer.ipAddress)
-      const discovered = discoverServerProjects(targetServer)
-      discovered.forEach(dp => {
-        if (!orgProjects.some(p => p.id === dp.id || p.repoName === dp.repoName)) {
-          orgProjects.push({
-            ...dp,
-            organizationId: orgId,
-            serverId: targetServer.id
-          })
+    const discovered = discoverServerProjects(targetServer)
+    const pathSet = new Set(orgProjects.map(p => p.path ? path.resolve(p.path).replace(/\\/g, '/').toLowerCase() : ''))
+
+    discovered.forEach(dp => {
+      const normP = dp.path ? path.resolve(dp.path).replace(/\\/g, '/').toLowerCase() : ''
+      if (!pathSet.has(normP)) {
+        orgProjects.push({
+          ...dp,
+          organizationId: orgId,
+          serverId: targetServer?.id || 'srv-001'
+        })
+        pathSet.add(normP)
+      } else {
+        const existing = orgProjects.find(p => p.path && path.resolve(p.path).replace(/\\/g, '/').toLowerCase() === normP)
+        if (existing) {
+          if (dp.domain) existing.domain = dp.domain
+          if (dp.type) existing.type = dp.type
+          if (dp.status) existing.status = dp.status
         }
-      })
-    } else if (reqServerId && reqServerId !== 'srv-001' && reqServerId !== 'default') {
-      const srvObj = getServerById(reqServerId)
-      orgProjects = getProjectsByOrgId(orgId).filter(p => p.serverId === reqServerId || (srvObj && p.serverId === srvObj.ipAddress))
-      if (srvObj) {
-        const discovered = discoverServerProjects(srvObj)
-        discovered.forEach(dp => {
-          if (!orgProjects.some(p => p.id === dp.id || p.repoName === dp.repoName)) {
-            orgProjects.push({
-              ...dp,
-              organizationId: orgId,
-              serverId: srvObj.id
-            })
-          }
-        })
       }
-    } else {
-      orgProjects = getProjectsByOrgId(orgId)
-      if (isSuper || orgProjects.length === 0) {
-        const discovered = discoverServerProjects()
-        const pathSet = new Set(orgProjects.map(p => p.path ? path.resolve(p.path).replace(/\\/g, '/').toLowerCase() : ''))
-        discovered.forEach(dp => {
-          const normP = dp.path ? path.resolve(dp.path).replace(/\\/g, '/').toLowerCase() : ''
-          if (!pathSet.has(normP)) {
-            orgProjects.push({
-              ...dp,
-              organizationId: orgId,
-              serverId: 'srv-001'
-            })
-          }
-        })
-      }
-    }
+    })
 
     res.json({ success: true, projects: orgProjects })
   } catch (err) {
