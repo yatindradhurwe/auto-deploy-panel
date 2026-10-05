@@ -32,7 +32,7 @@ import DeploymentWizard from './DeploymentWizard'
 export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogout, apiBaseUrl = '' }) {
   const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'servers' | 'projects' | 'deployments' | 'databases' | 'code' | 'env' | 'domains' | 'logs' | 'email' | 'team' | 'billing' | 'settings'
   const [activeWorkspaceProject, setActiveWorkspaceProject] = useState(null)
-  const [viewStep, setViewStep] = useState('hub') // 'hub' | 'servers' | 'classic'
+  const [viewStep, setViewStep] = useState('servers') // Default home page after login: 'servers' ("Connect & Manage Your Server Infrastructure")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [servers, setServers] = useState([])
@@ -351,7 +351,13 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
         currentUser={currentUser}
         onOpenProjectStudio={(p) => setActiveWorkspaceProject(p)}
         onChangeServerNode={() => setViewStep('servers')}
-        onTabChange={(tabId) => setActiveTab(tabId)}
+        onTabChange={(tabId) => {
+          if (tabId === 'servers') {
+            setViewStep('servers')
+          } else {
+            setActiveTab(tabId)
+          }
+        }}
         activeHubTab={activeTab}
       />
     )
