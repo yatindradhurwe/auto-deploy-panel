@@ -3,7 +3,7 @@ import {
   ArrowLeft, ExternalLink, RefreshCw, Send, Sparkles, Bot, Code, Globe,
   Smartphone, Monitor, Play, CheckCircle2, ShieldAlert, Cpu, Database, Key,
   Activity, Layers, FileCode, Plus, Check, CheckCheck, Upload, GitCommit,
-  Terminal, ChevronRight, X, AlertCircle, Eye, Sliders, Shield, Zap, FolderGit2, Trash2
+  Terminal, ChevronRight, X, AlertCircle, Eye, Sliders, Shield, Zap, FolderGit2, Trash2, Settings
 } from 'lucide-react'
 import CodeStudio from './CodeStudio'
 import DatabaseManager from './DatabaseManager'
@@ -11,10 +11,12 @@ import EnvManager from './EnvManager'
 import LogsTelemetryManager from './LogsTelemetryManager'
 import GitSyncWorkspace from './GitSyncWorkspace'
 import DeleteProjectModal from './DeleteProjectModal'
+import ProjectSettingsModal from './ProjectSettingsModal'
 
 export default function ProjectDedicatedStudio({ project, jwtToken, activeServer, onBackToDashboard }) {
   const [activeCanvasTab, setActiveCanvasTab] = useState('preview') // 'preview' | 'code' | 'database' | 'env' | 'logs'
   const [deviceMode, setDeviceMode] = useState('desktop') // 'desktop' | 'mobile'
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
 
   // AI Agent Left Panel State
   const [provider, setProvider] = useState('claude') // 'claude' | 'gemini' | 'openai' | 'grok'
@@ -383,7 +385,7 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
           )}
         </div>
 
-        {/* Right: Refresh, Open Site, Publish & Delete Action Buttons */}
+        {/* Right: Refresh, Settings, Open Site, Publish & Delete Action Buttons */}
         <div className="flex items-center space-x-2 shrink-0 justify-end ml-auto lg:ml-0">
           <button
             onClick={() => setIframeKey((k) => k + 1)}
@@ -391,6 +393,15 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
             className="h-8.5 px-2.5 bg-slate-900/90 hover:bg-slate-800 text-slate-300 rounded-xl border border-white/10 hover:border-white/20 inline-flex items-center justify-center transition cursor-pointer shadow-md shrink-0"
           >
             <RefreshCw className="w-4 h-4 shrink-0" />
+          </button>
+
+          <button
+            onClick={() => setShowSettingsModal(true)}
+            title="Project settings"
+            className="h-8.5 px-3 bg-slate-900/90 hover:bg-slate-800 text-cyan-300 border border-white/10 hover:border-cyan-500/40 rounded-xl text-xs font-mono font-bold inline-flex items-center justify-center space-x-1.5 transition cursor-pointer shadow-md shrink-0"
+          >
+            <Settings className="w-4 h-4 text-cyan-400 shrink-0" />
+            <span className="hidden md:inline">Project settings</span>
           </button>
 
           <a
@@ -712,6 +723,15 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
         jwtToken={jwtToken}
         onClose={() => setShowDeleteModal(false)}
         onSuccess={() => onBackToDashboard && onBackToDashboard()}
+      />
+
+      <ProjectSettingsModal
+        isOpen={showSettingsModal}
+        project={project}
+        onClose={() => setShowSettingsModal(false)}
+        onSaveProjectSettings={(updatedSettings) => {
+          console.log('Project Settings Saved:', updatedSettings)
+        }}
       />
     </div>
   )
