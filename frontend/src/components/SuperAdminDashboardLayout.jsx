@@ -2,13 +2,13 @@ import React, { useState, useEffect } from 'react'
 import {
   Crown, Users, Building, Server, RefreshCw, Zap, ShieldAlert, BarChart3,
   LogOut, Layers, Key, Activity, Clock, ShieldCheck, CreditCard, ChevronRight,
-  Eye, AlertTriangle, ArrowLeft, Menu, X, Settings, Tags
+  Eye, AlertTriangle, ArrowLeft, Menu, X, Settings, Tags, LifeBuoy
 } from 'lucide-react'
 import SuperAdminPortal from './SuperAdminPortal'
 import { AdminIdempotencyPanel } from './AdminIdempotencyPanel'
 
 export default function SuperAdminDashboardLayout({ currentUser, jwtToken, onLogout, onExitImpersonation, apiBaseUrl = '' }) {
-  const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'users' | 'organizations' | 'servers' | 'subscriptions' | 'plans' | 'audit-logs' | 'settings' | 'idempotency'
+  const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'users' | 'organizations' | 'servers' | 'subscriptions' | 'support' | 'plans' | 'audit-logs' | 'settings' | 'idempotency'
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [impersonatingOrg, setImpersonatingOrg] = useState(null)
@@ -34,9 +34,10 @@ export default function SuperAdminDashboardLayout({ currentUser, jwtToken, onLog
       ]
     },
     {
-      title: 'BUSINESS & REVENUE',
+      title: 'BUSINESS & SUPPORT',
       items: [
         { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
+        { id: 'support', label: 'Support Tickets', icon: LifeBuoy },
         { id: 'plans', label: 'Plans & Pricing', icon: Tags }
       ]
     },
@@ -90,7 +91,7 @@ export default function SuperAdminDashboardLayout({ currentUser, jwtToken, onLog
               className="text-xs bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 px-2.5 sm:px-3 py-1.5 rounded-xl font-bold flex items-center space-x-1.5 shrink-0"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Customer Dashboard</span>
+              <span className="hidden sm:inline">My Server Panel</span>
             </a>
 
             <div className="flex items-center space-x-1.5 sm:space-x-2 bg-slate-900 border border-purple-500/30 rounded-xl px-2.5 py-1 text-xs shrink-0">

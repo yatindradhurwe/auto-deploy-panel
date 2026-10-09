@@ -153,7 +153,7 @@ router.post('/login', (req, res) => {
       return res.status(403).json({ error: `Your account has been suspended.${user.suspendedReason ? ` Reason: ${user.suspendedReason}` : ''} Contact support for help.`, code: 'ACCOUNT_SUSPENDED' })
     }
     const platform = getPlatformSettings()
-    if (platform.maintenanceMode && getPlatformRole(user) !== 'admin') {
+    if (platform.maintenanceMode && getPlatformRole(user) !== 'superadmin') {
       return res.status(503).json({ error: platform.maintenanceMessage, code: 'MAINTENANCE_MODE' })
     }
 

@@ -250,9 +250,6 @@ export default function SaaSAuthPages({ onAuthSuccess, apiBaseUrl = '', platform
               </button>
             </form>
 
-            <div className="mt-8 pt-6 border-t border-slate-800/80 text-center text-xs text-slate-400">
-              Default Admin Email: <span className="text-cyan-400 font-mono">admin@tipcrm.com</span> | Password: <span className="text-cyan-400 font-mono">admin123</span>
-            </div>
           </div>
         )}
 

@@ -34,5 +34,5 @@ export const JWT_SECRET = resolveJwtSecret()
  * Only trusts fields from a signature-verified JWT.
  */
 export function isSystemAdminUser(user) {
-  return !!user && (user.id === 'admin-001' || user.role === 'admin')
+  return !!user && (user.id === 'admin-001' || user.role === 'superadmin')
 }

@@ -208,6 +208,16 @@ export function readDb() {
     if (!parsed.auditLogs) parsed.auditLogs = INITIAL_DB.auditLogs
     if (!parsed.idempotencyKeys) parsed.idempotencyKeys = {}
     if (!parsed.webhookEvents) parsed.webhookEvents = {}
+    if (!parsed.supportTickets) parsed.supportTickets = []
+    // Platform roles were 'admin' (super admin) / 'user' (customer); they are now 'superadmin' / 'admin'.
+    // Re-applied on every read until the next write persists the marker, so it stays idempotent.
+    if (!parsed.platformRolesMigratedAt) {
+      for (const user of Object.values(parsed.users || {})) {
+        if (user.platformRole === 'admin') user.platformRole = 'superadmin'
+        else if (user.platformRole === 'user') user.platformRole = 'admin'
+      }
+      parsed.platformRolesMigratedAt = new Date().toISOString()
+    }
     return parsed
   } catch (e) {
     // Preserve the unreadable file so no data is silently destroyed, then start from the initial schema

@@ -18,6 +18,7 @@ import {
 } from '../services/db.service.js'
 import {
   PRIMARY_ADMIN_ID,
+  PLATFORM_ROLES,
   getPlatformRole,
   sanitizeUser,
   generateTempPassword,
@@ -36,6 +37,7 @@ import {
   deletePlan,
   setOrganizationMemberRole
 } from '../services/admin.service.js'
+import { listTickets, getTicket, replyToTicket, updateTicket } from '../services/support.service.js'
 
 const router = express.Router()
 
@@ -113,12 +115,12 @@ router.get('/users/:id', handle((req) => {
  * Creates an account. Without a password, a temporary one is generated and returned once.
  */
 router.post('/users', handle((req) => {
-  const { fullName, email, password, platformRole = 'user', createOrganization: withOrg = true, organizationName, planId = 'FREE' } = req.body || {}
+  const { fullName, email, password, platformRole = 'admin', createOrganization: withOrg = true, organizationName, planId = 'FREE' } = req.body || {}
   const cleanEmail = String(email || '').trim().toLowerCase()
   if (!EMAIL_REGEX.test(cleanEmail)) throw httpError(400, 'A valid email address is required.')
   if (getUserByEmail(cleanEmail)) throw httpError(400, 'An account with this email already exists.')
   if (password && String(password).length < 8) throw httpError(400, 'Password must be at least 8 characters.')
-  if (!['user', 'admin'].includes(platformRole)) throw httpError(400, 'platformRole must be "user" or "admin".')
+  if (!PLATFORM_ROLES.includes(platformRole)) throw httpError(400, 'platformRole must be "admin" or "superadmin".')
   if (withOrg && !getAllPlans()[planId]) throw httpError(400, `Plan '${planId}' does not exist.`)
 
   const tempPassword = password ? null : generateTempPassword()
@@ -166,8 +168,8 @@ router.patch('/users/:id', handle((req) => {
     changes.email = { from: user.email, to: cleanEmail }
   }
   if (platformRole !== undefined && platformRole !== getPlatformRole(user)) {
-    if (!['user', 'admin'].includes(platformRole)) throw httpError(400, 'platformRole must be "user" or "admin".')
-    if (platformRole === 'user') assertNotProtected(req, user, 'demoted')
+    if (!PLATFORM_ROLES.includes(platformRole)) throw httpError(400, 'platformRole must be "admin" or "superadmin".')
+    if (platformRole === 'admin') assertNotProtected(req, user, 'demoted')
     updates.platformRole = platformRole
     changes.platformRole = { from: getPlatformRole(user), to: platformRole }
   }
@@ -221,11 +223,11 @@ router.post('/users/:id/revoke-sessions', handle((req) => {
  */
 router.post('/users/:id/impersonate', handle((req) => {
   const user = requireUser(req.params.id)
-  if (getPlatformRole(user) === 'admin') throw httpError(400, 'Admin accounts cannot be impersonated.')
+  if (getPlatformRole(user) === 'superadmin') throw httpError(400, 'Super admin accounts cannot be impersonated.')
   if (user.status === 'suspended') throw httpError(400, 'Reactivate this account before impersonating it.')
   const token = signSessionToken(user, { expiresIn: '1h', impersonatedBy: req.user.id })
   audit(req, 'ADMIN_USER_IMPERSONATED', 'user', user.id, { email: user.email })
-  return { success: true, token, user: { ...sanitizeUser(user), role: 'user', impersonatedBy: req.user.id } }
+  return { success: true, token, user: { ...sanitizeUser(user), role: 'admin', impersonatedBy: req.user.id } }
 }))
 
 router.delete('/users/:id', handle((req) => {
@@ -378,6 +380,30 @@ router.put('/settings', handle((req) => {
   const changed = Object.fromEntries(Object.keys(settings).filter((k) => k !== 'updatedAt' && before[k] !== settings[k]).map((k) => [k, { from: before[k], to: settings[k] }]))
   audit(req, 'ADMIN_SETTINGS_UPDATED', 'platform', 'settings', changed)
   return { success: true, settings }
+}))
+
+// ============================================================================
+// Support desk
+// ============================================================================
+
+router.get('/support/tickets', handle((req) => ({
+  success: true,
+  tickets: listTickets({ status: req.query.status || '', search: req.query.search || '' })
+})))
+
+router.get('/support/tickets/:id', handle((req) => ({ success: true, ticket: getTicket(req.params.id) })))
+
+router.post('/support/tickets/:id/replies', handle((req) => {
+  const ticket = replyToTicket(req.params.id, { user: req.user, body: (req.body || {}).body, asStaff: true })
+  audit(req, 'ADMIN_SUPPORT_REPLIED', 'support_ticket', ticket.id, { number: ticket.number }, ticket.organizationId)
+  return { success: true, ticket }
+}))
+
+router.patch('/support/tickets/:id', handle((req) => {
+  const { status, priority } = req.body || {}
+  const { ticket, changes } = updateTicket(req.params.id, { status, priority })
+  audit(req, 'ADMIN_SUPPORT_TICKET_UPDATED', 'support_ticket', ticket.id, { number: ticket.number, ...changes }, ticket.organizationId)
+  return { success: true, ticket }
 }))
 
 // ============================================================================

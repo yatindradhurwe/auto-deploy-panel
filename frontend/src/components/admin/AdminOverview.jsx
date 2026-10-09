@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Users, Building, Server, CreditCard, UserX, UserPlus, Activity, FolderGit2, DollarSign, ShieldCheck, Megaphone, Wrench } from 'lucide-react'
+import { Users, Building, Server, CreditCard, UserX, UserPlus, Activity, FolderGit2, DollarSign, ShieldCheck, Megaphone, Wrench, LifeBuoy } from 'lucide-react'
 import { adminApi, timeAgo } from './adminApi'
 import { Card, StatCard, Badge, StatusBadge, Loading, Alert, EmptyState, Button, useAdminData } from './AdminUI'
 
@@ -103,13 +103,13 @@ export default function AdminOverview({ apiBaseUrl, onNavigate }) {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <StatCard label="Total users" value={m.totalUsers} hint={`${m.newUsersLast7Days} new this week`} icon={Users} />
-        <StatCard label="Active last 7 days" value={m.activeLast7Days} hint={`${m.platformAdmins} platform admin${m.platformAdmins === 1 ? '' : 's'}`} icon={Activity} tone="text-emerald-400" />
+        <StatCard label="Active last 7 days" value={m.activeLast7Days} hint={`${m.platformAdmins} super admin${m.platformAdmins === 1 ? '' : 's'}`} icon={Activity} tone="text-emerald-400" />
         <StatCard label="Organizations" value={m.totalOrganizations} hint={m.suspendedOrganizations ? `${m.suspendedOrganizations} suspended` : 'All active'} icon={Building} tone="text-purple-400" />
         <StatCard label="Est. monthly revenue" value={`$${m.estimatedMrr.toLocaleString()}`} hint={`${m.activeSubscriptions} active subscriptions · list price`} icon={DollarSign} tone="text-amber-400" />
         <StatCard label="Suspended users" value={m.suspendedUsers} icon={UserX} tone="text-rose-400" />
         <StatCard label="Servers" value={m.totalServers} icon={Server} tone="text-cyan-400" />
         <StatCard label="Projects" value={m.totalProjects} icon={FolderGit2} tone="text-cyan-400" />
-        <StatCard label="Subscriptions" value={m.totalSubscriptions} icon={CreditCard} tone="text-purple-400" />
+        <StatCard label="Open support tickets" value={m.openSupportTickets || 0} hint={`${m.totalSubscriptions} subscriptions`} icon={LifeBuoy} tone="text-amber-400" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -131,7 +131,7 @@ export default function AdminOverview({ apiBaseUrl, onNavigate }) {
                   <div className="text-slate-500 truncate">{u.email}</div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {u.platformRole === 'admin' && <Badge tone="purple">Admin</Badge>}
+                  {u.platformRole === 'superadmin' && <Badge tone="purple">Super admin</Badge>}
                   <StatusBadge status={u.status} />
                   <span className="text-slate-500 hidden sm:inline">{timeAgo(u.createdAt)}</span>
                 </div>

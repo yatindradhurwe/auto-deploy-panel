@@ -9,6 +9,7 @@ import billingRoutes from './routes/billing.routes.js'
 import agentRoutes from './routes/agent.routes.js'
 import teamRoutes from './routes/team.routes.js'
 import adminRoutes from './routes/admin.routes.js'
+import supportRoutes from './routes/support.routes.js'
 import { authenticateToken, requireSystemAdmin } from './middleware/auth.middleware.js'
 import { initAutoUpdateService, executeProjectAutoUpdate } from './services/autoupdate.service.js'
 import { initMailService } from './services/mail.service.js'
@@ -99,6 +100,7 @@ app.use('/api/agent', requireIdempotency(), agentRoutes)
 app.use('/api/billing', requireIdempotency(), billingRoutes)
 app.use('/api/team', teamRoutes)
 app.use('/api/admin', adminRoutes)
+app.use('/api/support', supportRoutes)
 
 // Protected Deployment & Studio Routes (Requires valid JWT Token & Tenant Context)
 app.use('/api/deploy', authenticateToken, requireTenant, requireIdempotency(), deployRoutes)

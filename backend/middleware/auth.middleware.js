@@ -55,7 +55,7 @@ export const authenticateToken = (req, res, next) => {
 
   if (decoded.impersonatedBy) {
     const admin = getUserById(decoded.impersonatedBy)
-    if (!admin || getPlatformRole(admin) !== 'admin' || getUserStatus(admin) === 'suspended') {
+    if (!admin || getPlatformRole(admin) !== 'superadmin' || getUserStatus(admin) === 'suspended') {
       return res.status(401).json({ error: 'Impersonation session is no longer valid.', code: 'SESSION_REVOKED' })
     }
   }
@@ -68,7 +68,7 @@ export const authenticateToken = (req, res, next) => {
   }
 
   const settings = getPlatformSettings()
-  if (settings.maintenanceMode && req.user.role !== 'admin') {
+  if (settings.maintenanceMode && req.user.role !== 'superadmin') {
     return res.status(503).json({ error: settings.maintenanceMessage, code: 'MAINTENANCE_MODE' })
   }
 

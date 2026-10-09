@@ -438,13 +438,13 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
               <span className="hidden sm:inline">AI Copilot</span>
             </button>
 
-            {currentUser?.role === 'admin' && (
+            {currentUser?.role === 'superadmin' && !currentUser?.impersonatedBy && (
               <a
                 href="/admin/dashboard"
                 className="text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 px-2.5 sm:px-3 py-1.5 rounded-xl font-bold flex items-center space-x-1 shrink-0"
               >
                 <Crown className="w-3.5 h-3.5 text-amber-400" />
-                <span className="hidden md:inline">Super Admin Portal</span>
+                <span className="hidden md:inline">Super Admin Console</span>
               </a>
             )}
 

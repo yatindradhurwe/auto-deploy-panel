@@ -7,7 +7,7 @@ import {
 } from './AdminUI'
 
 function CreateUserModal({ open, onClose, onCreated, plans, apiBaseUrl }) {
-  const empty = { fullName: '', email: '', password: '', platformRole: 'user', createOrganization: true, organizationName: '', planId: 'FREE' }
+  const empty = { fullName: '', email: '', password: '', platformRole: 'admin', createOrganization: true, organizationName: '', planId: 'FREE' }
   const [form, setForm] = useState(empty)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -67,8 +67,8 @@ function CreateUserModal({ open, onClose, onCreated, plans, apiBaseUrl }) {
           </Field>
           <Field label="Platform role">
             <Select value={form.platformRole} onChange={set('platformRole')} className="w-full" options={[
-              { value: 'user', label: 'Customer — uses the panel for their own organization' },
-              { value: 'admin', label: 'Platform admin — full access to this console and the server' }
+              { value: 'admin', label: 'Admin — manages their own servers and projects in the panel' },
+              { value: 'superadmin', label: 'Super admin — full access to this console and the server' }
             ]} />
           </Field>
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
@@ -152,7 +152,7 @@ function UserDetailModal({ userId, onClose, onChanged, currentUser, apiBaseUrl }
         <div className="space-y-5">
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={user.status} />
-            {user.platformRole === 'admin' ? <Badge tone="purple"><Crown className="w-3 h-3 mr-1" />Platform admin</Badge> : <Badge>Customer</Badge>}
+            {user.platformRole === 'superadmin' ? <Badge tone="purple"><Crown className="w-3 h-3 mr-1" />Super admin</Badge> : <Badge>Admin</Badge>}
             {isPrimary && <Badge tone="amber">Primary admin</Badge>}
             {isSelf && <Badge tone="cyan">You</Badge>}
             {user.hasSshCredentials && <Badge tone="slate">SSH credentials saved</Badge>}
@@ -197,7 +197,7 @@ function UserDetailModal({ userId, onClose, onChanged, currentUser, apiBaseUrl }
                   <Pencil className="w-3.5 h-3.5" />Edit profile
                 </Button>
               )}
-              {user.platformRole !== 'admin' && user.status === 'active' && (
+              {user.platformRole !== 'superadmin' && user.status === 'active' && (
                 <Button size="sm" loading={busy === 'impersonate'} onClick={impersonate}>
                   <Eye className="w-3.5 h-3.5" />Log in as user
                 </Button>
@@ -213,22 +213,22 @@ function UserDetailModal({ userId, onClose, onChanged, currentUser, apiBaseUrl }
               <Button size="sm" loading={busy === 'revoke'} onClick={() => run('revoke', () => post('/revoke-sessions')).catch(() => {})}>
                 <LogOut className="w-3.5 h-3.5" />Sign out everywhere
               </Button>
-              {!protectedAccount && (user.platformRole === 'admin' ? (
+              {!protectedAccount && (user.platformRole === 'superadmin' ? (
                 <Button size="sm" variant="warning" onClick={() => setConfirm({
-                  title: 'Remove admin access?', message: `${user.email} will lose access to this console and to server tools immediately.`,
-                  confirmLabel: 'Remove admin', variant: 'warning',
-                  onConfirm: () => run('role', () => adminApi(`/users/${user.id}`, { method: 'PATCH', body: { platformRole: 'user' }, apiBaseUrl }), 'Admin access removed.')
+                  title: 'Remove super admin access?', message: `${user.email} will lose access to this console and to server tools immediately and become a regular admin.`,
+                  confirmLabel: 'Remove super admin', variant: 'warning',
+                  onConfirm: () => run('role', () => adminApi(`/users/${user.id}`, { method: 'PATCH', body: { platformRole: 'admin' }, apiBaseUrl }), 'Super admin access removed.')
                 })}>
-                  <Crown className="w-3.5 h-3.5" />Remove admin
+                  <Crown className="w-3.5 h-3.5" />Remove super admin
                 </Button>
               ) : (
                 <Button size="sm" variant="warning" onClick={() => setConfirm({
-                  title: 'Make platform admin?',
+                  title: 'Make super admin?',
                   message: `${user.email} will get full control of this platform, including the root terminal, files and databases on the server. Only grant this to people you fully trust.`,
-                  confirmLabel: 'Make admin', variant: 'warning', requireText: 'MAKE ADMIN',
-                  onConfirm: () => run('role', () => adminApi(`/users/${user.id}`, { method: 'PATCH', body: { platformRole: 'admin' }, apiBaseUrl }), 'User is now a platform admin.')
+                  confirmLabel: 'Make super admin', variant: 'warning', requireText: 'MAKE SUPER ADMIN',
+                  onConfirm: () => run('role', () => adminApi(`/users/${user.id}`, { method: 'PATCH', body: { platformRole: 'superadmin' }, apiBaseUrl }), 'User is now a super admin.')
                 })}>
-                  <Crown className="w-3.5 h-3.5" />Make admin
+                  <Crown className="w-3.5 h-3.5" />Make super admin
                 </Button>
               ))}
               {!protectedAccount && (user.status === 'suspended' ? (
@@ -323,7 +323,7 @@ export default function AdminUsers({ apiBaseUrl, currentUser }) {
         <>
           <SearchInput value={search} onChange={setSearch} placeholder="Search name, email or ID" />
           <Select value={status} onChange={setStatus} options={[{ value: '', label: 'All statuses' }, { value: 'active', label: 'Active' }, { value: 'suspended', label: 'Suspended' }]} />
-          <Select value={role} onChange={setRole} options={[{ value: '', label: 'All roles' }, { value: 'user', label: 'Customers' }, { value: 'admin', label: 'Admins' }]} />
+          <Select value={role} onChange={setRole} options={[{ value: '', label: 'All roles' }, { value: 'admin', label: 'Admins' }, { value: 'superadmin', label: 'Super admins' }]} />
           <Button variant="primary" onClick={() => setCreating(true)}><UserPlus className="w-3.5 h-3.5" />Create user</Button>
         </>
       }
@@ -349,7 +349,7 @@ export default function AdminUsers({ apiBaseUrl, currentUser }) {
                     <div className="font-bold text-white">{u.fullName || '—'}{u.id === currentUser?.id && <span className="text-cyan-400 font-normal"> (you)</span>}</div>
                     <div className="text-slate-500">{u.email}</div>
                   </td>
-                  <td className="px-3 py-2.5">{u.platformRole === 'admin' ? <Badge tone="purple">Admin</Badge> : <Badge>Customer</Badge>}</td>
+                  <td className="px-3 py-2.5">{u.platformRole === 'superadmin' ? <Badge tone="purple">Super admin</Badge> : <Badge>Admin</Badge>}</td>
                   <td className="px-3 py-2.5"><StatusBadge status={u.status} /></td>
                   <td className="px-3 py-2.5 tabular-nums">{u.organizationCount}</td>
                   <td className="px-3 py-2.5 text-slate-400">{timeAgo(u.lastLoginAt)}</td>

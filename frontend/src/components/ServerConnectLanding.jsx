@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import TeamManager from './TeamManager'
+import SupportDesk from './SupportDesk'
 import {
   Server, Cpu, HardDrive, Zap, CheckCircle2, ShieldCheck, Plus, ArrowRight,
   Activity, Globe, Lock, RefreshCw, Key, Monitor, Terminal, Layers,
@@ -13,10 +14,6 @@ export default function ServerConnectLanding({ servers, loadingServers, onSelect
   const [billingCycle, setBillingCycle] = useState('monthly') // 'monthly' | 'annual'
   const [selectedPlanForBuy, setSelectedPlanForBuy] = useState(null)
   const [paymentSuccessMsg, setPaymentSuccessMsg] = useState(null)
-
-  // Support Ticket State
-  const [ticketForm, setTicketForm] = useState({ category: 'Server Connectivity', priority: 'Medium', subject: '', message: '' })
-  const [ticketSubmitted, setTicketSubmitted] = useState(false)
 
   // Server Connect Form State
   const [form, setForm] = useState({
@@ -38,16 +35,6 @@ export default function ServerConnectLanding({ servers, loadingServers, onSelect
       return
     }
     onConnectServer(form, () => setShowConnectModal(false))
-  }
-
-  const handleTicketSubmit = (e) => {
-    e.preventDefault()
-    if (!ticketForm.subject || !ticketForm.message) return
-    setTicketSubmitted(true)
-    setTimeout(() => {
-      setTicketSubmitted(false)
-      setTicketForm({ category: 'Server Connectivity', priority: 'Medium', subject: '', message: '' })
-    }, 4000)
   }
 
   const handleConfirmBuyPlan = (plan) => {
@@ -605,91 +592,7 @@ export default function ServerConnectLanding({ servers, loadingServers, onSelect
               </div>
             </div>
 
-            {/* Support Ticket Submission Form */}
-            <div className="bg-[#0B0F19]/90 border border-white/10 rounded-3xl p-6 space-y-6 backdrop-blur-xl shadow-2xl font-mono">
-              <div className="flex items-center justify-between border-b border-white/10 pb-4">
-                <div className="flex items-center space-x-2">
-                  <HelpCircle className="w-5 h-5 text-cyan-400" />
-                  <h3 className="text-base font-extrabold text-white">Create Support Ticket</h3>
-                </div>
-                <span className="text-xs text-slate-400">Average Response Time: &lt; 15 mins</span>
-              </div>
-
-              {ticketSubmitted ? (
-                <div className="p-6 bg-emerald-950/80 border border-emerald-500/40 rounded-2xl text-center space-y-2 text-emerald-300">
-                  <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto" />
-                  <h4 className="font-bold text-base text-white">Support Ticket Submitted Successfully!</h4>
-                  <p className="text-xs">Ticket ID: #TK-{Math.floor(100000 + Math.random() * 900000)}. Our engineers have been notified and will reply shortly.</p>
-                </div>
-              ) : (
-                <form onSubmit={handleTicketSubmit} className="space-y-4 text-xs">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="text-slate-300 font-bold block">Issue Category</label>
-                      <select
-                        value={ticketForm.category}
-                        onChange={(e) => setTicketForm({ ...ticketForm, category: e.target.value })}
-                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-500"
-                      >
-                        <option value="Server Connectivity">Server Connectivity / SSH Error</option>
-                        <option value="Deployment Failure">Deployment / Build Failure</option>
-                        <option value="PM2 Process">PM2 Process & Domain Binding</option>
-                        <option value="Database Import">MySQL / PostgreSQL Database Import</option>
-                        <option value="Billing Plan">Billing & Subscription Inquiry</option>
-                      </select>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-slate-300 font-bold block">Priority Level</label>
-                      <select
-                        value={ticketForm.priority}
-                        onChange={(e) => setTicketForm({ ...ticketForm, priority: e.target.value })}
-                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-500"
-                      >
-                        <option value="Low">Low - General Inquiry</option>
-                        <option value="Medium">Medium - Standard Issue</option>
-                        <option value="High">High - Production Degradation</option>
-                        <option value="Urgent">Urgent - Server Down</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-slate-300 font-bold block">Subject / Issue Summary *</label>
-                    <input
-                      type="text"
-                      required
-                      value={ticketForm.subject}
-                      onChange={(e) => setTicketForm({ ...ticketForm, subject: e.target.value })}
-                      placeholder="e.g. Nginx 503 error on domain deployment"
-                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-500"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-slate-300 font-bold block">Detailed Description / Error Logs *</label>
-                    <textarea
-                      required
-                      rows={4}
-                      value={ticketForm.message}
-                      onChange={(e) => setTicketForm({ ...ticketForm, message: e.target.value })}
-                      placeholder="Paste error logs, server IP, or step-by-step description of the problem..."
-                      className="w-full p-3.5 bg-slate-950 border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-500"
-                    ></textarea>
-                  </div>
-
-                  <div className="pt-2 flex justify-end">
-                    <button
-                      type="submit"
-                      className="px-6 py-2.5 bg-gradient-to-r from-emerald-500 via-teal-600 to-emerald-700 hover:from-emerald-400 hover:to-teal-500 text-white font-extrabold rounded-xl shadow-lg shadow-emerald-500/20 transition cursor-pointer flex items-center space-x-2"
-                    >
-                      <MessageSquare className="w-4 h-4" />
-                      <span>Submit Support Ticket</span>
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
+            <SupportDesk />
           </div>
         )}
 

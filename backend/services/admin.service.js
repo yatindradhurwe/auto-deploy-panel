@@ -12,13 +12,17 @@ const DEFAULT_PLATFORM_SETTINGS = {
 }
 
 /**
- * Platform role of a user: 'admin' (platform super admin) or 'user'.
- * The primary admin account is always an admin.
+ * Platform role of a user:
+ *  - 'superadmin': runs the platform (users, subscriptions, support, plans, settings, audit)
+ *  - 'admin': a customer who manages their own servers and projects in the panel
+ * The primary account is always a super admin.
  */
+export const PLATFORM_ROLES = ['superadmin', 'admin']
+
 export function getPlatformRole(user) {
-  if (!user) return 'user'
-  if (user.id === PRIMARY_ADMIN_ID) return 'admin'
-  return user.platformRole === 'admin' ? 'admin' : 'user'
+  if (!user) return 'admin'
+  if (user.id === PRIMARY_ADMIN_ID) return 'superadmin'
+  return user.platformRole === 'superadmin' ? 'superadmin' : 'admin'
 }
 
 export function getUserStatus(user) {
@@ -170,7 +174,7 @@ export function getPlatformOverview() {
       totalUsers: users.length,
       activeUsers: users.filter((u) => getUserStatus(u) === 'active').length,
       suspendedUsers: users.filter((u) => getUserStatus(u) === 'suspended').length,
-      platformAdmins: users.filter((u) => getPlatformRole(u) === 'admin').length,
+      platformAdmins: users.filter((u) => getPlatformRole(u) === 'superadmin').length,
       newUsersLast7Days: users.filter((u) => now - new Date(u.createdAt || 0).getTime() < 7 * dayMs).length,
       activeLast7Days: users.filter((u) => u.lastLoginAt && now - new Date(u.lastLoginAt).getTime() < 7 * dayMs).length,
       totalOrganizations: orgs.length,
@@ -179,7 +183,8 @@ export function getPlatformOverview() {
       totalProjects: Object.keys(db.projects || {}).length,
       totalSubscriptions: subs.length,
       activeSubscriptions: activeSubs.length,
-      estimatedMrr: mrr
+      estimatedMrr: mrr,
+      openSupportTickets: (db.supportTickets || []).filter((t) => t.status === 'open').length
     },
     planBreakdown,
     signupTrend,

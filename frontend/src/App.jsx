@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react'
-import { ShieldCheck, Zap, LogOut, Eye, Megaphone, Wrench } from 'lucide-react'
+import { Eye, Megaphone, Wrench } from 'lucide-react'
 import { stopImpersonation } from './components/admin/adminApi'
 import SaaSAuthPages from './components/SaaSAuthPages'
 import CustomerDashboardLayout from './components/CustomerDashboardLayout'
 import SuperAdminDashboardLayout from './components/SuperAdminDashboardLayout'
+
+const isSuperAdminUser = (user) => (user?.role === 'superadmin' || user?.id === 'admin-001') && !user?.impersonatedBy
 
 export default function App() {
   const [jwtToken, setJwtToken] = useState(() => localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || '')
@@ -65,6 +67,8 @@ export default function App() {
   }, [])
 
   const handleLoginSuccess = (user, token) => {
+    // Super admins land in the platform console, admins in their server panel
+    window.history.replaceState(null, '', isSuperAdminUser(user) ? '/admin/dashboard' : '/app/dashboard')
     setCurrentUser(user)
     setJwtToken(token)
     localStorage.setItem('autodeploy_token', token)
@@ -143,32 +147,21 @@ export default function App() {
     </>
   )
 
-  const isSuperAdmin = (currentUser?.role === 'admin' || currentUser?.id === 'admin-001') && !currentUser?.impersonatedBy
-  const isPathAdmin = window.location.pathname.startsWith('/admin') || window.location.hash.startsWith('#/admin')
+  const isSuperAdmin = isSuperAdminUser(currentUser)
+  const path = window.location.pathname
+  let isPathAdmin = path.startsWith('/admin') || window.location.hash.startsWith('#/admin')
+
+  // /admin is the super admin console; /app is the server & project panel used by admins.
+  // Super admins open the console by default and can still reach their own servers under /app.
+  if (isPathAdmin && !isSuperAdmin) {
+    window.history.replaceState(null, '', '/app/dashboard')
+    isPathAdmin = false
+  } else if (!isPathAdmin && isSuperAdmin && !path.startsWith('/app')) {
+    window.history.replaceState(null, '', '/admin/dashboard')
+    isPathAdmin = true
+  }
 
   if (isPathAdmin) {
-    if (!isSuperAdmin) {
-      return (
-        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6 font-sans">
-          <div className="bg-slate-900 border border-rose-500/30 rounded-2xl p-8 max-w-md w-full text-center space-y-4 shadow-2xl">
-            <div className="w-12 h-12 rounded-xl bg-rose-500/10 text-rose-400 flex items-center justify-center mx-auto">
-              <ShieldCheck className="w-6 h-6" />
-            </div>
-            <h2 className="text-xl font-bold text-white">403 Forbidden Access Denied</h2>
-            <p className="text-xs text-slate-400">
-              The Super Admin Portal (/admin/*) is restricted to platform administrators. Your account does not have Super Admin permissions.
-            </p>
-            <a
-              href="/app/dashboard"
-              className="inline-block px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-indigo-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-cyan-500/20"
-            >
-              Return to Customer Dashboard (/app/dashboard)
-            </a>
-          </div>
-        </div>
-      )
-    }
-
     return (
       <>
         {banners}
