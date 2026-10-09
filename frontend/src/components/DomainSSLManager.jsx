@@ -3,8 +3,12 @@ import {
   Globe, ShieldCheck, Lock, RefreshCw, Plus, CheckCircle2,
   AlertTriangle, Server, Code, Zap, ExternalLink, Sliders
 } from 'lucide-react'
+import { useAuth } from '../store/AuthContext'
+import { useServers } from '../store/ServersContext'
 
-export default function DomainSSLManager({ jwtToken, activeServer }) {
+export default function DomainSSLManager() {
+  const { token: jwtToken } = useAuth()
+  const { activeServer } = useServers()
   const [certificates, setCertificates] = useState([])
   const [loading, setLoading] = useState(true)
 

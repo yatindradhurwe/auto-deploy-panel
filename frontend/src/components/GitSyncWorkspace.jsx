@@ -3,8 +3,12 @@ import {
   FolderGit2, Download, Upload, RefreshCw, GitCommit, History, CheckCircle2,
   AlertCircle, Terminal, FileCode, Check, ShieldCheck, ArrowDown, ArrowUp, RotateCcw
 } from 'lucide-react'
+import { useAuth } from '../store/AuthContext'
+import { useServers } from '../store/ServersContext'
 
-export default function GitSyncWorkspace({ project, jwtToken, activeServer }) {
+export default function GitSyncWorkspace({ project }) {
+  const { token: jwtToken } = useAuth()
+  const { activeServer } = useServers()
   const [gitStatus, setGitStatus] = useState({ branch: 'main', modifiedCount: 0, modifiedFiles: [] })
   const [loadingStatus, setLoadingStatus] = useState(true)
   
@@ -20,7 +24,7 @@ export default function GitSyncWorkspace({ project, jwtToken, activeServer }) {
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [rollingBack, setRollingBack] = useState(null)
 
-  const getToken = () => jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
+  const getToken = () => jwtToken
 
   useEffect(() => {
     if (project?.path) {

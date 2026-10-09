@@ -3,6 +3,7 @@ import path from 'path'
 import crypto from 'crypto'
 import { analyzeProject, manifestPaths } from './detector.service.js'
 import { getReadyUpload, validateGitUrl, withGithubToken, redactUrl } from './upload.service.js'
+import { templateDeploySource } from './template.service.js'
 
 /**
  * 1-click deployment pipeline (GitHub or uploaded source, optional database) on the selected
@@ -66,7 +67,13 @@ export function validateDeployConfig(body, userId, server = null) {
 
   const source = body.source || {}
   let src
-  if (source.type === 'upload') {
+  let templateId = null
+  if (source.type === 'template') {
+    // Marketplace template (Git repo or archive uploaded by the platform team)
+    const resolved = templateDeploySource(source.templateId, { allowDraft: !!body._allowDraftTemplate })
+    src = resolved.src
+    templateId = resolved.templateId
+  } else if (source.type === 'upload') {
     const up = getReadyUpload(source.uploadId, userId, 'source')
     src = { type: 'upload', file: up.file, ext: up.ext, name: up.name }
   } else if (source.type === 'github' || source.type === 'git') {
@@ -116,6 +123,7 @@ export function validateDeployConfig(body, userId, server = null) {
 
   const email = String(body.sslEmail || '').trim()
   return {
+    templateId,
     appName,
     domain,
     remoteDir: `/var/www/${appName}`,

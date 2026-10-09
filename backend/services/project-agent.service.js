@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url'
 import { PROVIDERS, getProvider } from './agent-providers.js'
 import { readDb, getServerById } from './db.service.js'
 import { getHost, q } from './host.service.js'
+import { getStoredSettings } from './project-settings.service.js'
 
 /**
  * Coding agent for a project (Claude, ChatGPT or Gemini — see agent-providers.js).
@@ -218,6 +219,8 @@ export async function createSession(projectPath, projectName, providerId, server
   const host = getHost(server)
   const root = await host.realpath(projectPath)
   const facts = await describeProject(host, root)
+  // Brand & AI brief from the project's settings
+  const brief = getStoredSettings(server, projectPath).brief
   const session = {
     id: `ses_${crypto.randomBytes(12).toString('hex')}`,
     serverId: host.isLocal ? null : server.id,
@@ -226,7 +229,7 @@ export async function createSession(projectPath, projectName, providerId, server
     model: getModel(provider.id),
     projectPath: root,
     projectName: projectName || path.basename(root),
-    system: buildSystemPrompt(projectName || path.basename(root), root, facts),
+    system: buildSystemPrompt(projectName || path.basename(root), root, facts) + (brief ? `\n\n# Brand & style brief from the project owner\n${brief}` : ''),
     createdAt: new Date().toISOString(),
     messages: [],
     transcript: [],

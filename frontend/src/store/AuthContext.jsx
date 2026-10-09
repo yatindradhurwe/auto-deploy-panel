@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react'
-import { TOKEN_KEY, getStoredToken, storeSession, clearStoredSession, revokeToken } from '../utils/session'
+import { TOKEN_KEY, getStoredToken, storeSession, clearStoredSession, revokeToken, setSessionToken } from '../utils/session'
 import { stopImpersonation } from '../components/admin/adminApi'
 
 /**
@@ -81,6 +81,7 @@ export function AuthProvider({ children }) {
   const endingRef = useRef(false)
   const stateRef = useRef(state)
   stateRef.current = state
+  setSessionToken(state.token)
 
   const endLocally = useCallback((notice = '', portal = stateRef.current.portal || portalFromPath()) => {
     clearStoredSession()

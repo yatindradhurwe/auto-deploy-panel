@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react'
 import { ShieldCheck, Clock, User, Activity, RefreshCw, Search } from 'lucide-react'
+import { useAuth } from '../store/AuthContext'
 
 export default function AuditLogViewer({ apiBaseUrl = '' }) {
+  const { token: jwtToken } = useAuth()
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('')
@@ -9,7 +11,7 @@ export default function AuditLogViewer({ apiBaseUrl = '' }) {
   const fetchAuditLogs = async () => {
     setLoading(true)
     try {
-      const token = localStorage.getItem('autodeploy_token')
+      const token = jwtToken
       const res = await fetch(`${apiBaseUrl}/api/team/audit-logs`, {
         headers: { Authorization: `Bearer ${token}` }
       })

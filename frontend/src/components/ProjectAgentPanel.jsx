@@ -3,6 +3,8 @@ import {
   Bot, Send, Square, RefreshCw, Plus, History, FileCode, Terminal, Eye, ChevronRight, ChevronDown,
   AlertTriangle, CheckCircle2, Undo2, Rocket, X, Key, Brain, Trash2, GitCommit, Settings
 } from 'lucide-react'
+import { useAuth } from '../store/AuthContext'
+import { useServers } from '../store/ServersContext'
 
 /**
  * Claude Code-style project agent: chat → Claude explores, edits and verifies the project
@@ -72,7 +74,9 @@ function DiffView({ diff }) {
   )
 }
 
-export default function ProjectAgentPanel({ projectPath, projectName, jwtToken, activeServer, onFilesChanged }) {
+export default function ProjectAgentPanel({ projectPath, projectName, onFilesChanged }) {
+  const { token: jwtToken } = useAuth()
+  const { activeServer } = useServers()
   const [status, setStatus] = useState(null)
   const [provider, setProvider] = useState(null)
   const [showSettings, setShowSettings] = useState(false)
@@ -98,7 +102,7 @@ export default function ProjectAgentPanel({ projectPath, projectName, jwtToken, 
   const scrollRef = useRef(null)
   const liveStreamRef = useRef(false)
 
-  const token = () => jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
+  const token = () => jwtToken
   const headers = () => ({ 'Content-Type': 'application/json', 'Authorization': `Bearer ${token()}`, 'X-Server-Id': activeServer?.id || '' })
 
   const api = async (url, body) => {

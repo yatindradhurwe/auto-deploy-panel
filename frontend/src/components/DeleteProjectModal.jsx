@@ -3,15 +3,17 @@ import {
   AlertTriangle, ShieldAlert, Trash2, X, RefreshCw, CheckCircle2, Lock,
   Server, Database, Code, Mail, Globe, Terminal, Check
 } from 'lucide-react'
+import { useAuth } from '../store/AuthContext'
+import { useServers } from '../store/ServersContext'
 
 export default function DeleteProjectModal({
   isOpen,
   project,
-  activeServer,
-  jwtToken,
   onClose,
   onSuccess
 }) {
+  const { token: jwtToken } = useAuth()
+  const { activeServer } = useServers()
   const [confirmInput, setConfirmInput] = useState('')
   const [deletePm2, setDeletePm2] = useState(true)
   const [deleteFiles, setDeleteFiles] = useState(true)
@@ -41,7 +43,7 @@ export default function DeleteProjectModal({
     setErrorMsg(null)
     setDeleteLogs('🚀 Initiating permanent deletion pipeline on live server...\n')
 
-    const token = jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
+    const token = jwtToken
 
     try {
       const res = await fetch('/api/studio/projects/delete', {

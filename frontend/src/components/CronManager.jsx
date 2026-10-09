@@ -3,8 +3,12 @@ import {
   Clock, Plus, RefreshCw, CheckCircle2, Play, AlertCircle,
   Calendar, Terminal, Trash2, Zap
 } from 'lucide-react'
+import { useAuth } from '../store/AuthContext'
+import { useServers } from '../store/ServersContext'
 
-export default function CronManager({ jwtToken, activeServer }) {
+export default function CronManager() {
+  const { token: jwtToken } = useAuth()
+  const { activeServer } = useServers()
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(true)
 

@@ -13,8 +13,12 @@ import LogsTelemetryManager from './LogsTelemetryManager'
 import GitSyncWorkspace from './GitSyncWorkspace'
 import DeleteProjectModal from './DeleteProjectModal'
 import ProjectSettingsModal from './ProjectSettingsModal'
+import { useAuth } from '../store/AuthContext'
+import { useServers } from '../store/ServersContext'
 
-export default function ProjectDedicatedStudio({ project, jwtToken, activeServer, onBackToDashboard }) {
+export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
+  const { token: jwtToken } = useAuth()
+  const { activeServer } = useServers()
   const [activeCanvasTab, setActiveCanvasTab] = useState('preview') // 'preview' | 'code' | 'database' | 'env' | 'logs'
   const [deviceMode, setDeviceMode] = useState('desktop') // 'desktop' | 'mobile'
   const [showSettingsModal, setShowSettingsModal] = useState(false)
@@ -30,7 +34,7 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
   const [showDeleteModal, setShowDeleteModal] = useState(false)
 
   const getEffectiveToken = () => {
-    return jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
+    return jwtToken
   }
 
   const [useProxy, setUseProxy] = useState(false)
@@ -354,8 +358,6 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
           <ProjectAgentPanel
             projectPath={project?.path}
             projectName={project?.name}
-            jwtToken={jwtToken}
-            activeServer={activeServer}
             onFilesChanged={() => setIframeKey((k) => k + 1)}
           />
         </aside>
@@ -435,8 +437,6 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
           {activeCanvasTab === 'code' && (
             <div className="flex-1 h-full overflow-hidden">
               <CodeStudio
-                jwtToken={jwtToken}
-                activeServer={activeServer}
                 initialProject={project?.repoName || project?.name || project?.path}
               />
             </div>
@@ -446,8 +446,6 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
           {activeCanvasTab === 'database' && (
             <div className="flex-1 h-full overflow-auto p-4">
               <DatabaseManager
-                jwtToken={jwtToken}
-                activeServer={activeServer}
                 project={project}
               />
             </div>
@@ -457,8 +455,6 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
           {activeCanvasTab === 'env' && (
             <div className="flex-1 h-full overflow-auto p-4">
               <EnvManager
-                jwtToken={jwtToken}
-                activeServer={activeServer}
                 project={project}
                 initialProject={project?.repoName || project?.name || project?.path}
               />
@@ -469,8 +465,6 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
           {activeCanvasTab === 'logs' && (
             <div className="flex-1 h-full overflow-auto p-4">
               <LogsTelemetryManager
-                jwtToken={jwtToken}
-                activeServer={activeServer}
                 project={project}
                 initialApp={project?.repoName || project?.name}
               />
@@ -482,8 +476,6 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
             <div className="flex-1 h-full overflow-auto p-4">
               <GitSyncWorkspace
                 project={project}
-                jwtToken={jwtToken}
-                activeServer={activeServer}
               />
             </div>
           )}
@@ -494,8 +486,6 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
       <DeleteProjectModal
         isOpen={showDeleteModal}
         project={project}
-        activeServer={activeServer}
-        jwtToken={jwtToken}
         onClose={() => setShowDeleteModal(false)}
         onSuccess={() => onBackToDashboard && onBackToDashboard()}
       />
@@ -504,9 +494,6 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
         isOpen={showSettingsModal}
         project={project}
         onClose={() => setShowSettingsModal(false)}
-        onSaveProjectSettings={(updatedSettings) => {
-          console.log('Project Settings Saved:', updatedSettings)
-        }}
       />
     </div>
   )

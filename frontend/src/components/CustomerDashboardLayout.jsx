@@ -30,7 +30,7 @@ import ProfilePage from './ProfilePage'
 import { useAuth } from '../store/AuthContext'
 
 import DeploymentWizard from './DeploymentWizard'
-import { getActiveServerId, setActiveServerId as rememberActiveServer } from '../utils/activeServer'
+import { useServers } from '../store/ServersContext'
 
 export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
   const { user: currentUser, token: jwtToken, logout: onLogout } = useAuth()
@@ -39,9 +39,15 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
   const [viewStep, setViewStep] = useState('servers') // Default home page after login: 'servers' ("Connect & Manage Your Server Infrastructure")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [servers, setServers] = useState([])
-  const [activeServerId, setActiveServerId] = useState(() => getActiveServerId())
-  const [loadingServers, setLoadingServers] = useState(true)
+  const {
+    servers,
+    activeServerId,
+    activeServer,
+    loading: loadingServers,
+    refresh: fetchTenantServers,
+    selectServer: setActiveServerId,
+    connectServer
+  } = useServers()
   const [showAiDrawer, setShowAiDrawer] = useState(false)
   const [copied, setCopied] = useState(false)
   const [templateToDeploy, setTemplateToDeploy] = useState(null)
@@ -60,34 +66,6 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
   const [buildInfo, setBuildInfo] = useState(null)
 
   const [activeServerMetrics, setActiveServerMetrics] = useState(null)
-
-  const fetchTenantServers = async () => {
-    setLoadingServers(true)
-    try {
-      const res = await fetch(`${apiBaseUrl}/api/agent/servers`, {
-        headers: { Authorization: `Bearer ${jwtToken}` }
-      })
-      const data = await res.json()
-      if (data.servers) {
-        setServers(data.servers)
-        // Keep the remembered server if it still exists; otherwise fall back to the first one
-        setActiveServerId(current => (data.servers.some(s => s.id === current) ? current : (data.servers[0]?.id || '')))
-        // Live status/load per server (admin endpoint; silently skipped for other roles)
-        fetch(`${apiBaseUrl}/api/studio/servers`, { headers: { Authorization: `Bearer ${jwtToken}` } })
-          .then(r => (r.ok ? r.json() : null))
-          .then(live => {
-            if (!live?.servers) return
-            const byId = new Map(live.servers.map(s => [s.id, s]))
-            setServers(list => list.map(s => (byId.has(s.id) ? { ...s, ...byId.get(s.id) } : s)))
-          })
-          .catch(() => {})
-      }
-    } catch (err) {
-      console.error('Failed to fetch customer servers:', err)
-    } finally {
-      setLoadingServers(false)
-    }
-  }
 
   const fetchActiveServerMetrics = async (srvId) => {
     if (!srvId) return
@@ -119,7 +97,6 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
   }
 
   useEffect(() => {
-    fetchTenantServers()
     fetchBuildInfo()
     const token = `tok_${Math.random().toString(36).substring(2, 15)}`
     setAgentToken(token)
@@ -127,8 +104,6 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
   }, [])
 
   useEffect(() => {
-    // Every API request now targets this server (see utils/activeServer.js)
-    rememberActiveServer(activeServerId)
     if (activeServerId) {
       fetchActiveServerMetrics(activeServerId)
     }
@@ -140,22 +115,8 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
     e.preventDefault()
     setConnecting(true)
     try {
-      const res = await fetch(`${apiBaseUrl}/api/agent/servers`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${jwtToken}`
-        },
-        body: JSON.stringify(connectForm)
-      })
-      const data = await res.json()
-      if (data.success && data.server) {
-        fetchTenantServers()
-        setActiveServerId(data.server.id)
-        setActiveTab('dashboard')
-      } else {
-        alert(data.error || 'Failed to connect server.')
-      }
+      await connectServer(connectForm)
+      setActiveTab('dashboard')
     } catch (err) {
       alert('Error connecting server: ' + err.message)
     } finally {
@@ -169,7 +130,6 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const activeServer = servers.find(s => s.id === activeServerId) || servers[0] || null
 
   const customerNavSections = [
     {
@@ -224,8 +184,6 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
     return (
       <ProjectDedicatedStudio
         project={activeWorkspaceProject}
-        jwtToken={jwtToken}
-        activeServer={activeServer}
         onBackToDashboard={() => setActiveWorkspaceProject(null)}
       />
     )
@@ -247,23 +205,9 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
         onConnectServer={async (srvForm, callback) => {
           setConnecting(true)
           try {
-            const res = await fetch(`${apiBaseUrl}/api/agent/servers`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${jwtToken}`
-              },
-              body: JSON.stringify(srvForm)
-            })
-            const data = await res.json()
-            if (data.success && data.server) {
-              await fetchTenantServers()
-              setActiveServerId(data.server.id)
-              setViewStep('hub')
-              if (callback) callback()
-            } else {
-              alert(data.error || 'Failed to connect server.')
-            }
+            await connectServer(srvForm)
+            setViewStep('hub')
+            if (callback) callback()
           } catch (err) {
             alert('Error connecting server: ' + err.message)
           } finally {
@@ -331,8 +275,6 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
     if (activeTab === 'deployments') {
       return renderHubSubView(
         <DeploymentWizard
-          jwtToken={jwtToken}
-          activeServer={activeServer}
           apiBaseUrl={apiBaseUrl}
           onDeploymentSuccess={() => fetchTenantServers()}
           onBackToHub={() => setActiveTab('projects')}
@@ -344,14 +286,14 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
 
     if (activeTab === 'databases') {
       return renderHubSubView(
-        <DatabaseManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />,
+        <DatabaseManager apiBaseUrl={apiBaseUrl} />,
         'Database Management Suite'
       )
     }
 
     if (activeTab === 'email') {
       return renderHubSubView(
-        <EmailManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />,
+        <EmailManager apiBaseUrl={apiBaseUrl} />,
         'Domain Email Inbox'
       )
     }
@@ -374,7 +316,6 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
       <AllProjectsHub
         key={activeServerId}
         server={activeServer}
-        jwtToken={jwtToken}
         currentUser={currentUser}
         onOpenProjectStudio={(p) => setActiveWorkspaceProject(p)}
         onChangeServerNode={() => setViewStep('servers')}
@@ -657,17 +598,17 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
             </div>
           )}
 
-          {activeTab === 'servers' && <ServerManager jwtToken={jwtToken} activeServer={activeServer} onSelectServer={(id) => setActiveServerId(id)} apiBaseUrl={apiBaseUrl} />}
-          {activeTab === 'projects' && <ProjectExplorer jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} onOpenProjectStudio={(p) => setActiveWorkspaceProject(p)} />}
-          {activeTab === 'deployments' && <DeploymentWizard jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} onDeploymentSuccess={() => fetchTenantServers()} />}
-          {activeTab === 'databases' && <DatabaseManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
-          {activeTab === 'code' && <CodeStudio jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} onOpenProjectStudio={(p) => setActiveWorkspaceProject(p)} />}
-          {activeTab === 'env' && <EnvManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
-          {activeTab === 'domains' && <DomainSSLManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
-          {activeTab === 'cron' && <CronManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
-          {activeTab === 'webhooks' && <WebhookManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
-          {activeTab === 'logs' && <LogsTelemetryManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
-          {activeTab === 'email' && <EmailManager jwtToken={jwtToken} activeServer={activeServer} apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'servers' && <ServerManager onSelectServer={(id) => setActiveServerId(id)} apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'projects' && <ProjectExplorer apiBaseUrl={apiBaseUrl} onOpenProjectStudio={(p) => setActiveWorkspaceProject(p)} />}
+          {activeTab === 'deployments' && <DeploymentWizard apiBaseUrl={apiBaseUrl} onDeploymentSuccess={() => fetchTenantServers()} />}
+          {activeTab === 'databases' && <DatabaseManager apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'code' && <CodeStudio apiBaseUrl={apiBaseUrl} onOpenProjectStudio={(p) => setActiveWorkspaceProject(p)} />}
+          {activeTab === 'env' && <EnvManager apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'domains' && <DomainSSLManager apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'cron' && <CronManager apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'webhooks' && <WebhookManager apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'logs' && <LogsTelemetryManager apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'email' && <EmailManager apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'team' && <TeamManager apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'billing' && <BillingManager apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'audit-logs' && <AuditLogViewer apiBaseUrl={apiBaseUrl} />}

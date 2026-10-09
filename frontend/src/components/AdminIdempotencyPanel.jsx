@@ -3,8 +3,10 @@ import {
   RefreshCw, ShieldCheck, AlertTriangle, Clock, CheckCircle2, XCircle,
   Search, Filter, Database, Zap, Lock, Layers, EyeOff
 } from 'lucide-react'
+import { useAuth } from '../store/AuthContext'
 
-export function AdminIdempotencyPanel({ jwtToken, apiBaseUrl = '' }) {
+export function AdminIdempotencyPanel({ apiBaseUrl = '' }) {
+  const { token: jwtToken } = useAuth()
   const [stats, setStats] = useState(null)
   const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(true)
@@ -13,7 +15,7 @@ export function AdminIdempotencyPanel({ jwtToken, apiBaseUrl = '' }) {
 
   const fetchIdempotencyData = async () => {
     setLoading(true)
-    const tok = jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
+    const tok = jwtToken
     try {
       const headers = { 'Authorization': `Bearer ${tok}` }
       const [resStats, resRecords] = await Promise.all([

@@ -3,6 +3,8 @@ import {
   Github, Upload, Server, Database, Rocket, Check, X, RefreshCw, ChevronRight, ChevronDown, ArrowLeft,
   AlertTriangle, FileArchive, Globe, Lock, Search, Copy, ExternalLink, Sparkles, Settings2, Box, Loader2
 } from 'lucide-react'
+import { useAuth } from '../store/AuthContext'
+import { useServers } from '../store/ServersContext'
 
 /**
  * 1-click deployment: GitHub repo or uploaded archive (+ optional database file) → live site.
@@ -45,8 +47,10 @@ function Dropzone({ accept, hint, onFile, disabled }) {
   )
 }
 
-export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = '', onDeploymentSuccess, onBackToHub, initialTemplate }) {
-  const token = () => jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
+export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess, onBackToHub, initialTemplate }) {
+  const { token: jwtToken } = useAuth()
+  const { activeServer } = useServers()
+  const token = () => jwtToken
   const api = async (url, { method = 'GET', body } = {}) => {
     const res = await fetch(`${apiBaseUrl}/api/deploy${url}`, {
       method,
@@ -103,11 +107,20 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
   const logRef = useRef(null)
 
 
+  // Marketplace template: its source, stack analysis and defaults come from the template
+  const [template, setTemplate] = useState(null)
   useEffect(() => {
     if (!initialTemplate) return
-    setSourceType('github')
-    setGitUrl(initialTemplate.repoUrl || initialTemplate.gitUrl || '')
-    setAppName(slug(initialTemplate.id || initialTemplate.name))
+    const t = initialTemplate
+    const d = t.defaults || {}
+    setTemplate(t)
+    setSourceType('template')
+    setAnalysis(t.analysis || { framework: t.name, label: 'Marketplace template', fileCount: '—', type: d.type || 'auto' })
+    setAppName(slug(t.name))
+    setOverrides({ type: d.type || 'auto', buildCommand: d.buildCommand || '', startCommand: d.startCommand || '', outputDir: d.outputDir || '', appDir: d.appDir || '' })
+    if (d.port) setPort(String(d.port))
+    if (d.envVars) setEnvVars(d.envVars)
+    if (d.database && d.database !== 'none') { setDbMode('create'); setDbEngine(d.database) }
   }, [initialTemplate])
 
   // GitHub token + repos
@@ -233,7 +246,7 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
       domain,
       envVars,
       port: port ? Number(port) : undefined,
-      source: sourceType === 'github' ? { type: 'github', gitUrl, branch } : { type: 'upload', uploadId: upload?.uploadId },
+      source: sourceType === 'template' ? { type: 'template', templateId: template?.id } : sourceType === 'github' ? { type: 'github', gitUrl, branch } : { type: 'upload', uploadId: upload?.uploadId },
       overrides: { ...overrides, type: overrides.type },
       database: dbMode === 'none' ? { mode: 'none' } : {
         mode: dbMode, engine: dbEngine, uploadId: dbUpload?.uploadId,
@@ -308,7 +321,7 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
   const primary = 'px-5 py-2.5 rounded-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-sm flex items-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-default'
   const ghost = 'px-4 py-2.5 rounded-full bg-white/5 hover:bg-white/10 text-slate-200 text-sm flex items-center gap-2 cursor-pointer'
 
-  const sourceReady = !!analysis && (sourceType === 'github' ? !!gitUrl : upload?.status === 'ready')
+  const sourceReady = !!analysis && (sourceType === 'template' ? !!template : sourceType === 'github' ? !!gitUrl : upload?.status === 'ready')
   const appReady = /^[a-z0-9][a-z0-9-]{0,48}[a-z0-9]$/.test(appName) && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain)
   const dbReady = dbMode !== 'import' || dbUpload?.status === 'ready'
   const filteredRepos = repos.filter(r => r.full_name.toLowerCase().includes(repoQuery.toLowerCase())).slice(0, 50)
@@ -470,12 +483,23 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
       {step === 'source' && (
         <div className={`${card} p-6`}>
           <div className="inline-flex p-1 rounded-full bg-white/5 border border-white/10">
-            {[['github', 'GitHub', Github], ['upload', 'Upload project', Upload]].map(([id, label, Icon]) => (
-              <button key={id} onClick={() => { setSourceType(id); setAnalysis(null); setError(null) }} className={`px-4 py-2 rounded-full text-sm flex items-center gap-2 cursor-pointer ${sourceType === id ? 'bg-white text-slate-950 font-semibold' : 'text-slate-300'}`}>
+            {[...(template ? [['template', 'Template', Sparkles]] : []), ['github', 'GitHub', Github], ['upload', 'Upload project', Upload]].map(([id, label, Icon]) => (
+              <button key={id} onClick={() => { setSourceType(id); setAnalysis(id === 'template' ? (template.analysis || { framework: template.name, label: 'Marketplace template', fileCount: '—', type: template.defaults?.type || 'auto' }) : null); setError(null) }} className={`px-4 py-2 rounded-full text-sm flex items-center gap-2 cursor-pointer ${sourceType === id ? 'bg-white text-slate-950 font-semibold' : 'text-slate-300'}`}>
                 <Icon className="w-4 h-4" /> {label}
               </button>
             ))}
           </div>
+
+          {sourceType === 'template' && template && (
+            <div className="mt-5 space-y-3">
+              <div className="p-5 rounded-2xl bg-amber-500/10 border border-amber-500/30">
+                <div className="text-white font-bold">{template.name}</div>
+                <div className="text-xs text-slate-300 mt-1">{template.description}</div>
+                <div className="text-[11px] text-amber-200/80 mt-2">From the marketplace · {template.source?.type === 'git' ? `Git, branch ${template.source.branch}` : 'packaged archive'}. Build settings, port, environment and database are pre-filled — review them in the next steps.</div>
+              </div>
+              <AnalysisCard />
+            </div>
+          )}
 
           {sourceType === 'github' && (
             <div className="mt-5 space-y-4">
@@ -676,7 +700,7 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
 
           <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 text-sm grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
             {[
-              ['Source', sourceType === 'github' ? `${gitUrl.replace(/^https:\/\/(github\.com\/)?/, '').replace(/\.git$/, '')} · ${branch}` : upload?.name],
+              ['Source', sourceType === 'template' ? `Template: ${template?.name}` : sourceType === 'github' ? `${gitUrl.replace(/^https:\/\/(github\.com\/)?/, '').replace(/\.git$/, '')} · ${branch}` : upload?.name],
               ['App', `${overrides.type !== 'auto' ? TYPE_OPTIONS.find(t => t[0] === overrides.type)?.[1] : analysis?.framework}`],
               ['Address', `${ssl ? 'https' : 'http'}://${domain}`],
               ['Folder', `/var/www/${appName}`],

@@ -4,6 +4,8 @@ import {
   FileText, Paperclip, AlertTriangle, CheckCircle2, XCircle, ChevronLeft, ChevronRight, Reply,
   Activity, Settings, Lock, Search
 } from 'lucide-react'
+import { useAuth } from '../store/AuthContext'
+import { useServers } from '../store/ServersContext'
 
 const FOLDERS = [
   { id: 'inbox', label: 'Inbox', icon: Inbox },
@@ -45,7 +47,9 @@ const readFileBase64 = (file) => new Promise((resolve, reject) => {
   reader.readAsDataURL(file)
 })
 
-export default function EmailManager({ jwtToken, activeServer }) {
+export default function EmailManager() {
+  const { token: jwtToken } = useAuth()
+  const { activeServer } = useServers()
   const [tab, setTab] = useState('mailboxes')
   const [status, setStatus] = useState(null)
   const [domains, setDomains] = useState([])
@@ -92,7 +96,7 @@ export default function EmailManager({ jwtToken, activeServer }) {
       method,
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${jwtToken || localStorage.getItem('autodeploy_token') || ''}`,
+        'Authorization': `Bearer ${jwtToken}`,
         'X-Server-Id': activeServer?.id || ''
       },
       body: body ? JSON.stringify(body) : undefined
@@ -291,7 +295,7 @@ export default function EmailManager({ jwtToken, activeServer }) {
 
   const downloadAttachment = async (att) => {
     const res = await fetch(`/api/studio/email/attachment?mailbox=${encodeURIComponent(mailbox)}&folder=${folder}&id=${encodeURIComponent(openMessage.id)}&index=${att.index}`, {
-      headers: { 'Authorization': `Bearer ${jwtToken || localStorage.getItem('autodeploy_token') || ''}`, 'X-Server-Id': activeServer?.id || '' }
+      headers: { 'Authorization': `Bearer ${jwtToken}`, 'X-Server-Id': activeServer?.id || '' }
     })
     if (!res.ok) return setError('Attachment download failed.')
     const url = URL.createObjectURL(await res.blob())

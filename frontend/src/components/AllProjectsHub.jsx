@@ -2,52 +2,28 @@ import React, { useState, useEffect } from 'react'
 import {
   Layers, Search, Grid, List, ExternalLink, Globe, Play, Sparkles, Code,
   Server, RefreshCw, CheckCircle2, ChevronDown, Bell, User, Plus, FolderGit2,
-  Trash2, ShieldCheck, DownloadCloud, Activity, Zap, HardDrive, ShoppingBag
+  Trash2, ShieldCheck, DownloadCloud, Activity, Zap, HardDrive, ShoppingBag, Users
 } from 'lucide-react'
 import DeleteProjectModal from './DeleteProjectModal'
+import ShareProjectModal from './ShareProjectModal'
+import { useProjects, canShareProject, ACCESS_LABELS } from '../store/ProjectsContext'
 
 export default function AllProjectsHub({
   server,
-  jwtToken,
   currentUser,
   onOpenProjectStudio,
   onChangeServerNode,
   onTabChange,
   activeHubTab = 'projects'
 }) {
-  const [projects, setProjects] = useState([])
-  const [loading, setLoading] = useState(true)
+  // Projects on the selected server, with the caller's access to each (projects store)
+  const { projects, loading, error: projectsError, refresh: fetchProjects, sharedWithMe } = useProjects()
   const [searchQuery, setSearchQuery] = useState('')
   const [sortOrder, setSortOrder] = useState('custom')
   const [viewMode, setViewMode] = useState('grid') // 'grid' | 'list'
   const [showCreditNotice, setShowCreditNotice] = useState(true)
   const [projectToDelete, setProjectToDelete] = useState(null)
-
-  useEffect(() => {
-    fetchProjects()
-  }, [server])
-
-  const fetchProjects = async () => {
-    setLoading(true)
-    const tok = jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
-    const srvId = server?.id || ''
-    try {
-      const res = await fetch(`/api/studio/projects?serverId=${srvId}`, {
-        headers: {
-          'Authorization': `Bearer ${tok}`,
-          'X-Server-Id': srvId
-        }
-      })
-      const data = await res.json()
-      if (data.success && Array.isArray(data.projects)) {
-        setProjects(data.projects)
-      }
-    } catch (e) {
-      console.error('Failed to load projects for hub:', e)
-    } finally {
-      setLoading(false)
-    }
-  }
+  const [projectToShare, setProjectToShare] = useState(null)
 
   const filteredProjects = projects.filter((p) => {
     if (!searchQuery.trim()) return true
@@ -320,7 +296,10 @@ export default function AllProjectsHub({
         ) : filteredProjects.length === 0 ? (
           <div className="bg-slate-950 border border-slate-800 rounded-3xl p-12 text-center space-y-3 font-mono text-xs text-slate-500">
             <Layers className="w-10 h-10 text-slate-700 mx-auto" />
-            <p>No projects matched your query.</p>
+            <p>{projectsError || (projects.length === 0 ? (sharedWithMe.length ? 'No projects on this server are shared with you. Switch to a server listed under "Shared with you".' : 'No projects on this server yet.') : 'No projects matched your query.')}</p>
+            {sharedWithMe.length > 0 && projects.length === 0 && (
+              <p className="text-slate-400">Shared with you: {sharedWithMe.map((s) => `${s.projectName} on ${s.serverName} (${s.role})`).join(', ')}</p>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -374,8 +353,12 @@ export default function AllProjectsHub({
                       <span>{proj.name}</span>
                     </h4>
                     <div className="flex items-center space-x-1.5">
-                      <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-slate-900 text-slate-400 border border-slate-800">
-                        SHARED
+                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
+                        proj.access === 'manager' || proj.access === 'viewer'
+                          ? 'bg-purple-950 text-purple-300 border-purple-800'
+                          : 'bg-slate-900 text-slate-400 border-slate-800'
+                      }`}>
+                        {ACCESS_LABELS[proj.access] || 'Shared'}
                       </span>
                       <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border flex items-center gap-1 ${
                         proj.status === 'active'
@@ -403,13 +386,25 @@ export default function AllProjectsHub({
                       <span>Open Dedicated Studio</span>
                     </button>
 
-                    <button
-                      onClick={() => setProjectToDelete(proj)}
-                      title="Delete Project & Clear All Files, Database, PM2 and Email"
-                      className="p-2 bg-rose-950/80 hover:bg-rose-900/90 text-rose-300 border border-rose-800 rounded-xl text-xs transition cursor-pointer"
-                    >
-                      <Trash2 className="w-4 h-4 text-rose-400" />
-                    </button>
+                    {canShareProject(proj) && (
+                      <button
+                        onClick={() => setProjectToShare(proj)}
+                        title="Share this project with a team member"
+                        className="p-2 bg-purple-950/80 hover:bg-purple-900/90 text-purple-300 border border-purple-800 rounded-xl text-xs transition cursor-pointer"
+                      >
+                        <Users className="w-4 h-4 text-purple-300" />
+                      </button>
+                    )}
+
+                    {canShareProject(proj) && (
+                      <button
+                        onClick={() => setProjectToDelete(proj)}
+                        title="Delete Project & Clear All Files, Database, PM2 and Email"
+                        className="p-2 bg-rose-950/80 hover:bg-rose-900/90 text-rose-300 border border-rose-800 rounded-xl text-xs transition cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4 text-rose-400" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -419,11 +414,11 @@ export default function AllProjectsHub({
 
       </main>
 
+      <ShareProjectModal project={projectToShare} onClose={() => setProjectToShare(null)} />
+
       <DeleteProjectModal
         isOpen={Boolean(projectToDelete)}
         project={projectToDelete}
-        activeServer={server}
-        jwtToken={jwtToken}
         onClose={() => setProjectToDelete(null)}
         onSuccess={() => {
           fetchProjects()

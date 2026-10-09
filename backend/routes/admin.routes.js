@@ -39,6 +39,8 @@ import {
 } from '../services/admin.service.js'
 import { listTickets, getTicket, replyToTicket, updateTicket } from '../services/support.service.js'
 import { revokeUserSessions } from '../services/session.service.js'
+import { listTemplates, getTemplate, createTemplate, updateTemplate, deleteTemplate, publicTemplate } from '../services/template.service.js'
+import { getUserSettings } from '../services/db.service.js'
 
 const router = express.Router()
 
@@ -406,6 +408,49 @@ router.patch('/support/tickets/:id', handle((req) => {
   const { ticket, changes } = updateTicket(req.params.id, { status, priority })
   audit(req, 'ADMIN_SUPPORT_TICKET_UPDATED', 'support_ticket', ticket.id, { number: ticket.number, ...changes }, ticket.organizationId)
   return { success: true, ticket }
+}))
+
+// ============================================================================
+// Marketplace templates
+// ============================================================================
+
+const handleAsync = (fn) => async (req, res) => {
+  try {
+    res.json(await fn(req))
+  } catch (err) {
+    const status = err.status || 400
+    if (status >= 500) console.error('[ADMIN API ERROR]:', err)
+    res.status(status).json({ success: false, error: err.message })
+  }
+}
+
+const templateActor = (req) => ({ userId: req.user.id, githubToken: (getUserSettings(req.user.id)?.githubToken || '').trim() || null })
+
+router.get('/templates', handle(() => ({ success: true, templates: listTemplates().map(publicTemplate) })))
+
+router.get('/templates/:id', handle((req) => {
+  const t = getTemplate(req.params.id)
+  if (!t) throw httpError(404, 'Template not found.')
+  return { success: true, template: publicTemplate(t) }
+}))
+
+/** Body: template fields + a source: { gitUrl, branch } or { uploadId } from /api/deploy/uploads */
+router.post('/templates', handleAsync(async (req) => {
+  const t = await createTemplate(req.body || {}, templateActor(req))
+  audit(req, 'ADMIN_TEMPLATE_CREATED', 'template', t.id, { name: t.name, source: t.source.type })
+  return { success: true, template: publicTemplate(t) }
+}))
+
+router.patch('/templates/:id', handleAsync(async (req) => {
+  const t = await updateTemplate(req.params.id, req.body || {}, templateActor(req))
+  audit(req, 'ADMIN_TEMPLATE_UPDATED', 'template', t.id, { name: t.name, status: t.status })
+  return { success: true, template: publicTemplate(t) }
+}))
+
+router.delete('/templates/:id', handle((req) => {
+  const t = deleteTemplate(req.params.id)
+  audit(req, 'ADMIN_TEMPLATE_DELETED', 'template', t.id, { name: t.name })
+  return { success: true }
 }))
 
 // ============================================================================

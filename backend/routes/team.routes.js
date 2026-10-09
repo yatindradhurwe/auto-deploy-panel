@@ -1,4 +1,5 @@
 import express from 'express'
+import bcrypt from 'bcryptjs'
 import { authenticateToken } from '../middleware/auth.middleware.js'
 import { requireTenant, requireRole } from '../middleware/tenant.middleware.js'
 import {
@@ -12,6 +13,10 @@ import {
   recordAuditLog
 } from '../services/db.service.js'
 import { checkEntitlement } from '../services/subscription.service.js'
+import { generateTempPassword } from '../services/admin.service.js'
+import { removeSharesForMember } from '../services/project-access.service.js'
+
+const INVITE_ROLES = ['ADMIN', 'DEVELOPER', 'VIEWER']
 
 const router = express.Router()
 
@@ -32,9 +37,13 @@ router.get('/members', authenticateToken, requireTenant, (req, res) => {
  */
 router.post('/invite', authenticateToken, requireTenant, requireRole(['OWNER', 'ADMIN']), (req, res) => {
   try {
-    const { email, role = 'DEVELOPER' } = req.body
+    const { email } = req.body
+    const role = String(req.body.role || 'DEVELOPER').toUpperCase()
     if (!email) {
       return res.status(400).json({ error: 'User email address is required.' })
+    }
+    if (!INVITE_ROLES.includes(role)) {
+      return res.status(400).json({ error: `Role must be one of ${INVITE_ROLES.join(', ')}.` })
     }
 
     // Quota check
@@ -45,12 +54,15 @@ router.post('/invite', authenticateToken, requireTenant, requireRole(['OWNER', '
 
     const cleanEmail = email.trim().toLowerCase()
     let user = getUserByEmail(cleanEmail)
+    let tempPassword = null
 
     if (!user) {
-      // Auto-create invited pending user account
+      // New teammates get a one-time temporary password (shown once to the inviter) so they can sign in
+      tempPassword = generateTempPassword()
       user = createUser({
         fullName: cleanEmail.split('@')[0],
         email: cleanEmail,
+        passwordHash: bcrypt.hashSync(tempPassword, 10),
         isVerified: false
       })
     }
@@ -73,7 +85,8 @@ router.post('/invite', authenticateToken, requireTenant, requireRole(['OWNER', '
     res.json({
       success: true,
       message: `User '${cleanEmail}' added to organization as ${role}!`,
-      member
+      member,
+      tempPassword
     })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -109,6 +122,7 @@ router.put('/members/:userId/role', authenticateToken, requireTenant, requireRol
 router.delete('/members/:userId', authenticateToken, requireTenant, requireRole(['OWNER', 'ADMIN']), (req, res) => {
   try {
     const removed = removeOrganizationMember(req.tenant.organizationId, req.params.userId)
+    if (removed) removeSharesForMember(req.tenant.organizationId, req.params.userId)
 
     recordAuditLog({
       organizationId: req.tenant.organizationId,

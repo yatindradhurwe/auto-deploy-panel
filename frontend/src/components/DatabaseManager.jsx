@@ -3,6 +3,8 @@ import {
   Database, Table, Play, RefreshCw, Search, Code, Layers, Plus, Trash2, Download, X,
   AlertTriangle, ChevronRight, ChevronDown, ChevronLeft, FolderGit2, Key
 } from 'lucide-react'
+import { useAuth } from '../store/AuthContext'
+import { useServers } from '../store/ServersContext'
 
 const ENGINES = {
   postgresql: { label: 'PostgreSQL', icon: '🐘', badge: 'bg-blue-500/10 text-blue-300 border-blue-500/30', sample: 'SELECT * FROM {table} LIMIT 20;' },
@@ -31,7 +33,9 @@ function cellText(v) {
   return typeof v === 'object' ? JSON.stringify(v) : String(v)
 }
 
-export default function DatabaseManager({ jwtToken, activeServer, project }) {
+export default function DatabaseManager({ project }) {
+  const { token: jwtToken } = useAuth()
+  const { activeServer } = useServers()
   const [discovery, setDiscovery] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -63,7 +67,7 @@ export default function DatabaseManager({ jwtToken, activeServer, project }) {
   const [newTableName, setNewTableName] = useState('')
   const [newTableCols, setNewTableCols] = useState([{ name: 'id', type: 'INTEGER', primary: true, nullable: false }])
 
-  const getToken = () => jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
+  const getToken = () => jwtToken
 
   const api = async (endpoint, body = {}) => {
     const res = await fetch(`/api/studio/databases${endpoint}`, {

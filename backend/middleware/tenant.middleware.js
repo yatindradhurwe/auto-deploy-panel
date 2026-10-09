@@ -55,6 +55,10 @@ export const requireTenant = (req, res, next) => {
 
     if (serverId) {
       server = getServerById(serverId)
+      // A server from another organization is never usable, whatever id the client sends
+      if (server && server.organizationId && server.organizationId !== orgId && !isSystemAdmin) {
+        return res.status(403).json({ error: 'Access denied: this server belongs to another organization.' })
+      }
     }
 
     if (!server) {

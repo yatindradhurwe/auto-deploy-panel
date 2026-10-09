@@ -1,18 +1,21 @@
 import React, { useState, useEffect } from 'react'
 import { Users, UserPlus, Shield, Trash2, Mail, Check, Zap, AlertCircle } from 'lucide-react'
+import { useAuth } from '../store/AuthContext'
 
 export default function TeamManager({ apiBaseUrl = '' }) {
+  const { token: jwtToken } = useAuth()
   const [members, setMembers] = useState([])
   const [loading, setLoading] = useState(true)
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [inviteForm, setInviteForm] = useState({ email: '', role: 'DEVELOPER' })
   const [error, setError] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
+  const [newMemberLogin, setNewMemberLogin] = useState(null) // one-time sign-in details for a brand-new teammate
 
   const fetchMembers = async () => {
     setLoading(true)
     try {
-      const token = (localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token'))
+      const token = jwtToken
       const res = await fetch(`${apiBaseUrl}/api/team/members`, {
         headers: { Authorization: `Bearer ${token}` }
       })
@@ -34,7 +37,7 @@ export default function TeamManager({ apiBaseUrl = '' }) {
     setError('')
     setSuccessMsg('')
     try {
-      const token = (localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token'))
+      const token = jwtToken
       const res = await fetch(`${apiBaseUrl}/api/team/invite`, {
         method: 'POST',
         headers: {
@@ -47,6 +50,7 @@ export default function TeamManager({ apiBaseUrl = '' }) {
       if (!res.ok) throw new Error(data.error || 'Failed to invite team member.')
 
       setSuccessMsg(data.message)
+      setNewMemberLogin(data.tempPassword ? { email: inviteForm.email.trim().toLowerCase(), tempPassword: data.tempPassword } : null)
       setShowInviteModal(false)
       setInviteForm({ email: '', role: 'DEVELOPER' })
       fetchMembers()
@@ -57,7 +61,7 @@ export default function TeamManager({ apiBaseUrl = '' }) {
 
   const handleRoleChange = async (userId, newRole) => {
     try {
-      const token = (localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token'))
+      const token = jwtToken
       const res = await fetch(`${apiBaseUrl}/api/team/members/${userId}/role`, {
         method: 'PUT',
         headers: {
@@ -75,7 +79,7 @@ export default function TeamManager({ apiBaseUrl = '' }) {
   const handleRemoveMember = async (userId) => {
     if (!window.confirm('Remove this member from your organization workspace?')) return
     try {
-      const token = (localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token'))
+      const token = jwtToken
       const res = await fetch(`${apiBaseUrl}/api/team/members/${userId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
@@ -111,6 +115,18 @@ export default function TeamManager({ apiBaseUrl = '' }) {
       {successMsg && (
         <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
           {successMsg}
+        </div>
+      )}
+
+      {newMemberLogin && (
+        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs space-y-2">
+          <div className="font-bold text-amber-300">Share these sign-in details with your teammate. They are shown only once.</div>
+          <div className="font-mono break-all">Login: {window.location.origin}/login</div>
+          <div className="font-mono break-all">Email: {newMemberLogin.email}</div>
+          <div className="font-mono break-all">Temporary password: {newMemberLogin.tempPassword}</div>
+          <div className="text-amber-200/80">They should change it from My Profile after signing in. To give them a specific project, use Share on the project card.</div>
+          <button onClick={() => { navigator.clipboard?.writeText(`${window.location.origin}/login\n${newMemberLogin.email}\n${newMemberLogin.tempPassword}`) }} className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 font-bold cursor-pointer">Copy</button>
+          <button onClick={() => setNewMemberLogin(null)} className="ml-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 font-bold cursor-pointer">Done</button>
         </div>
       )}
 
@@ -214,8 +230,8 @@ export default function TeamManager({ apiBaseUrl = '' }) {
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500"
                 >
                   <option value="ADMIN">ADMIN - Full Workspace Control</option>
-                  <option value="DEVELOPER">DEVELOPER - Deploy & Code Access</option>
-                  <option value="VIEWER">VIEWER - Read-Only Console</option>
+                  <option value="DEVELOPER">DEVELOPER - Only projects shared with them</option>
+                  <option value="VIEWER">VIEWER - Only projects shared with them</option>
                 </select>
               </div>
 

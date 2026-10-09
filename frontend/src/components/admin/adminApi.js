@@ -1,8 +1,11 @@
 /**
  * Small fetch wrapper for the Super Admin API. Throws an Error with the server's message on failure.
  */
+import { getSessionToken } from '../../utils/session'
+
+/** The signed-in session's token, from the auth store. */
 export function getAuthToken() {
-  return localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
+  return getSessionToken()
 }
 
 export async function adminApi(path, { method = 'GET', body, apiBaseUrl = '' } = {}) {

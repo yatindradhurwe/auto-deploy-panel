@@ -1,13 +1,18 @@
 import React, { useState, useEffect } from 'react'
 import { Bot, X } from 'lucide-react'
 import ProjectAgentPanel from './ProjectAgentPanel'
+import { useAuth } from '../store/AuthContext'
+import { useServers } from '../store/ServersContext'
+import { useProjects } from '../store/ProjectsContext'
 
 /**
  * Slide-over drawer hosting the Claude project agent, with a project picker.
  * Used by Code Studio, the dashboard and the deployment copilot.
  */
-export default function AIAgentStudioDrawer({ isOpen, onClose, projectPath, selectedProject, jwtToken, activeServer, onCodeModified }) {
-  const [projects, setProjects] = useState([])
+export default function AIAgentStudioDrawer({ isOpen, onClose, projectPath, selectedProject, onCodeModified }) {
+  const { token: jwtToken } = useAuth()
+  const { activeServer } = useServers()
+  const projects = useProjects().projects.filter(p => p.path)
   const [currentPath, setCurrentPath] = useState(selectedProject?.path || projectPath || '')
 
   useEffect(() => {
@@ -15,17 +20,8 @@ export default function AIAgentStudioDrawer({ isOpen, onClose, projectPath, sele
   }, [selectedProject?.path, projectPath])
 
   useEffect(() => {
-    if (!isOpen) return
-    const token = jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
-    fetch('/api/studio/projects', { headers: { Authorization: `Bearer ${token}`, 'X-Server-Id': activeServer?.id || '' } })
-      .then(r => r.json())
-      .then(data => {
-        const list = Array.isArray(data.projects) ? data.projects.filter(p => p.path) : []
-        setProjects(list)
-        if (!currentPath && list[0]) setCurrentPath(list[0].path)
-      })
-      .catch(() => {})
-  }, [isOpen])
+    if (isOpen && !currentPath && projects[0]) setCurrentPath(projects[0].path)
+  }, [isOpen, projects])
 
   if (!isOpen) return null
 
@@ -54,8 +50,6 @@ export default function AIAgentStudioDrawer({ isOpen, onClose, projectPath, sele
             key={currentPath}
             projectPath={currentPath}
             projectName={name}
-            jwtToken={jwtToken}
-            activeServer={activeServer}
             onFilesChanged={onCodeModified}
           />
         ) : (

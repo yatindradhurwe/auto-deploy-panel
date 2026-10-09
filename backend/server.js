@@ -11,7 +11,10 @@ import teamRoutes from './routes/team.routes.js'
 import adminRoutes from './routes/admin.routes.js'
 import supportRoutes from './routes/support.routes.js'
 import profileRoutes from './routes/profile.routes.js'
-import { authenticateToken, requireSystemAdmin } from './middleware/auth.middleware.js'
+import projectsRoutes from './routes/projects.routes.js'
+import templatesRoutes from './routes/templates.routes.js'
+import { authenticateToken } from './middleware/auth.middleware.js'
+import { requireStudioAccess, requireDeployAccess } from './middleware/studioAccess.middleware.js'
 import { initAutoUpdateService, executeProjectAutoUpdate } from './services/autoupdate.service.js'
 import { initMailService } from './services/mail.service.js'
 
@@ -107,9 +110,12 @@ app.use('/api/support', supportRoutes)
 app.use('/api/profile', profileRoutes)
 
 // Protected Deployment & Studio Routes (Requires valid JWT Token & Tenant Context)
-app.use('/api/deploy', authenticateToken, requireTenant, requireIdempotency(), deployRoutes)
-// Studio runs shell commands, file and database operations directly on this host, so it is admin-only
-app.use('/api/studio', authenticateToken, requireSystemAdmin, requireTenant, requireIdempotency(), studioRoutes)
+app.use('/api/deploy', authenticateToken, requireTenant, requireDeployAccess, requireIdempotency(), deployRoutes)
+// Studio runs shell commands, file and database operations on servers. Super admins get everything;
+// organization users only their own servers and the projects they may access (studioAccess.middleware)
+app.use('/api/studio', authenticateToken, requireTenant, requireStudioAccess, requireIdempotency(), studioRoutes)
+app.use('/api/projects', projectsRoutes)
+app.use('/api/templates', templatesRoutes)
 
 app.listen(PORT, HOST, () => {
   console.log(`[AUTODEPLOY-STUDIO-BACKEND] Multi-Tenant Engine Listening on http://${HOST}:${PORT}`)

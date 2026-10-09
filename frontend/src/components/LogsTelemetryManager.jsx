@@ -3,8 +3,12 @@ import {
   Activity, Play, Square, RotateCw, Trash2, Terminal, RefreshCw,
   Search, Copy, Check, Filter, Cpu, HardDrive, ShieldCheck, Zap, AlertCircle
 } from 'lucide-react'
+import { useAuth } from '../store/AuthContext'
+import { useServers } from '../store/ServersContext'
 
-export default function LogsTelemetryManager({ jwtToken, activeServer, project, initialApp }) {
+export default function LogsTelemetryManager({ project, initialApp }) {
+  const { token: jwtToken } = useAuth()
+  const { activeServer } = useServers()
   const [processes, setProcesses] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedApp, setSelectedApp] = useState(initialApp || project?.repoName || project?.name || '')
@@ -18,7 +22,7 @@ export default function LogsTelemetryManager({ jwtToken, activeServer, project, 
   const logsEndRef = useRef(null)
 
   const getEffectiveToken = () => {
-    return jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
+    return jwtToken
   }
 
   const getEffectiveHost = () => {

@@ -6,6 +6,7 @@ import SuperAdminLogin from './components/SuperAdminLogin'
 import CustomerDashboardLayout from './components/CustomerDashboardLayout'
 import SuperAdminDashboardLayout from './components/SuperAdminDashboardLayout'
 import { useAuth } from './store/AuthContext'
+import { WorkspaceProvider } from './store'
 
 /**
  * Routes between the two portals. Session state lives in the auth store (store/AuthContext).
@@ -82,7 +83,11 @@ export default function App() {
   return (
     <>
       {banners}
-      {showConsole ? <SuperAdminDashboardLayout /> : <CustomerDashboardLayout />}
+      {showConsole ? <SuperAdminDashboardLayout /> : (
+        <WorkspaceProvider key={currentUser.id}>
+          <CustomerDashboardLayout />
+        </WorkspaceProvider>
+      )}
     </>
   )
 }

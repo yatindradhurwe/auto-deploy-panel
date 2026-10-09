@@ -3,9 +3,14 @@ import {
   Folder, FileCode, ChevronRight, ChevronDown, Save, RefreshCw, Code, Terminal, FileText, CheckCircle2, Play, Search, X, GitBranch, Download, Upload, AlertCircle, Sparkles, FolderGit2, Bot, RotateCcw, History, DownloadCloud, Trash2, Plus, FolderPlus, FilePlus, CornerDownRight, Check, Maximize2, Minimize2, Sliders, Command, Layers, ExternalLink, FolderTree
 } from 'lucide-react'
 import AIAgentStudioDrawer from './AIAgentStudioDrawer'
+import { useAuth } from '../store/AuthContext'
+import { useServers } from '../store/ServersContext'
+import { useProjects } from '../store/ProjectsContext'
 
-export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
-  const [projects, setProjects] = useState([])
+export default function CodeStudio({ initialProject }) {
+  const { token: jwtToken } = useAuth()
+  const { activeServer } = useServers()
+  const { projects, refresh: refreshProjects } = useProjects()
   const [selectedProject, setSelectedProject] = useState(null)
   const [mobileTab, setMobileTab] = useState('editor') // 'tree' | 'editor'
   const [deleteStudioModal, setDeleteStudioModal] = useState(null)
@@ -84,7 +89,7 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
 
   useEffect(() => {
     fetchProjects()
-  }, [activeServer])
+  }, [projects])
 
   useEffect(() => {
     if (selectedProject) {
@@ -93,29 +98,11 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
     }
   }, [selectedProject])
 
-  const fetchProjects = async () => {
-    try {
-      const srvId = activeServer?.id || ''
-      const res = await fetch(`/api/studio/projects?serverId=${srvId}`, {
-        headers: {
-          'Authorization': `Bearer ${jwtToken}`,
-          'X-Server-Id': srvId
-        }
-      })
-      const data = await res.json()
-      if (data.success && data.projects.length > 0) {
-        setProjects(data.projects)
-        if (initialProject) {
-          const matched = data.projects.find((p) => p.repoName === initialProject || p.name.includes(initialProject))
-          if (matched) setSelectedProject(matched)
-          else setSelectedProject(data.projects[0])
-        } else {
-          setSelectedProject(data.projects[0])
-        }
-      }
-    } catch (e) {
-      console.error('Failed to load projects', e)
-    }
+  // Selects a project from the projects store (the requested one, else the first)
+  const fetchProjects = () => {
+    if (projects.length === 0) return
+    const matched = initialProject && projects.find((p) => p.repoName === initialProject || p.name.includes(initialProject))
+    setSelectedProject((current) => (current && projects.some((p) => p.path === current.path) ? current : (matched || projects[0])))
   }
 
   const fetchFileTree = async (projectPath) => {
@@ -340,14 +327,9 @@ export default function CodeStudio({ jwtToken, activeServer, initialProject }) {
       if (data.success) {
         alert(`Project '${deleteStudioModal.appName}' deleted successfully from live server!`)
         setDeleteStudioModal(null)
-        const updatedProjects = projects.filter((p) => p.id !== deleteStudioModal.id && p.repoName !== deleteStudioModal.appName)
-        setProjects(updatedProjects)
-        if (updatedProjects.length > 0) {
-          setSelectedProject(updatedProjects[0])
-        } else {
-          setSelectedProject(null)
-          setFileTree([])
-        }
+        setSelectedProject(null)
+        setFileTree([])
+        refreshProjects()
       } else {
         alert(`Delete Error: ${data.error}`)
       }

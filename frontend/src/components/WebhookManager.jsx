@@ -3,8 +3,12 @@ import {
   Webhook, Github, Copy, Check, RefreshCw, GitCommit,
   Clock, ShieldCheck, Zap, ExternalLink
 } from 'lucide-react'
+import { useAuth } from '../store/AuthContext'
+import { useServers } from '../store/ServersContext'
 
-export default function WebhookManager({ jwtToken, activeServer }) {
+export default function WebhookManager() {
+  const { token: jwtToken } = useAuth()
+  const { activeServer } = useServers()
   const [projects, setProjects] = useState([])
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)

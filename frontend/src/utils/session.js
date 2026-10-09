@@ -15,6 +15,19 @@ const SESSION_ENDED_CODES = new Set(['SESSION_REVOKED', 'SESSION_EXPIRED', 'INVA
 // Credential endpoints answer 401 for a wrong password, which is not a session problem
 const IGNORED_PATHS = [/\/api\/auth\/(login|signup)$/]
 
+// The auth store (store/AuthContext) pushes the live session token here so code outside React
+// components (API helpers, fetch guards) reads the same session as the store.
+let sessionToken = null
+
+export function setSessionToken(token) {
+  sessionToken = token || ''
+}
+
+/** Current session token from the auth store (falls back to persisted storage before the store mounts). */
+export function getSessionToken() {
+  return sessionToken !== null ? sessionToken : getStoredToken()
+}
+
 export function getStoredToken() {
   try {
     return localStorage.getItem(TOKEN_KEY) || localStorage.getItem(LEGACY_TOKEN_KEY) || ''
@@ -68,7 +81,7 @@ export function installSessionGuard() {
     // Only react to the token the app currently holds, not to a stale request from before a re-login
     const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined))
     const sentToken = (headers.get('Authorization') || '').replace(/^Bearer\s+/i, '')
-    if (!sentToken || sentToken !== getStoredToken()) return res
+    if (!sentToken || sentToken !== getSessionToken()) return res
 
     res.clone().json().then((data) => {
       if (data && SESSION_ENDED_CODES.has(data.code)) {

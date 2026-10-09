@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { Layers, Play, Square, RefreshCw, Cpu, Activity, Clock, Terminal, AlertCircle, CheckCircle2, ChevronRight, HardDrive, Code, DownloadCloud, X, Check, Globe, Trash2, Zap, Copy, GitBranch, Webhook, Settings, Plus, FolderGit2 } from 'lucide-react'
 import DeploymentWizard from './DeploymentWizard'
+import { useAuth } from '../store/AuthContext'
+import { useServers } from '../store/ServersContext'
+import { useProjects } from '../store/ProjectsContext'
 
-export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio, onOpenProjectStudio }) {
+export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio }) {
+  const { token: jwtToken } = useAuth()
+  const { activeServer } = useServers()
   const [processes, setProcesses] = useState([])
   const [serverStats, setServerStats] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -22,7 +27,7 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
   // Delete Project Confirmation Modal State
   const [deleteModal, setDeleteModal] = useState(null)
 
-  const [projects, setProjects] = useState([])
+  const { projects, refresh: refreshProjects } = useProjects()
 
   useEffect(() => {
     fetchMetrics()
@@ -30,7 +35,7 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
   }, [activeServer])
 
   const fetchAutoUpdateConfigs = async () => {
-    const tok = jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token')
+    const tok = jwtToken
     try {
       const res = await fetch('/api/studio/autoupdate/list', {
         headers: { 'Authorization': `Bearer ${tok}` }
@@ -46,10 +51,11 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
 
   const fetchMetrics = async () => {
     setLoading(true)
-    const tok = jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
+    const tok = jwtToken
     try {
       const srvId = activeServer?.id || ''
-      const [metricsRes, projectsRes] = await Promise.all([
+      refreshProjects()
+      const [metricsRes] = await Promise.all([
         fetch('/api/studio/server-metrics', {
           method: 'POST',
           headers: {
@@ -58,12 +64,6 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
             'X-Server-Id': srvId
           },
           body: JSON.stringify({ host: activeServer ? (activeServer.ipAddress || activeServer.host) : '187.127.165.128' })
-        }).catch(() => null),
-        fetch(`/api/studio/projects?serverId=${srvId}`, {
-          headers: {
-            'Authorization': `Bearer ${tok}`,
-            'X-Server-Id': srvId
-          }
         }).catch(() => null)
       ])
 
@@ -75,12 +75,6 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
         }
       }
 
-      if (projectsRes) {
-        const data = await projectsRes.json().catch(() => ({}))
-        if (data.success && data.projects) {
-          setProjects(data.projects)
-        }
-      }
     } catch (e) {
       console.error('Failed to fetch PM2 processes & projects', e)
     } finally {
@@ -909,8 +903,6 @@ export default function ProjectExplorer({ jwtToken, activeServer, onOpenInStudio
             </button>
 
             <DeploymentWizard
-              jwtToken={jwtToken}
-              activeServer={activeServer}
               onDeploymentSuccess={() => {
                 setShowDeployWizard(false)
                 fetchMetrics()

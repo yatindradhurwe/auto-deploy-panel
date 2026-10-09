@@ -1,10 +1,16 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { Server, ChevronDown, Plus, Check, Globe, Cpu, Activity, RefreshCw, Layers, Cloud } from 'lucide-react'
+import { useServers } from '../store/ServersContext'
 
-export default function ServerSelectorDropdown({ activeServerId, onServerSelect, apiBaseUrl = '' }) {
-  const [servers, setServers] = useState([])
+/**
+ * Server picker backed by the servers store. `activeServerId` / `onServerSelect` are optional
+ * overrides; by default it shows and changes the store's selected server.
+ */
+export default function ServerSelectorDropdown({ activeServerId: activeOverride, onServerSelect: onSelectOverride }) {
+  const { servers, activeServerId: storeActiveId, loading, refresh: fetchServers, selectServer, connectServer } = useServers()
+  const activeServerId = activeOverride || storeActiveId
+  const onServerSelect = onSelectOverride || selectServer
   const [isOpen, setIsOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState(null)
@@ -25,43 +31,12 @@ export default function ServerSelectorDropdown({ activeServerId, onServerSelect,
     cloudProvider: 'aws'
   })
 
-  const fetchServers = async () => {
-    setLoading(true)
-    try {
-      const token = localStorage.getItem('autodeploy_token')
-      const res = await fetch(`${apiBaseUrl}/api/agent/servers`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      const data = await res.json()
-      if (data.servers) {
-        setServers(data.servers)
-        // Live reachability (admin endpoint; skipped for other roles)
-        fetch(`${apiBaseUrl}/api/studio/servers`, { headers: { Authorization: `Bearer ${token}` } })
-          .then(r => (r.ok ? r.json() : null))
-          .then(live => {
-            if (!live?.servers) return
-            const byId = new Map(live.servers.map(s => [s.id, s]))
-            setServers(list => list.map(s => (byId.has(s.id) ? { ...s, ...byId.get(s.id) } : s)))
-          })
-          .catch(() => {})
-      }
-    } catch (err) {
-      console.error('Failed to fetch organization servers:', err)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    fetchServers()
-  }, [])
-
   const currentServer = servers.find(s => s.id === activeServerId) || servers[0] || {
-    id: 'srv-default',
-    name: 'Production Server Node 01',
-    ipAddress: '187.127.165.128',
+    id: '',
+    name: loading ? 'Loading servers…' : 'No server connected',
+    ipAddress: '',
     serverType: 'vps',
-    status: 'online'
+    status: 'offline'
   }
 
   const handleAddServer = async (e) => {
@@ -69,28 +44,11 @@ export default function ServerSelectorDropdown({ activeServerId, onServerSelect,
     setAdding(true)
     setAddError(null)
     try {
-      const token = localStorage.getItem('autodeploy_token')
-      const res = await fetch(`${apiBaseUrl}/api/agent/servers`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          ...newServer,
-          serverType
-        })
-      })
-      const data = await res.json()
-      if (data.success && data.server) {
-        setShowAddModal(false)
-        fetchServers()
-        if (onServerSelect) onServerSelect(data.server.id)
-      } else {
-        setAddError(data.error || 'Could not connect to the server.')
-      }
+      const data = await connectServer({ ...newServer, serverType })
+      setShowAddModal(false)
+      if (onSelectOverride && data.server?.id) onSelectOverride(data.server.id)
     } catch (err) {
-      setAddError('Failed to add server: ' + err.message)
+      setAddError(err.message || 'Could not connect to the server.')
     } finally {
       setAdding(false)
     }

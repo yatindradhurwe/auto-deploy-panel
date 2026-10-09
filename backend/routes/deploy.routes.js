@@ -5,6 +5,8 @@ import { runDeployPipeline, validateDeployConfig, STAGES } from '../services/dep
 import { getHost } from '../services/host.service.js'
 import { initUpload, appendChunk, completeUpload, analyzeGitRepo } from '../services/upload.service.js'
 import { diagnoseDeploymentError, executeSshPatch } from '../services/ai.service.js'
+import { recordTemplateDeploy } from '../services/template.service.js'
+import { isSuperSession } from '../services/project-access.service.js'
 
 const router = express.Router()
 
@@ -329,7 +331,12 @@ import { recordWebhookEvent } from '../services/db.service.js'
 router.post('/deploy', async (req, res) => {
   let cfg
   try {
-    cfg = validateDeployConfig({ ...req.body, _githubToken: (getUserSettings(req.user?.id)?.githubToken || '').trim() || null }, req.user?.id, req.tenant?.server || null)
+    cfg = validateDeployConfig({
+      ...req.body,
+      _githubToken: (getUserSettings(req.user?.id)?.githubToken || '').trim() || null,
+      // Super admins may test-deploy a draft template before publishing it
+      _allowDraftTemplate: isSuperSession(req)
+    }, req.user?.id, req.tenant?.server || null)
   } catch (err) {
     return res.status(err.status || 400).json({ success: false, error: err.message })
   }
@@ -356,6 +363,7 @@ router.post('/deploy', async (req, res) => {
     const result = await runDeployPipeline(cfg, emit, { host: getHost(req.tenant?.server || null) })
     session.status = result.success ? 'success' : 'failed'
     if (result.success) {
+      if (cfg.templateId) recordTemplateDeploy(cfg.templateId)
       try {
         const gitUrl = cfg.source.type === 'git' ? cfg.source.gitUrl : ''
         createProject({

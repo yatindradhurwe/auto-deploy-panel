@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react'
 import { CreditCard, Check, Zap, Shield, Sparkles, AlertCircle, ArrowUpRight, CheckCircle2 } from 'lucide-react'
+import { useAuth } from '../store/AuthContext'
 
 export default function BillingManager({ apiBaseUrl = '' }) {
+  const { token: jwtToken } = useAuth()
   const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(true)
   const [upgrading, setUpgrading] = useState('')
@@ -10,7 +12,7 @@ export default function BillingManager({ apiBaseUrl = '' }) {
   const fetchBillingSummary = async () => {
     setLoading(true)
     try {
-      const token = (localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token'))
+      const token = jwtToken
       const res = await fetch(`${apiBaseUrl}/api/billing/summary`, {
         headers: { Authorization: `Bearer ${token}` }
       })
@@ -31,7 +33,7 @@ export default function BillingManager({ apiBaseUrl = '' }) {
     setUpgrading(planId)
     setMessage('')
     try {
-      const token = (localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token'))
+      const token = jwtToken
       const res = await fetch(`${apiBaseUrl}/api/billing/checkout`, {
         method: 'POST',
         headers: {

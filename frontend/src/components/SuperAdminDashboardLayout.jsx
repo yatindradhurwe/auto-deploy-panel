@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import {
   Crown, Users, Building, Server, RefreshCw, Zap, ShieldAlert, BarChart3,
   LogOut, Layers, Key, Activity, Clock, ShieldCheck, CreditCard, ChevronRight,
-  Eye, AlertTriangle, ArrowLeft, Menu, X, Settings, Tags, LifeBuoy, UserCircle
+  Eye, AlertTriangle, ArrowLeft, Menu, X, Settings, Tags, LifeBuoy, UserCircle, ShoppingBag
 } from 'lucide-react'
 import SuperAdminPortal from './SuperAdminPortal'
 import { useAuth } from '../store/AuthContext'
@@ -40,7 +40,8 @@ export default function SuperAdminDashboardLayout({ apiBaseUrl = '' }) {
       items: [
         { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
         { id: 'support', label: 'Support Tickets', icon: LifeBuoy },
-        { id: 'plans', label: 'Plans & Pricing', icon: Tags }
+        { id: 'plans', label: 'Plans & Pricing', icon: Tags },
+        { id: 'marketplace', label: 'Marketplace', icon: ShoppingBag }
       ]
     },
     {
@@ -170,7 +171,7 @@ export default function SuperAdminDashboardLayout({ apiBaseUrl = '' }) {
         {/* Central Super Admin View */}
         <main className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-6 w-full">
           {activeTab === 'idempotency' ? (
-            <AdminIdempotencyPanel jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />
+            <AdminIdempotencyPanel apiBaseUrl={apiBaseUrl} />
           ) : (
             <SuperAdminPortal activeTab={activeTab} apiBaseUrl={apiBaseUrl} currentUser={currentUser} onNavigate={setActiveTab} />
           )}

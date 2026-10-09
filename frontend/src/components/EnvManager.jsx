@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { Key, Save, Plus, Trash2, Eye, EyeOff, RefreshCw, FileText, CheckCircle2, Lock, Sparkles, Folder, Code } from 'lucide-react'
+import { useAuth } from '../store/AuthContext'
+import { useServers } from '../store/ServersContext'
+import { useProjects } from '../store/ProjectsContext'
 
-export default function EnvManager({ jwtToken, activeServer, project, initialProject }) {
-  const [projects, setProjects] = useState([])
+export default function EnvManager({ project, initialProject }) {
+  const { token: jwtToken } = useAuth()
+  const { activeServer } = useServers()
+  const { projects } = useProjects()
   const [selectedProject, setSelectedProject] = useState(null)
   const [envVars, setEnvVars] = useState([])
   const [rawContent, setRawContent] = useState('')
@@ -15,7 +20,7 @@ export default function EnvManager({ jwtToken, activeServer, project, initialPro
 
   useEffect(() => {
     fetchProjects()
-  }, [activeServer, project, initialProject])
+  }, [projects, project, initialProject])
 
   useEffect(() => {
     if (selectedProject) {
@@ -23,40 +28,25 @@ export default function EnvManager({ jwtToken, activeServer, project, initialPro
     }
   }, [selectedProject])
 
+  // Picks the project to edit from the projects store
   const fetchProjects = async () => {
-    try {
-      const res = await fetch('/api/studio/projects', {
-        headers: {
-          'Authorization': `Bearer ${jwtToken}`,
-          'X-Server-Id': activeServer?.id || ''
+    if (projects.length > 0) {
+      const target = initialProject || project?.repoName || project?.name || project?.path
+      if (target) {
+        const matched = projects.find((p) =>
+          p.repoName === target || p.name === target || p.path === target || p.name?.includes(target)
+        )
+        if (matched) {
+          setSelectedProject(matched)
+          return
         }
-      })
-      const data = await res.json()
-      if (data.success && data.projects.length > 0) {
-        setProjects(data.projects)
-        const target = initialProject || project?.repoName || project?.name || project?.path
-        if (target) {
-          const matched = data.projects.find((p) =>
-            p.repoName === target || p.name === target || p.path === target || p.name?.includes(target)
-          )
-          if (matched) {
-            setSelectedProject(matched)
-            return
-          }
-        }
-        if (project && project.path) {
-          setSelectedProject(project)
-        } else {
-          setSelectedProject(data.projects[0])
-        }
-      } else if (project && project.path) {
-        setSelectedProject(project)
       }
-    } catch (e) {
-      console.error('Failed to load projects', e)
-      if (project && project.path) setSelectedProject(project)
+      setSelectedProject(project && project.path ? project : projects[0])
+    } else if (project && project.path) {
+      setSelectedProject(project)
     }
   }
+
 
   const fetchEnv = async (projectPath) => {
     setLoading(true)

@@ -10,6 +10,8 @@ import { hostFor, getHost, publicServer, isLocalServer, forgetHost, testServerCo
 import { discoverProjects } from '../services/project-discovery.service.js'
 import { updateProject, deleteProject } from '../services/project-ops.service.js'
 import { validateResourceOwnership } from '../middleware/tenant.middleware.js'
+import { filterProjectsForUser, sharesForUser, projectLevel } from '../services/project-access.service.js'
+import { loadSettings, saveSection, checkPwa } from '../services/project-settings.service.js'
 import {
   readDb,
   getProjectsByOrgId,
@@ -121,6 +123,21 @@ async function discoverServerProjects(req, host) {
 }
 
 /**
+ * Projects the caller may see, each with its `access` level (super/owner/manager/viewer).
+ */
+function visibleProjects(req, projects) {
+  if (req.studioAccess?.level === 'super') return projects.map(p => ({ ...p, access: 'super' }))
+  return filterProjectsForUser(req, projects)
+}
+
+/** Shared members only see the PM2 processes of projects shared with them. */
+function visibleProcesses(req, processes) {
+  if (req.studioAccess?.level !== 'member') return processes
+  const names = new Set(sharesForUser(req.user.id, req.tenant.organizationId, req.tenant.server?.id).flatMap(s => s.appNames || []))
+  return processes.filter(p => names.has(p.name))
+}
+
+/**
  * Live metrics for one server, never throwing: unreachable servers are reported as offline.
  */
 const metricsCache = new Map() // server id -> { at, data }
@@ -215,6 +232,7 @@ router.post('/servers/test', withHost(async (req, res) => {
 router.post('/servers/add', withHost(async (req, res) => {
   const input = serverInput(req.body)
   if (!input.password && !input.sshKey && !isLocalServer(input)) throw Object.assign(new Error('Enter the SSH password or private key.'), { status: 400 })
+  if (isLocalServer(input) && !isSuperAdminUser(req)) throw Object.assign(new Error('This address is the platform host and cannot be added as your server.'), { status: 403 })
   const orgId = req.tenant?.organizationId || 'org-default'
   if (getServersByOrgId(orgId).some(s => s.ipAddress === input.ipAddress && Number(s.port || 22) === input.port)) {
     throw Object.assign(new Error(`${input.ipAddress} is already connected.`), { status: 409 })
@@ -239,6 +257,7 @@ router.post('/servers/update', withHost(async (req, res) => {
   const server = getServerById(req.body.serverId || req.body.id)
   if (!server || !validateResourceOwnership(server, req)) throw Object.assign(new Error('Server not found.'), { status: 404 })
   const input = serverInput({ ...server, ...req.body, password: req.body.password || server.password, sshKey: req.body.sshKey || server.sshKey })
+  if (isLocalServer(input) && !isSuperAdminUser(req)) throw Object.assign(new Error('This address is the platform host and cannot be used as your server.'), { status: 403 })
   if (req.body.password || req.body.sshKey || input.ipAddress !== server.ipAddress || input.port !== Number(server.port || 22) || input.username !== server.username) {
     await testServerConnection(input)
   }
@@ -426,7 +445,7 @@ router.all('/projects', withHost(async (req, res, host) => {
     seen.add(p.path)
     projects.push({ ...p, organizationId: req.tenant?.organizationId || 'org-default', serverId: server?.id || 'srv-default', serverName: server?.name || host.label })
   }
-  res.json({ success: true, projects, server: server ? publicServer(server) : null })
+  res.json({ success: true, projects: visibleProjects(req, projects), server: server ? publicServer(server) : null })
 }))
 
 /**
@@ -438,7 +457,7 @@ router.all('/server-metrics', withHost(async (req, res, host) => {
   res.json({
     success: true,
     server: { ...metrics, host: server?.ipAddress || server?.hostname || '127.0.0.1', name: server?.name || host.label, status: 'online' },
-    processes
+    processes: visibleProcesses(req, processes)
   })
 }))
 
@@ -446,7 +465,7 @@ router.all('/server-metrics', withHost(async (req, res, host) => {
  * GET & POST /api/studio/projects/realtime-fetch — rescan (same data as /projects, never cached)
  */
 router.all('/projects/realtime-fetch', withHost(async (req, res, host) => {
-  const projects = (await discoverServerProjects(req, host)).map(p => ({ ...p, organizationId: req.tenant?.organizationId || 'org-default', serverId: req.tenant?.server?.id || 'srv-default' }))
+  const projects = visibleProjects(req, (await discoverServerProjects(req, host)).map(p => ({ ...p, organizationId: req.tenant?.organizationId || 'org-default', serverId: req.tenant?.server?.id || 'srv-default' })))
   res.json({ success: true, message: `Found ${projects.length} projects on ${host.label}.`, projects })
 }))
 
@@ -546,6 +565,67 @@ const TREE_SKIP = ['node_modules', '.git', 'dist', '.user_uploaded', 'chunks']
 const MAX_EDIT_BYTES = 10 * 1024 * 1024
 
 const resolveIn = (projectPath, p) => (path.posix.isAbsolute(p) || !projectPath ? path.posix.normalize(p) : path.posix.resolve(projectPath, p))
+
+/**
+ * Project settings (Settings in the project studio). Body: { projectPath, domain, appNames, ... }
+ * Shared members may only touch the PM2 processes on their share.
+ */
+function allowedAppNames(req, appNames) {
+  const names = (Array.isArray(appNames) ? appNames : []).map(String).filter(n => /^[a-zA-Z0-9._-]{1,100}$/.test(n))
+  if (['super', 'owner'].includes(req.studioAccess?.level)) return names
+  return names.filter(n => projectLevel(req, { projectPath: req.body.projectPath, appName: n }))
+}
+
+router.post('/project-settings/get', withHost(async (req, res, host) => {
+  const dir = await requireProjectDir(host, req.body.projectPath)
+  const domain = String(req.body.domain || '').trim().toLowerCase() || null
+  const data = await loadSettings(host, req.tenant?.server || null, dir, domain)
+  const names = allowedAppNames(req, req.body.appNames)
+  const procs = names.length ? (await getRealPm2Processes(host)).filter(p => names.includes(p.name)) : []
+  res.json({
+    success: true,
+    ...data,
+    processes: procs.map(p => ({ name: p.name, status: p.status })),
+    access: req.studioAccess?.level,
+    canEditServer: ['super', 'owner'].includes(req.studioAccess?.level)
+  })
+}))
+
+/** Checks whether the live site is installable as an app (manifest, service worker, HTTPS, icons). */
+router.post('/project-settings/pwa-check', withHost(async (req, res, host) => {
+  await requireProjectDir(host, req.body.projectPath)
+  res.json({ success: true, ...(await checkPwa(host, String(req.body.domain || '').trim().toLowerCase())) })
+}))
+
+router.post('/project-settings/save', withHost(async (req, res, host) => {
+  const dir = await requireProjectDir(host, req.body.projectPath)
+  const { section, values = {}, restart = false } = req.body
+  const domain = String(req.body.domain || '').trim().toLowerCase() || null
+  const names = allowedAppNames(req, req.body.appNames)
+
+  // Publishing status: start or stop the project's PM2 processes
+  if (section === 'publishing') {
+    const action = values.status === 'offline' ? 'stop' : 'start'
+    if (!names.length) return res.status(400).json({ success: false, error: 'This project has no PM2 process to start or stop.' })
+    if (host.isLocal && action === 'stop' && names.includes(PANEL_PM2_NAME)) return res.status(400).json({ success: false, error: 'Refusing to stop the control panel itself.' })
+    const outputs = []
+    for (const n of names) {
+      const r = await host.run('pm2', [action === 'start' ? 'restart' : 'stop', n], { timeout: 60000 })
+      if (r.code !== 0) return res.status(500).json({ success: false, error: r.stderr || r.stdout })
+      outputs.push(n)
+    }
+    await host.run('pm2', ['save'])
+    return res.json({ success: true, message: `${outputs.join(', ')} ${action === 'start' ? 'is online' : 'stopped'}.` })
+  }
+
+  const result = await saveSection(host, req.tenant?.server || null, dir, { section, values, domain, userId: req.user.id, level: req.studioAccess?.level })
+  // .env changes reach a running Node app only after a restart
+  if (restart && names.length) {
+    for (const n of names) await host.run('pm2', ['restart', n, '--update-env'], { timeout: 60000 })
+    result.applied.push(`Restarted ${names.join(', ')}`)
+  }
+  res.json({ success: true, message: result.applied.join('. ') + '.', ...result })
+}))
 
 /**
  * POST /api/studio/files/tree — whole tree in one `find` (one round trip on remote servers)

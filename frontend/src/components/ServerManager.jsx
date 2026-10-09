@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react'
 import { Server, Activity, Cpu, HardDrive, ShieldCheck, Plus, RefreshCw, Terminal, CheckCircle2, Clock, Globe, Key, AlertTriangle, Cloud, Layers, Database, Lock, Eye, Trash2, X } from 'lucide-react'
+import { useAuth } from '../store/AuthContext'
+import { useServers } from '../store/ServersContext'
 
-export default function ServerManager({ jwtToken, activeServer, onSelectServer }) {
+export default function ServerManager({ onSelectServer }) {
+  const { token: jwtToken } = useAuth()
+  const { activeServer } = useServers()
   const [servers, setServers] = useState([])
   const [loading, setLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
@@ -48,7 +52,7 @@ export default function ServerManager({ jwtToken, activeServer, onSelectServer }
   const fetchServers = async () => {
     setLoading(true)
     try {
-      const token = jwtToken || localStorage.getItem('autodeploy_token')
+      const token = jwtToken
       const res = await fetch('/api/agent/servers', {
         headers: { Authorization: `Bearer ${token}` }
       })
@@ -67,7 +71,7 @@ export default function ServerManager({ jwtToken, activeServer, onSelectServer }
     e.preventDefault()
     setSaving(true)
     try {
-      const token = jwtToken || localStorage.getItem('autodeploy_token')
+      const token = jwtToken
       const bodyPayload = {
         name: newServer.name,
         serverType,
@@ -126,7 +130,7 @@ export default function ServerManager({ jwtToken, activeServer, onSelectServer }
     e.stopPropagation()
     if (!confirm('Are you sure you want to disconnect this server node?')) return
     try {
-      const token = jwtToken || localStorage.getItem('autodeploy_token')
+      const token = jwtToken
       const res = await fetch(`/api/agent/servers/${serverId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
