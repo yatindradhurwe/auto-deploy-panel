@@ -5,9 +5,11 @@ import {
   Eye, AlertTriangle, ArrowLeft, Menu, X, Settings, Tags, LifeBuoy, UserCircle
 } from 'lucide-react'
 import SuperAdminPortal from './SuperAdminPortal'
+import { useAuth } from '../store/AuthContext'
 import { AdminIdempotencyPanel } from './AdminIdempotencyPanel'
 
-export default function SuperAdminDashboardLayout({ currentUser, jwtToken, onLogout, onExitImpersonation, onSessionUpdate, apiBaseUrl = '' }) {
+export default function SuperAdminDashboardLayout({ apiBaseUrl = '' }) {
+  const { user: currentUser, token: jwtToken, logout: onLogout } = useAuth()
   const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'users' | 'organizations' | 'servers' | 'subscriptions' | 'support' | 'plans' | 'audit-logs' | 'settings' | 'idempotency' | 'profile'
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -170,7 +172,7 @@ export default function SuperAdminDashboardLayout({ currentUser, jwtToken, onLog
           {activeTab === 'idempotency' ? (
             <AdminIdempotencyPanel jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />
           ) : (
-            <SuperAdminPortal activeTab={activeTab} apiBaseUrl={apiBaseUrl} currentUser={currentUser} onNavigate={setActiveTab} onSessionUpdate={onSessionUpdate} />
+            <SuperAdminPortal activeTab={activeTab} apiBaseUrl={apiBaseUrl} currentUser={currentUser} onNavigate={setActiveTab} />
           )}
         </main>
       </div>

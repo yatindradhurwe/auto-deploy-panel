@@ -229,7 +229,7 @@ router.post('/users/:id/impersonate', handle((req) => {
   if (user.status === 'suspended') throw httpError(400, 'Reactivate this account before impersonating it.')
   const token = signSessionToken(user, { expiresIn: '1h', impersonatedBy: req.user.id, req })
   audit(req, 'ADMIN_USER_IMPERSONATED', 'user', user.id, { email: user.email })
-  return { success: true, token, user: { ...sanitizeUser(user), role: 'admin', impersonatedBy: req.user.id } }
+  return { success: true, token, user: { ...sanitizeUser(user), role: 'admin', portal: 'panel', impersonatedBy: req.user.id } }
 }))
 
 router.delete('/users/:id', handle((req) => {

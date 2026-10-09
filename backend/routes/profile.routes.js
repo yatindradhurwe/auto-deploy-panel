@@ -153,6 +153,7 @@ function sessionUser(req, user) {
     phone: user.phone || '',
     organizationId: req.user.organizationId || user.organizationId || null,
     role: getPlatformRole(user),
+    portal: req.user.portal,
     impersonatedBy: req.user.impersonatedBy || null,
     avatar: user.avatar || ''
   }

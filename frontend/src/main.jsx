@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
+import { AuthProvider } from './store/AuthContext'
 import './index.css'
 import { installServerHeader } from './utils/activeServer'
 import { installSessionGuard } from './utils/session'
@@ -12,6 +13,8 @@ installSessionGuard()
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    <AuthProvider>
+      <App />
+    </AuthProvider>
   </React.StrictMode>,
 )

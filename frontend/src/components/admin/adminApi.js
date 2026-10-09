@@ -56,6 +56,7 @@ export function startImpersonation(token, user) {
   localStorage.setItem('autodeploy_token', token)
   localStorage.removeItem('autodeploy_jwt_token')
   localStorage.setItem('autodeploy_user', JSON.stringify(user))
+  localStorage.setItem('autodeploy_portal', 'panel')
   window.location.href = '/app/dashboard'
 }
 
@@ -72,10 +73,12 @@ export function stopImpersonation() {
   if (adminToken) {
     localStorage.setItem('autodeploy_token', adminToken)
     if (adminUser) localStorage.setItem('autodeploy_user', adminUser)
+    localStorage.setItem('autodeploy_portal', 'console')
     window.location.href = '/admin'
   } else {
     localStorage.removeItem('autodeploy_token')
     localStorage.removeItem('autodeploy_user')
-    window.location.href = '/'
+    localStorage.removeItem('autodeploy_portal')
+    window.location.href = '/admin/login'
   }
 }

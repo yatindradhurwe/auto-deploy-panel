@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useAuth } from '../store/AuthContext'
 import {
   Rocket,
   Shield,
@@ -18,9 +19,19 @@ import {
   Cpu
 } from 'lucide-react'
 
-export default function SaaSAuthPages({ onAuthSuccess, apiBaseUrl = '', platformStatus = null, sessionNotice = '' }) {
+/**
+ * Organization (admin) sign in and signup at /login and /signup. Super admins use /admin/login.
+ */
+export default function SaaSAuthPages({ apiBaseUrl = '', initialView = 'login' }) {
+  const { login, startSession, platformStatus, notice: sessionNotice, clearNotice } = useAuth()
   const signupsOpen = !platformStatus || platformStatus.allowSignups !== false
-  const [view, setView] = useState('login') // 'login' | 'signup' | 'onboarding'
+  const [view, setViewState] = useState(initialView) // 'login' | 'signup' | 'onboarding'
+  const [errorCode, setErrorCode] = useState('')
+  const setView = (next) => {
+    setViewState(next)
+    setError('')
+    if (next === 'login' || next === 'signup') window.history.replaceState(null, '', `/${next}`)
+  }
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -42,22 +53,14 @@ export default function SaaSAuthPages({ onAuthSuccess, apiBaseUrl = '', platform
     e.preventDefault()
     setLoading(true)
     setError('')
+    setErrorCode('')
+    clearNotice()
 
     try {
-      const res = await fetch(`${apiBaseUrl}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: formData.email, password: formData.password })
-      })
-
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Login failed')
-
-      if (onAuthSuccess) {
-        onAuthSuccess(data.token, data.user)
-      }
+      await login('panel', formData.email, formData.password)
     } catch (err) {
       setError(err.message)
+      setErrorCode(err.code || '')
     } finally {
       setLoading(false)
     }
@@ -83,9 +86,7 @@ export default function SaaSAuthPages({ onAuthSuccess, apiBaseUrl = '', platform
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Signup failed')
 
-      localStorage.setItem('autodeploy_token', data.token)
-      localStorage.setItem('autodeploy_user', JSON.stringify(data.user))
-      
+      // The session is only stored once onboarding finishes (startSession below)
       setAuthToken(data.token)
       setUserObj(data.user)
 
@@ -104,7 +105,7 @@ export default function SaaSAuthPages({ onAuthSuccess, apiBaseUrl = '', platform
     setError('')
 
     try {
-      const token = authToken || localStorage.getItem('autodeploy_token')
+      const token = authToken
       const res = await fetch(`${apiBaseUrl}/api/auth/onboarding`, {
         method: 'POST',
         headers: {
@@ -210,6 +211,9 @@ export default function SaaSAuthPages({ onAuthSuccess, apiBaseUrl = '', platform
             {error && (
               <div className="mb-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-sm">
                 {error}
+                {errorCode === 'USE_CONSOLE_LOGIN' && (
+                  <a href="/admin/login" className="block mt-2 font-bold text-purple-300 hover:text-purple-200">Go to super admin login →</a>
+                )}
               </div>
             )}
 
@@ -252,6 +256,10 @@ export default function SaaSAuthPages({ onAuthSuccess, apiBaseUrl = '', platform
                 {loading ? <Zap className="w-5 h-5 animate-spin" /> : <><span>Sign In to Dashboard</span><ArrowRight className="w-4 h-4" /></>}
               </button>
             </form>
+
+            <p className="text-xs text-slate-500 text-center mt-6">
+              Platform staff? <a href="/admin/login" className="text-purple-300 hover:text-purple-200 font-semibold">Super admin login</a>
+            </p>
 
           </div>
         )}
@@ -441,9 +449,7 @@ export default function SaaSAuthPages({ onAuthSuccess, apiBaseUrl = '', platform
 
                 <button
                   onClick={() => {
-                    const token = authToken || localStorage.getItem('autodeploy_token')
-                    const user = userObj || JSON.parse(localStorage.getItem('autodeploy_user') || '{}')
-                    if (onAuthSuccess) onAuthSuccess(token, user)
+                    if (authToken && userObj) startSession(authToken, userObj, 'panel')
                   }}
                   className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/25 flex items-center justify-center space-x-2"
                 >

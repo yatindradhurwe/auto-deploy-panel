@@ -107,6 +107,8 @@ router.post('/signup', (req, res) => {
         fullName: newUser.fullName,
         email: newUser.email,
         organizationId: org.id,
+        role: 'admin',
+        portal: 'panel',
         isVerified: newUser.isVerified
       },
       organization: org
@@ -123,6 +125,8 @@ router.post('/signup', (req, res) => {
 router.post('/login', (req, res) => {
   try {
     const { email, password } = req.body
+    // Super admins and organization admins sign in through separate portals
+    const portal = req.body.portal === 'console' ? 'console' : 'panel'
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Email address and password are required.' })
@@ -160,6 +164,15 @@ router.post('/login', (req, res) => {
       return res.status(401).json({ error: 'Invalid email address or password.' })
     }
 
+    const role = getPlatformRole(user)
+    // Don't confirm to the console login that a customer's password is right
+    if (portal === 'console' && role !== 'superadmin') {
+      return res.status(401).json({ error: 'Invalid email address or password.' })
+    }
+    if (portal === 'panel' && role === 'superadmin') {
+      return res.status(403).json({ error: 'Super admin accounts sign in through the super admin portal.', code: 'USE_CONSOLE_LOGIN', loginUrl: '/admin/login' })
+    }
+
     if (getUserStatus(user) === 'suspended') {
       return res.status(403).json({ error: `Your account has been suspended.${user.suspendedReason ? ` Reason: ${user.suspendedReason}` : ''} Contact support for help.`, code: 'ACCOUNT_SUSPENDED' })
     }
@@ -186,12 +199,14 @@ router.post('/login', (req, res) => {
       action: 'USER_LOGIN',
       resourceType: 'auth',
       resourceId: user.id,
-      ip: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1'
+      ip: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+      details: { portal }
     })
 
     res.json({
       message: 'Authentication successful',
       token,
+      portal,
       user: {
         id: user.id,
         fullName: user.fullName || user.name,
@@ -199,6 +214,7 @@ router.post('/login', (req, res) => {
         email: user.email,
         organizationId: activeOrgId,
         role: getPlatformRole(user),
+        portal,
         avatar: user.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=150'
       },
       organizations: orgs,
@@ -245,6 +261,7 @@ router.get('/me', authenticateToken, (req, res) => {
         phone: user.phone || '',
         organizationId: activeOrgId,
         role: getPlatformRole(user),
+        portal: req.user.portal,
         impersonatedBy: req.user.impersonatedBy || null,
         avatar: user.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=150'
       },

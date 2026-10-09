@@ -21,7 +21,7 @@ const PAGE_TITLES = {
   profile: ['My profile', 'Your account details, sign-in email, password and company details']
 }
 
-export default function SuperAdminPortal({ activeTab = 'dashboard', apiBaseUrl = '', currentUser, onNavigate = () => {}, onSessionUpdate }) {
+export default function SuperAdminPortal({ activeTab = 'dashboard', apiBaseUrl = '', currentUser, onNavigate = () => {} }) {
   const [title, subtitle] = PAGE_TITLES[activeTab] || PAGE_TITLES.dashboard
   const props = { apiBaseUrl, currentUser, onNavigate }
 
@@ -40,7 +40,7 @@ export default function SuperAdminPortal({ activeTab = 'dashboard', apiBaseUrl =
       {activeTab === 'plans' && <AdminPlans {...props} />}
       {activeTab === 'audit-logs' && <AdminAuditLog {...props} />}
       {activeTab === 'settings' && <AdminSettings {...props} />}
-      {activeTab === 'profile' && <ProfilePage apiBaseUrl={apiBaseUrl} onSessionUpdate={onSessionUpdate} />}
+      {activeTab === 'profile' && <ProfilePage apiBaseUrl={apiBaseUrl} />}
     </div>
   )
 }

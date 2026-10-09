@@ -28,7 +28,7 @@ function clientInfo(req) {
 /**
  * Stores a session and drops expired/revoked ones, keeping at most MAX_SESSIONS_PER_USER per user.
  */
-export function createSession({ id, userId, expiresAt, impersonatedBy = null, req = null }) {
+export function createSession({ id, userId, expiresAt, impersonatedBy = null, portal = 'panel', req = null }) {
   const db = readDb()
   if (!db.sessions) db.sessions = {}
   const now = Date.now()
@@ -41,7 +41,7 @@ export function createSession({ id, userId, expiresAt, impersonatedBy = null, re
   for (const old of mine.slice(MAX_SESSIONS_PER_USER - 1)) delete db.sessions[old.id]
 
   const createdAt = new Date(now).toISOString()
-  db.sessions[id] = { id, userId, impersonatedBy, createdAt, lastSeenAt: createdAt, expiresAt, revokedAt: null, ...clientInfo(req) }
+  db.sessions[id] = { id, userId, impersonatedBy, portal, createdAt, lastSeenAt: createdAt, expiresAt, revokedAt: null, ...clientInfo(req) }
   writeDb(db)
   return db.sessions[id]
 }
@@ -96,5 +96,5 @@ export function listUserSessions(userId) {
   return Object.values(readDb().sessions || {})
     .filter((s) => s.userId === userId && isActive(s, now))
     .sort((a, b) => new Date(b.lastSeenAt) - new Date(a.lastSeenAt))
-    .map(({ id, createdAt, lastSeenAt, expiresAt, ip, userAgent, impersonatedBy }) => ({ id, createdAt, lastSeenAt, expiresAt, ip, userAgent, impersonatedBy }))
+    .map(({ id, portal, createdAt, lastSeenAt, expiresAt, ip, userAgent, impersonatedBy }) => ({ id, portal: portal || 'panel', createdAt, lastSeenAt, expiresAt, ip, userAgent, impersonatedBy }))
 }

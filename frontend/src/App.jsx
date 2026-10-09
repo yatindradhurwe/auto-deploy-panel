@@ -1,143 +1,22 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React from 'react'
 import { Eye, Megaphone, Wrench } from 'lucide-react'
 import { stopImpersonation } from './components/admin/adminApi'
 import SaaSAuthPages from './components/SaaSAuthPages'
+import SuperAdminLogin from './components/SuperAdminLogin'
 import CustomerDashboardLayout from './components/CustomerDashboardLayout'
 import SuperAdminDashboardLayout from './components/SuperAdminDashboardLayout'
-import { TOKEN_KEY, getStoredToken, storeSession, clearStoredSession, revokeToken } from './utils/session'
+import { useAuth } from './store/AuthContext'
 
-const isSuperAdminUser = (user) => (user?.role === 'superadmin' || user?.id === 'admin-001') && !user?.impersonatedBy
-const isImpersonating = () => {
-  try { return !!sessionStorage.getItem('autodeploy_admin_token') } catch { return false }
-}
-
+/**
+ * Routes between the two portals. Session state lives in the auth store (store/AuthContext).
+ *  - /admin/login → super admin sign in;  /admin/* → super admin console
+ *  - /login, /signup → organization sign in;  /app/* → organization server panel
+ */
 export default function App() {
-  const [jwtToken, setJwtToken] = useState(getStoredToken)
-  const [currentUser, setCurrentUser] = useState(() => {
-    try {
-      const saved = localStorage.getItem('autodeploy_user')
-      return saved ? JSON.parse(saved) : null
-    } catch (e) {
-      return null
-    }
-  })
-  const [verifyingSession, setVerifyingSession] = useState(true)
-  const [platformStatus, setPlatformStatus] = useState(null)
-  const [maintenanceMessage, setMaintenanceMessage] = useState('')
-  const [sessionNotice, setSessionNotice] = useState('')
-  const endingRef = useRef(false)
+  const { status, user: currentUser, isSuperAdmin, platformStatus, maintenanceMessage } = useAuth()
+  const path = window.location.pathname
 
-  // Drops the local session and shows the login screen (the server side is already gone or being revoked)
-  const resetToLogin = (notice = '') => {
-    clearStoredSession()
-    setJwtToken('')
-    setCurrentUser(null)
-    setSessionNotice(notice)
-    window.history.replaceState(null, '', '/')
-  }
-
-  // The server ended this session (logged out elsewhere, revoked, expired, suspended…)
-  const handleSessionEnded = (message) => {
-    if (endingRef.current) return
-    endingRef.current = true
-    if (isImpersonating()) {
-      stopImpersonation()
-      return
-    }
-    resetToLogin(message || 'Your session has ended. Please log in again.')
-  }
-
-  useEffect(() => {
-    fetch('/api/auth/platform-status')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => data && setPlatformStatus(data))
-      .catch(() => {})
-  }, [])
-
-  useEffect(() => {
-    const onEnded = (e) => handleSessionEnded(e.detail?.message)
-    // Another tab logged in, out, or switched accounts
-    const onStorage = (e) => {
-      if (e.key !== TOKEN_KEY && e.key !== null) return
-      if (!getStoredToken()) {
-        if (endingRef.current) return
-        endingRef.current = true
-        resetToLogin('You were logged out in another tab.')
-      } else if (e.newValue && e.newValue !== e.oldValue) {
-        window.location.reload()
-      }
-    }
-    window.addEventListener('autodeploy:session-ended', onEnded)
-    window.addEventListener('storage', onStorage)
-    return () => {
-      window.removeEventListener('autodeploy:session-ended', onEnded)
-      window.removeEventListener('storage', onStorage)
-    }
-  }, [])
-
-  // Verify JWT session on initial load
-  useEffect(() => {
-    const verifySession = async () => {
-      const token = getStoredToken()
-      if (!token) {
-        setVerifyingSession(false)
-        return
-      }
-      try {
-        const res = await fetch('/api/auth/me', {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        if (res.ok) {
-          const data = await res.json()
-          if (data.user) {
-            setCurrentUser(data.user)
-            storeSession(null, data.user)
-          }
-        } else if (res.status === 503) {
-          const data = await res.json().catch(() => ({}))
-          setMaintenanceMessage(data.error || 'The platform is under maintenance. Please check back shortly.')
-        } else if (res.status === 401 || res.status === 403) {
-          const data = await res.json().catch(() => ({}))
-          handleSessionEnded(data.error)
-        }
-      } catch (err) {
-        console.warn('Session verification check:', err)
-      } finally {
-        setVerifyingSession(false)
-      }
-    }
-    verifySession()
-  }, [])
-
-  const handleLoginSuccess = (user, token) => {
-    // Super admins land in the platform console, admins in their server panel
-    window.history.replaceState(null, '', isSuperAdminUser(user) ? '/admin/dashboard' : '/app/dashboard')
-    endingRef.current = false
-    storeSession(token, user)
-    setSessionNotice('')
-    setCurrentUser(user)
-    setJwtToken(token)
-  }
-
-  // Profile changes refresh the stored user; a password change also issues a new token
-  const handleSessionUpdate = (user, token) => {
-    const merged = { ...currentUser, ...user }
-    storeSession(token, merged)
-    setCurrentUser(merged)
-    if (token) setJwtToken(token)
-  }
-
-  const handleLogout = async () => {
-    if (currentUser?.impersonatedBy || isImpersonating()) {
-      stopImpersonation()
-      return
-    }
-    endingRef.current = true
-    await revokeToken(jwtToken)
-    resetToLogin()
-  }
-
-  if (verifyingSession) {
+  if (status === 'verifying') {
     return (
       <div className="min-h-screen bg-[#07090E] flex flex-col items-center justify-center text-slate-100 font-sans">
         <div className="flex flex-col items-center gap-3">
@@ -148,7 +27,7 @@ export default function App() {
     )
   }
 
-  if (maintenanceMessage) {
+  if (status === 'maintenance') {
     return (
       <div className="min-h-screen bg-[#07090E] flex items-center justify-center p-6 text-slate-100 font-sans">
         <div className="bg-slate-900 border border-amber-500/30 rounded-2xl p-8 max-w-md w-full text-center space-y-4 shadow-2xl">
@@ -165,8 +44,14 @@ export default function App() {
     )
   }
 
-  if (!jwtToken || !currentUser) {
-    return <SaaSAuthPages platformStatus={platformStatus} sessionNotice={sessionNotice} onAuthSuccess={(token, user) => handleLoginSuccess(user, token)} />
+  if (status === 'anonymous' || !currentUser) {
+    if (path.startsWith('/admin')) {
+      if (path !== '/admin/login') window.history.replaceState(null, '', '/admin/login')
+      return <SuperAdminLogin />
+    }
+    const view = path === '/signup' ? 'signup' : 'login'
+    if (path !== `/${view}`) window.history.replaceState(null, '', `/${view}`)
+    return <SaaSAuthPages initialView={view} />
   }
 
   const banners = (
@@ -188,43 +73,16 @@ export default function App() {
     </>
   )
 
-  const isSuperAdmin = isSuperAdminUser(currentUser)
-  const path = window.location.pathname
-  let isPathAdmin = path.startsWith('/admin') || window.location.hash.startsWith('#/admin')
-
-  // /admin is the super admin console; /app is the server & project panel used by admins.
-  // Super admins open the console by default and can still reach their own servers under /app.
-  if (isPathAdmin && !isSuperAdmin) {
-    window.history.replaceState(null, '', '/app/dashboard')
-    isPathAdmin = false
-  } else if (!isPathAdmin && isSuperAdmin && !path.startsWith('/app')) {
-    window.history.replaceState(null, '', '/admin/dashboard')
-    isPathAdmin = true
-  }
-
-  if (isPathAdmin) {
-    return (
-      <>
-        {banners}
-        <SuperAdminDashboardLayout
-          currentUser={currentUser}
-          jwtToken={jwtToken}
-          onLogout={handleLogout}
-          onSessionUpdate={handleSessionUpdate}
-        />
-      </>
-    )
-  }
+  // Admins never see the console. Super admins open the console by default and can still use
+  // the server panel under /app for the platform's own servers.
+  const showConsole = isSuperAdmin && !path.startsWith('/app')
+  if (!isSuperAdmin && !path.startsWith('/app')) window.history.replaceState(null, '', '/app/dashboard')
+  if (showConsole && (!path.startsWith('/admin') || path === '/admin/login')) window.history.replaceState(null, '', '/admin/dashboard')
 
   return (
     <>
       {banners}
-      <CustomerDashboardLayout
-        currentUser={currentUser}
-        jwtToken={jwtToken}
-        onLogout={handleLogout}
-        onSessionUpdate={handleSessionUpdate}
-      />
+      {showConsole ? <SuperAdminDashboardLayout /> : <CustomerDashboardLayout />}
     </>
   )
 }

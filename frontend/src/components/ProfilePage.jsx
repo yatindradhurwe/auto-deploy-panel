@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { UserCircle, Mail, KeyRound, Building, ShieldCheck, Check, X, MonitorSmartphone } from 'lucide-react'
 import { getAuthToken, formatDate, timeAgo } from './admin/adminApi'
 import { Card, Badge, Button, Field, TextInput, Alert, Loading } from './admin/AdminUI'
+import { useAuth } from '../store/AuthContext'
 
 async function profileApi(path, { method = 'GET', body, apiBaseUrl = '' } = {}) {
   const res = await fetch(`${apiBaseUrl}/api/profile${path}`, {
@@ -72,9 +73,10 @@ function firmForm(organization) {
 
 /**
  * Profile page shared by the super admin console and the admin server panel.
- * `onSessionUpdate(user, token?)` refreshes the stored session after name/email/password changes.
+ * Name/email/password changes are pushed into the auth store so the header and token stay current.
  */
-export default function ProfilePage({ apiBaseUrl = '', onSessionUpdate = () => {} }) {
+export default function ProfilePage({ apiBaseUrl = '' }) {
+  const { updateSession: onSessionUpdate } = useAuth()
   const [data, setData] = useState(null)
   const [loadError, setLoadError] = useState('')
   const [busy, setBusy] = useState('')

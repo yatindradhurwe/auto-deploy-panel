@@ -9,7 +9,7 @@ import {
   MessageSquare, AlertCircle, FileText, ChevronRight, Mail, Phone, ExternalLink, Trash2, X, UserCircle
 } from 'lucide-react'
 
-export default function ServerConnectLanding({ currentUser, apiBaseUrl = '', onSessionUpdate, servers, loadingServers, onSelectServer, onConnectServer, connecting }) {
+export default function ServerConnectLanding({ currentUser, apiBaseUrl = '', servers, loadingServers, onSelectServer, onConnectServer, connecting }) {
   const [activeTab, setActiveTab] = useState('servers') // 'servers' | 'billing' | 'team' | 'support' | 'profile'
   const [showConnectModal, setShowConnectModal] = useState(false)
   const [billingCycle, setBillingCycle] = useState('monthly') // 'monthly' | 'annual'
@@ -617,7 +617,7 @@ export default function ServerConnectLanding({ currentUser, apiBaseUrl = '', onS
               <h2 className="text-2xl font-black text-white tracking-tight">My profile</h2>
               <p className="text-slate-400 text-sm mt-1">Your account details, sign-in email, password and firm details</p>
             </div>
-            <ProfilePage apiBaseUrl={apiBaseUrl} onSessionUpdate={onSessionUpdate} />
+            <ProfilePage apiBaseUrl={apiBaseUrl} />
           </div>
         )}
 

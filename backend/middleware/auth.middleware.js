@@ -10,6 +10,15 @@ const JWT_OPTIONS = { algorithm: 'HS256', issuer: 'autodeploy-panel', audience: 
 const QUERY_TOKEN_PATHS = [/^\/api\/deploy\/stream\/[^/]+$/, /^\/api\/studio\/preview-proxy$/]
 
 /**
+ * Which login portal a session belongs to:
+ *  - 'console': the super admin console (/admin/login), only for super admins
+ *  - 'panel':   the organization server panel (/login), for admins and impersonation sessions
+ */
+export function portalFor(user, impersonatedBy = null) {
+  return getPlatformRole(user) === 'superadmin' && !impersonatedBy ? 'console' : 'panel'
+}
+
+/**
  * Signs a session token and registers its server-side session.
  *  - `sid` must match an active session, so logout/revocation takes effect immediately
  *  - `tv` (token version) lets admins revoke every session of a user by bumping user.tokenVersion
@@ -23,12 +32,13 @@ export function signSessionToken(user, { organizationId, expiresIn = '7d', imper
     organizationId: organizationId || user.organizationId || null,
     role: getPlatformRole(user),
     tv: user.tokenVersion || 0,
+    portal: portalFor(user, impersonatedBy),
     sid
   }
   if (impersonatedBy) payload.impersonatedBy = impersonatedBy
   const token = jwt.sign(payload, JWT_SECRET, { ...JWT_OPTIONS, expiresIn, jwtid: sid })
   const { exp } = jwt.decode(token)
-  createSession({ id: sid, userId: user.id, expiresAt: new Date(exp * 1000).toISOString(), impersonatedBy, req })
+  createSession({ id: sid, userId: user.id, expiresAt: new Date(exp * 1000).toISOString(), impersonatedBy, portal: payload.portal, req })
   return token
 }
 
@@ -62,6 +72,10 @@ export const authenticateToken = (req, res, next) => {
   const user = getUserById(decoded.id)
   if (!user) {
     return res.status(401).json({ error: 'This account no longer exists.', code: 'ACCOUNT_DELETED' })
+  }
+  // Tokens from before portals existed, or a console session whose super admin access was removed, must sign in again
+  if (!decoded.portal || (decoded.portal === 'console' && getPlatformRole(user) !== 'superadmin')) {
+    return res.status(401).json({ error: 'Your access has changed. Please log in again.', code: 'SESSION_REVOKED' })
   }
   if ((decoded.tv || 0) !== (user.tokenVersion || 0)) {
     return res.status(401).json({ error: 'Your session was signed out. Please log in again.', code: 'SESSION_REVOKED' })
@@ -100,7 +114,7 @@ export const authenticateToken = (req, res, next) => {
  * Impersonation sessions never get admin rights, even when an admin started them.
  */
 export const requireSystemAdmin = (req, res, next) => {
-  if (!isSystemAdminUser(req.user) || req.user.impersonatedBy) {
+  if (!isSystemAdminUser(req.user) || req.user.impersonatedBy || req.user.portal !== 'console') {
     return res.status(403).json({ error: 'Access denied. This action requires platform administrator privileges.' })
   }
   next()

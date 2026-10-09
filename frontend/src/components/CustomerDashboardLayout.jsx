@@ -27,11 +27,13 @@ import AllProjectsHub from './AllProjectsHub'
 import ServerConnectLanding from './ServerConnectLanding'
 import MarketplaceView from './MarketplaceView'
 import ProfilePage from './ProfilePage'
+import { useAuth } from '../store/AuthContext'
 
 import DeploymentWizard from './DeploymentWizard'
 import { getActiveServerId, setActiveServerId as rememberActiveServer } from '../utils/activeServer'
 
-export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogout, onSessionUpdate, apiBaseUrl = '' }) {
+export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
+  const { user: currentUser, token: jwtToken, logout: onLogout } = useAuth()
   const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'servers' | 'projects' | 'deployments' | 'databases' | 'code' | 'env' | 'domains' | 'logs' | 'email' | 'team' | 'billing' | 'settings' | 'profile'
   const [activeWorkspaceProject, setActiveWorkspaceProject] = useState(null)
   const [viewStep, setViewStep] = useState('servers') // Default home page after login: 'servers' ("Connect & Manage Your Server Infrastructure")
@@ -234,7 +236,6 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
       <ServerConnectLanding
         currentUser={currentUser}
         apiBaseUrl={apiBaseUrl}
-        onSessionUpdate={onSessionUpdate}
         servers={servers}
         loadingServers={loadingServers}
         onSelectServer={(srv) => {
@@ -357,7 +358,7 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
 
     if (activeTab === 'profile') {
       return renderHubSubView(
-        <ProfilePage apiBaseUrl={apiBaseUrl} onSessionUpdate={onSessionUpdate} />,
+        <ProfilePage apiBaseUrl={apiBaseUrl} />,
         'My Profile'
       )
     }
@@ -670,7 +671,7 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
           {activeTab === 'team' && <TeamManager apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'billing' && <BillingManager apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'audit-logs' && <AuditLogViewer apiBaseUrl={apiBaseUrl} />}
-          {activeTab === 'profile' && <ProfilePage apiBaseUrl={apiBaseUrl} onSessionUpdate={onSessionUpdate} />}
+          {activeTab === 'profile' && <ProfilePage apiBaseUrl={apiBaseUrl} />}
         </main>
       </div>
 
