@@ -18,7 +18,8 @@ import {
   Cpu
 } from 'lucide-react'
 
-export default function SaaSAuthPages({ onAuthSuccess, apiBaseUrl = '' }) {
+export default function SaaSAuthPages({ onAuthSuccess, apiBaseUrl = '', platformStatus = null }) {
+  const signupsOpen = !platformStatus || platformStatus.allowSignups !== false
   const [view, setView] = useState('login') // 'login' | 'signup' | 'onboarding'
   const [formData, setFormData] = useState({
     fullName: '',
@@ -165,7 +166,7 @@ export default function SaaSAuthPages({ onAuthSuccess, apiBaseUrl = '' }) {
             >
               Sign In
             </button>
-            <button
+            {signupsOpen && <button
               onClick={() => setView('signup')}
               className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all ${
                 view === 'signup'
@@ -174,10 +175,21 @@ export default function SaaSAuthPages({ onAuthSuccess, apiBaseUrl = '' }) {
               }`}
             >
               Start Free Trial
-            </button>
+            </button>}
           </div>
         )}
       </header>
+
+      {platformStatus?.maintenanceMode && (
+        <div className="bg-amber-500/10 border-b border-amber-500/30 text-amber-100 px-6 py-2.5 text-xs text-center">
+          <strong className="text-amber-300">Maintenance:</strong> {platformStatus.maintenanceMessage}
+        </div>
+      )}
+      {platformStatus?.announcement && (
+        <div className="bg-cyan-500/10 border-b border-cyan-500/30 text-cyan-100 px-6 py-2.5 text-xs text-center">
+          {platformStatus.announcement}
+        </div>
+      )}
 
       {/* Main Form Container */}
       <div className="flex-1 flex items-center justify-center p-6 relative overflow-hidden">
@@ -244,7 +256,15 @@ export default function SaaSAuthPages({ onAuthSuccess, apiBaseUrl = '' }) {
           </div>
         )}
 
-        {view === 'signup' && (
+        {view === 'signup' && !signupsOpen && (
+          <div className="w-full max-w-md bg-slate-900/80 border border-slate-800 rounded-2xl p-8 shadow-2xl text-center space-y-3 relative z-10">
+            <h2 className="text-xl font-bold text-white">Registration is closed</h2>
+            <p className="text-sm text-slate-400">New accounts are not being accepted right now. Contact the platform administrator for access.</p>
+            <button onClick={() => setView('login')} className="text-sm text-cyan-400 hover:text-cyan-300 cursor-pointer">Back to sign in</button>
+          </div>
+        )}
+
+        {view === 'signup' && signupsOpen && (
           <div className="w-full max-w-md bg-slate-900/80 border border-slate-800 rounded-2xl p-8 shadow-2xl backdrop-blur-xl relative z-10">
             <div className="text-center mb-8">
               <h2 className="text-2xl font-bold text-white mb-2">Create Workspace</h2>

@@ -2,13 +2,13 @@ import React, { useState, useEffect } from 'react'
 import {
   Crown, Users, Building, Server, RefreshCw, Zap, ShieldAlert, BarChart3,
   LogOut, Layers, Key, Activity, Clock, ShieldCheck, CreditCard, ChevronRight,
-  Eye, AlertTriangle, ArrowLeft, Menu, X
+  Eye, AlertTriangle, ArrowLeft, Menu, X, Settings, Tags
 } from 'lucide-react'
 import SuperAdminPortal from './SuperAdminPortal'
 import { AdminIdempotencyPanel } from './AdminIdempotencyPanel'
 
 export default function SuperAdminDashboardLayout({ currentUser, jwtToken, onLogout, onExitImpersonation, apiBaseUrl = '' }) {
-  const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'users' | 'organizations' | 'servers' | 'subscriptions' | 'audit-logs' | 'idempotency'
+  const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'users' | 'organizations' | 'servers' | 'subscriptions' | 'plans' | 'audit-logs' | 'settings' | 'idempotency'
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [impersonatingOrg, setImpersonatingOrg] = useState(null)
@@ -27,22 +27,24 @@ export default function SuperAdminDashboardLayout({ currentUser, jwtToken, onLog
     {
       title: 'PLATFORM MANAGEMENT',
       items: [
-        { id: 'dashboard', label: 'Platform Analytics', icon: BarChart3 },
-        { id: 'users', label: 'Registered Users', icon: Users },
-        { id: 'organizations', label: 'Customer Organizations', icon: Building },
-        { id: 'servers', label: 'Global Server Inventory', icon: Server }
+        { id: 'dashboard', label: 'Overview', icon: BarChart3 },
+        { id: 'users', label: 'Users', icon: Users },
+        { id: 'organizations', label: 'Organizations', icon: Building },
+        { id: 'servers', label: 'Servers', icon: Server }
       ]
     },
     {
       title: 'BUSINESS & REVENUE',
       items: [
-        { id: 'subscriptions', label: 'Active Subscriptions', icon: CreditCard }
+        { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
+        { id: 'plans', label: 'Plans & Pricing', icon: Tags }
       ]
     },
     {
       title: 'SYSTEM & SECURITY',
       items: [
-        { id: 'audit-logs', label: 'Platform Audit Trail', icon: ShieldCheck },
+        { id: 'audit-logs', label: 'Audit Trail', icon: ShieldCheck },
+        { id: 'settings', label: 'Platform Settings', icon: Settings },
         { id: 'idempotency', label: 'Idempotency System', icon: RefreshCw }
       ]
     }
@@ -93,9 +95,9 @@ export default function SuperAdminDashboardLayout({ currentUser, jwtToken, onLog
 
             <div className="flex items-center space-x-1.5 sm:space-x-2 bg-slate-900 border border-purple-500/30 rounded-xl px-2.5 py-1 text-xs shrink-0">
               <div className="w-5 h-5 rounded-full bg-amber-400 text-slate-950 font-bold flex items-center justify-center text-[10px]">
-                A
+                {(currentUser?.fullName || currentUser?.name || currentUser?.email || 'A').charAt(0).toUpperCase()}
               </div>
-              <span className="font-bold text-amber-300 hidden xs:inline">Platform Admin</span>
+              <span className="font-bold text-amber-300 hidden xs:inline max-w-[10rem] truncate">{currentUser?.fullName || currentUser?.name || 'Platform Admin'}</span>
               <button onClick={onLogout} className="text-slate-400 hover:text-rose-400 p-0.5 ml-1" title="Logout">
                 <LogOut className="w-3.5 h-3.5" />
               </button>
@@ -159,7 +161,7 @@ export default function SuperAdminDashboardLayout({ currentUser, jwtToken, onLog
           {activeTab === 'idempotency' ? (
             <AdminIdempotencyPanel jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />
           ) : (
-            <SuperAdminPortal activeTab={activeTab} apiBaseUrl={apiBaseUrl} />
+            <SuperAdminPortal activeTab={activeTab} apiBaseUrl={apiBaseUrl} currentUser={currentUser} onNavigate={setActiveTab} />
           )}
         </main>
       </div>

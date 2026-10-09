@@ -34,6 +34,9 @@ export const requireTenant = (req, res, next) => {
     if (!organization) {
       return res.status(404).json({ error: `Organization '${orgId}' not found.` })
     }
+    if (organization.status === 'suspended' && !isSystemAdminUser(req.user)) {
+      return res.status(403).json({ error: `This organization has been suspended.${organization.suspendedReason ? ` Reason: ${organization.suspendedReason}` : ''}`, code: 'ORGANIZATION_SUSPENDED' })
+    }
 
     // Verify membership (Super Admin / Admin gets override access)
     const members = getOrganizationMembers(orgId)

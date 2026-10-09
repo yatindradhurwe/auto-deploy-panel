@@ -1,9 +1,8 @@
 import express from 'express'
-import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
-import { authenticateToken } from '../middleware/auth.middleware.js'
-import { JWT_SECRET } from '../config/secrets.js'
+import { authenticateToken, signSessionToken } from '../middleware/auth.middleware.js'
+import { getPlatformRole, getUserStatus, getPlatformSettings } from '../services/admin.service.js'
 import {
   getUserByEmail,
   getUserById,
@@ -32,8 +31,19 @@ router.post('/signup', (req, res) => {
   try {
     const { fullName, email, password, orgName } = req.body
 
+    const platform = getPlatformSettings()
+    if (!platform.allowSignups) {
+      return res.status(403).json({ error: 'New account registration is currently closed.', code: 'SIGNUPS_DISABLED' })
+    }
+    if (platform.maintenanceMode) {
+      return res.status(503).json({ error: platform.maintenanceMessage, code: 'MAINTENANCE_MODE' })
+    }
+
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required.' })
+    }
+    if (String(password).length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters.' })
     }
 
     const cleanEmail = email.trim().toLowerCase()
@@ -60,21 +70,13 @@ router.post('/signup', (req, res) => {
     const org = createOrganization({
       name: organizationName,
       ownerId: newUser.id,
-      planId: 'FREE'
+      planId: platform.defaultSignupPlanId || 'FREE'
     })
 
     // Update user primary organizationId
     updateUser(newUser.id, { organizationId: org.id })
 
-    // Generate Token
-    const payload = {
-      id: newUser.id,
-      name: newUser.fullName,
-      email: newUser.email,
-      organizationId: org.id,
-      role: 'user'
-    }
-    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' })
+    const token = signSessionToken(newUser, { organizationId: org.id })
 
     recordAuditLog({
       organizationId: org.id,
@@ -147,22 +149,24 @@ router.post('/login', (req, res) => {
       return res.status(401).json({ error: 'Invalid email address or password.' })
     }
 
+    if (getUserStatus(user) === 'suspended') {
+      return res.status(403).json({ error: `Your account has been suspended.${user.suspendedReason ? ` Reason: ${user.suspendedReason}` : ''} Contact support for help.`, code: 'ACCOUNT_SUSPENDED' })
+    }
+    const platform = getPlatformSettings()
+    if (platform.maintenanceMode && getPlatformRole(user) !== 'admin') {
+      return res.status(503).json({ error: platform.maintenanceMessage, code: 'MAINTENANCE_MODE' })
+    }
+
+    const loginIp = req.headers['x-forwarded-for'] || req.ip || '127.0.0.1'
+    updateUser(user.id, { lastLoginAt: new Date().toISOString(), lastLoginIp: String(loginIp).split(',')[0].trim() })
+
     // Resolve user's organizations
     const orgs = getOrganizationsByUserId(user.id)
     const activeOrgId = user.organizationId || (orgs.length > 0 ? orgs[0].id : 'org-default')
     const activeOrg = getOrganizationById(activeOrgId) || (orgs.length > 0 ? orgs[0] : null)
     const servers = activeOrgId ? getServersByOrgId(activeOrgId) : []
 
-    // Sign JWT
-    const payload = {
-      id: user.id,
-      name: user.fullName,
-      email: user.email,
-      organizationId: activeOrgId,
-      role: user.id === 'admin-001' ? 'admin' : 'user'
-    }
-
-    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' })
+    const token = signSessionToken(user, { organizationId: activeOrgId })
 
     recordAuditLog({
       organizationId: activeOrgId,
@@ -182,7 +186,7 @@ router.post('/login', (req, res) => {
         name: user.fullName || user.name,
         email: user.email,
         organizationId: activeOrgId,
-        role: user.id === 'admin-001' ? 'admin' : 'user',
+        role: getPlatformRole(user),
         avatar: user.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=150'
       },
       organizations: orgs,
@@ -193,6 +197,20 @@ router.post('/login', (req, res) => {
     console.error('[LOGIN ERROR]:', err)
     res.status(500).json({ error: err.message || 'Login failed.' })
   }
+})
+
+/**
+ * GET /api/auth/platform-status
+ * Public: lets the login page show maintenance notices, announcements and whether signups are open.
+ */
+router.get('/platform-status', (req, res) => {
+  const settings = getPlatformSettings()
+  res.json({
+    allowSignups: settings.allowSignups,
+    maintenanceMode: settings.maintenanceMode,
+    maintenanceMessage: settings.maintenanceMode ? settings.maintenanceMessage : '',
+    announcement: settings.announcement || ''
+  })
 })
 
 /**
@@ -213,7 +231,8 @@ router.get('/me', authenticateToken, (req, res) => {
         name: user.fullName || user.name || 'User',
         email: user.email,
         organizationId: activeOrgId,
-        role: user.id === 'admin-001' ? 'admin' : 'user',
+        role: getPlatformRole(user),
+        impersonatedBy: req.user.impersonatedBy || null,
         avatar: user.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=150'
       },
       organizations: orgs,

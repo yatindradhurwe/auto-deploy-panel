@@ -5,6 +5,7 @@ import http from 'http'
 import https from 'https'
 import { exec, execSync, execFile } from 'child_process'
 import { authenticateToken } from '../middleware/auth.middleware.js'
+import { isSystemAdminUser } from '../config/secrets.js'
 import { updateExistingDeployment, deleteServerProject } from '../services/ssh.service.js'
 import {
   readDb,
@@ -477,9 +478,7 @@ router.post('/servers/scan', async (req, res) => {
 /**
  * Helper to verify if user is Super Admin
  */
-const isSuperAdminUser = (req) => {
-  return req.user && (req.user.id === 'admin-001' || (req.user.role && req.user.role.toLowerCase().includes('admin')) || req.user.email === 'admin@tipcrm.com')
-}
+const isSuperAdminUser = (req) => isSystemAdminUser(req.user) && !req.user.impersonatedBy
 
 /**
  * POST /api/studio/servers/add

@@ -17,7 +17,8 @@ try {
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const DB_PATH = path.resolve(__dirname, '../data/db.json')
+// AUTODEPLOY_DB_PATH lets tests run against a copy instead of the live database
+const DB_PATH = process.env.AUTODEPLOY_DB_PATH || path.resolve(__dirname, '../data/db.json')
 
 // Default multi-tenant SaaS initial database structure
 const INITIAL_DB = {

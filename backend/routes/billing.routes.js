@@ -23,7 +23,8 @@ router.get('/summary', authenticateToken, requireTenant, (req, res) => {
  */
 router.get('/plans', (req, res) => {
   try {
-    const plans = getAllPlans()
+    // Custom plans an admin marked as private are assigned manually and not offered publicly
+    const plans = Object.fromEntries(Object.entries(getAllPlans()).filter(([, p]) => p.isPublic !== false))
     res.json({ plans })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -42,7 +43,7 @@ router.post('/checkout', authenticateToken, requireTenant, requireRole(['OWNER',
     }
 
     const plans = getAllPlans()
-    if (!plans[planId]) {
+    if (!plans[planId] || plans[planId].isPublic === false) {
       return res.status(400).json({ error: `Invalid planId '${planId}'.` })
     }
 
