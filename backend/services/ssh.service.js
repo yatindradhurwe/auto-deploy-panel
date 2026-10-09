@@ -33,7 +33,7 @@ function connectSsh(config) {
     if (config.privateKey) {
       connConfig.privateKey = config.privateKey
     } else {
-      connConfig.password = config.password || 'Yatindra@1223'
+      connConfig.password = config.password
     }
 
     conn.connect(connConfig)

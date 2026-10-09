@@ -1,7 +1,9 @@
 import express from 'express'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
+import crypto from 'crypto'
 import { authenticateToken } from '../middleware/auth.middleware.js'
+import { JWT_SECRET } from '../config/secrets.js'
 import {
   getUserByEmail,
   getUserById,
@@ -10,6 +12,7 @@ import {
   getOrganizationsByUserId,
   getOrganizationById,
   createOrganization,
+  updateOrganization,
   getServersByOrgId,
   getUserSettings,
   saveUserSettings,
@@ -18,11 +21,9 @@ import {
 
 const router = express.Router()
 
-const JWT_SECRET = process.env.JWT_SECRET || 'autodeploy_super_secret_jwt_key_2026'
-
-// Configurable System Default Admin
+// Configurable System Default Admin (bootstrap password only comes from env, never a hardcoded default)
 const DEFAULT_ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'admin@tipcrm.com').toLowerCase()
-const DEFAULT_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123'
+const DEFAULT_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || ''
 
 /**
  * POST /api/auth/signup
@@ -118,7 +119,7 @@ router.post('/login', (req, res) => {
     let user = getUserByEmail(cleanEmail)
 
     // Handle system default admin fallback if not yet in DB users
-    if (!user && cleanEmail === DEFAULT_ADMIN_EMAIL) {
+    if (!user && cleanEmail === DEFAULT_ADMIN_EMAIL && DEFAULT_ADMIN_PASSWORD) {
       user = getUserById('admin-001')
       if (!user) {
         user = createUser({
@@ -140,9 +141,6 @@ router.post('/login', (req, res) => {
     let isValidPassword = false
     if (user.passwordHash) {
       isValidPassword = bcrypt.compareSync(password, user.passwordHash)
-    }
-    if (!isValidPassword && cleanEmail === DEFAULT_ADMIN_EMAIL && password === DEFAULT_ADMIN_PASSWORD) {
-      isValidPassword = true
     }
 
     if (!isValidPassword) {
@@ -245,8 +243,11 @@ router.post('/onboarding', authenticateToken, (req, res) => {
       org = getOrganizationById(user.organizationId)
     }
 
-    // Generate installation curl command for server agent
-    const agentToken = `tok_${Math.random().toString(36).substring(2, 15)}`
+    // Generate installation curl command for server agent; store the token so /api/agent/register can verify it
+    const agentToken = `tok_${crypto.randomBytes(24).toString('hex')}`
+    if (org) {
+      updateOrganization(org.id, { agentTokens: [...(org.agentTokens || []), agentToken].slice(-20) })
+    }
     const installCommand = `curl -fsSL https://automate-deployment.yjtechnosoft.com/install.sh | sudo bash -s -- --token=${agentToken} --org=${org ? org.id : 'org-default'}`
 
     recordAuditLog({

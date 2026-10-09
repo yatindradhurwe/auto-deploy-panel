@@ -28,7 +28,7 @@ router.post('/register', (req, res) => {
   try {
     const { organizationId, token, hostname, ipAddress, os, cpu, ram, disk } = req.body
     const result = registerAgentServer({
-      organizationId: organizationId || 'org-default',
+      organizationId,
       token,
       hostname,
       ipAddress: ipAddress || req.ip || '127.0.0.1',
@@ -39,7 +39,7 @@ router.post('/register', (req, res) => {
     })
     res.json({ success: true, ...result })
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message })
+    res.status(403).json({ success: false, error: err.message })
   }
 })
 

@@ -36,7 +36,7 @@ const INITIAL_DB = {
         host: '187.127.165.128',
         port: '22',
         username: 'root',
-        password: 'Yatindra@1223',
+        password: '',
         domain: 'tip-crm.yjtechnosoft.com',
         gitRepoUrl: 'https://github.com/yatindradhurwe/TOP-Income-Producer-CRM.git',
         remoteDir: '/var/www/tip-crm',
@@ -222,11 +222,14 @@ export function readDb() {
     if (!parsed.webhookEvents) parsed.webhookEvents = {}
     return parsed
   } catch (e) {
-    console.error('[DB-SERVICE] Error reading db.json, repairing with initial schema:', e)
+    // Preserve the unreadable file so no data is silently destroyed, then start from the initial schema
+    const backupPath = `${DB_PATH}.corrupt-${Date.now()}`
+    console.error(`[DB-SERVICE] Error reading db.json, backing it up to ${backupPath} and repairing with initial schema:`, e)
     try {
-      fs.writeFileSync(DB_PATH, JSON.stringify(INITIAL_DB, null, 2), 'utf-8')
+      fs.copyFileSync(DB_PATH, backupPath)
+      writeDb(INITIAL_DB)
     } catch (err) {}
-    return INITIAL_DB
+    return JSON.parse(JSON.stringify(INITIAL_DB))
   }
 }
 
@@ -236,7 +239,10 @@ export function readDb() {
 export function writeDb(dbData) {
   ensureDbExists()
   try {
-    fs.writeFileSync(DB_PATH, JSON.stringify(dbData, null, 2), 'utf-8')
+    // Atomic write: a crash mid-write leaves the previous db.json intact instead of a truncated file
+    const tmpPath = `${DB_PATH}.${process.pid}.tmp`
+    fs.writeFileSync(tmpPath, JSON.stringify(dbData, null, 2), 'utf-8')
+    fs.renameSync(tmpPath, DB_PATH)
     return true
   } catch (e) {
     console.error('[DB-SERVICE] Error writing db.json:', e)

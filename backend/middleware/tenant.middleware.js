@@ -1,3 +1,4 @@
+import { isSystemAdminUser } from '../config/secrets.js'
 import { getOrganizationById, getOrganizationsByUserId, getOrganizationMembers, getServerById, getServersByOrgId, getUserById } from '../services/db.service.js'
 
 /**
@@ -37,7 +38,7 @@ export const requireTenant = (req, res, next) => {
     // Verify membership (Super Admin / Admin gets override access)
     const members = getOrganizationMembers(orgId)
     const memberRecord = members.find(m => m.userId === user.id)
-    const isSystemAdmin = user.id === 'admin-001' || (user.role && user.role.toLowerCase().includes('admin')) || user.email === 'admin@tipcrm.com'
+    const isSystemAdmin = isSystemAdminUser(req.user)
     
     if (!memberRecord && !isSystemAdmin) {
       return res.status(403).json({ error: 'Access denied: You are not a member of this organization.' })
@@ -92,7 +93,7 @@ export const requireRole = (allowedRoles = []) => {
 
     const role = (req.tenant.memberRole || '').toUpperCase()
     const allowedUpper = allowedRoles.map(r => r.toUpperCase())
-    const isSuperAdmin = req.user && (req.user.id === 'admin-001' || (req.user.role && req.user.role.toLowerCase().includes('admin')) || req.user.email === 'admin@tipcrm.com')
+    const isSuperAdmin = isSystemAdminUser(req.user)
 
     if (allowedUpper.includes(role) || isSuperAdmin) {
       return next()
@@ -109,7 +110,7 @@ export const requireRole = (allowedRoles = []) => {
  */
 export const validateResourceOwnership = (resource, req) => {
   if (!resource) return false
-  if (req.user && (req.user.id === 'admin-001' || req.user.role === 'admin')) {
+  if (isSystemAdminUser(req.user)) {
     return true
   }
   if (!req.tenant || !req.tenant.organizationId) return false

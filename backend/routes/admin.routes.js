@@ -1,16 +1,11 @@
 import express from 'express'
-import { authenticateToken } from '../middleware/auth.middleware.js'
-import { getAllUsers, getAllOrganizations, getAllServers, readDb } from '../services/db.service.js'
+import { authenticateToken, requireSystemAdmin } from '../middleware/auth.middleware.js'
+import { getAllUsers, getAllOrganizations, getAllServers, readDb, writeDb } from '../services/db.service.js'
 
 const router = express.Router()
 
 // Super Admin authorization check
-const requireSuperAdmin = (req, res, next) => {
-  if (req.user && (req.user.id === 'admin-001' || (req.user.role && req.user.role.toLowerCase().includes('admin')) || req.user.email === 'admin@tipcrm.com')) {
-    return next()
-  }
-  return res.status(403).json({ error: 'Access denied: Super Admin privilege required.' })
-}
+const requireSuperAdmin = requireSystemAdmin
 
 /**
  * GET /api/admin/overview
@@ -101,7 +96,7 @@ router.post('/users/delete', authenticateToken, requireSuperAdmin, (req, res) =>
     const db = readDb()
     delete db.users[userId]
     // Write db updates
-    fs.writeFileSync(path.resolve(process.cwd(), 'data/db.json'), JSON.stringify(db, null, 2))
+    writeDb(db)
     res.json({ success: true, message: `User ${userId} deleted successfully.` })
   } catch (err) {
     res.status(500).json({ error: err.message })

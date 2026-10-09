@@ -12,7 +12,7 @@ export default function TeamManager({ apiBaseUrl = '' }) {
   const fetchMembers = async () => {
     setLoading(true)
     try {
-      const token = localStorage.getItem('autodeploy_token')
+      const token = (localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token'))
       const res = await fetch(`${apiBaseUrl}/api/team/members`, {
         headers: { Authorization: `Bearer ${token}` }
       })
@@ -34,7 +34,7 @@ export default function TeamManager({ apiBaseUrl = '' }) {
     setError('')
     setSuccessMsg('')
     try {
-      const token = localStorage.getItem('autodeploy_token')
+      const token = (localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token'))
       const res = await fetch(`${apiBaseUrl}/api/team/invite`, {
         method: 'POST',
         headers: {
@@ -57,7 +57,7 @@ export default function TeamManager({ apiBaseUrl = '' }) {
 
   const handleRoleChange = async (userId, newRole) => {
     try {
-      const token = localStorage.getItem('autodeploy_token')
+      const token = (localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token'))
       const res = await fetch(`${apiBaseUrl}/api/team/members/${userId}/role`, {
         method: 'PUT',
         headers: {
@@ -75,7 +75,7 @@ export default function TeamManager({ apiBaseUrl = '' }) {
   const handleRemoveMember = async (userId) => {
     if (!window.confirm('Remove this member from your organization workspace?')) return
     try {
-      const token = localStorage.getItem('autodeploy_token')
+      const token = (localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token'))
       const res = await fetch(`${apiBaseUrl}/api/team/members/${userId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }

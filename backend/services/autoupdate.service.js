@@ -17,15 +17,17 @@ let isAutoUpdateRunning = false
  */
 export async function executeProjectAutoUpdate(appName, triggerSource = 'manual', extraMeta = {}) {
   const config = getProjectAutoUpdateConfig(appName)
-  const adminSettings = getUserSettings('admin-001')
+  // Use the SSH credentials of the user who owns this project (legacy configs without an owner belong to the admin).
+  // Never fall back to another user's credentials: that would send the admin's root password to a tenant's server.
+  const ownerSettings = getUserSettings(config.ownerUserId || 'admin-001') || {}
 
-  const host = config.host || adminSettings.host || '187.127.165.128'
-  const port = Number(adminSettings.port || 22)
-  const username = adminSettings.username || 'root'
-  const password = adminSettings.password || 'Yatindra@1223'
+  const host = config.host || ownerSettings.host || '187.127.165.128'
+  const port = Number(ownerSettings.port || 22)
+  const username = ownerSettings.username || 'root'
+  const password = ownerSettings.password || ''
   const projectPath = config.projectPath || `/var/www/${appName}`
   const branch = config.branch || 'main'
-  const gitRepoUrl = config.gitRepoUrl || adminSettings.gitRepoUrl || ''
+  const gitRepoUrl = config.gitRepoUrl || ownerSettings.gitRepoUrl || ''
 
   console.log(`[ANTIGRAVITY AUTO-UPDATE] Executing update for project '${appName}' triggered via '${triggerSource}'...`)
 

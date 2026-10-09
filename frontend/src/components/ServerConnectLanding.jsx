@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import TeamManager from './TeamManager'
 import {
   Server, Cpu, HardDrive, Zap, CheckCircle2, ShieldCheck, Plus, ArrowRight,
   Activity, Globe, Lock, RefreshCw, Key, Monitor, Terminal, Layers,
@@ -12,14 +13,6 @@ export default function ServerConnectLanding({ servers, loadingServers, onSelect
   const [billingCycle, setBillingCycle] = useState('monthly') // 'monthly' | 'annual'
   const [selectedPlanForBuy, setSelectedPlanForBuy] = useState(null)
   const [paymentSuccessMsg, setPaymentSuccessMsg] = useState(null)
-
-  // Team State
-  const [showInviteModal, setShowInviteModal] = useState(false)
-  const [inviteForm, setInviteForm] = useState({ email: '', name: '', role: 'Developer' })
-  const [teamMembers, setTeamMembers] = useState([
-    { id: 'usr-1', name: 'Yatindra Dhurwe', email: 'yatindra@yjtechnosoft.com', role: 'Owner / Admin', status: 'Active', avatar: 'YD', joined: 'Oct 2024' },
-    { id: 'usr-2', name: 'DevOps Lead', email: 'devops@kshana.tech', role: 'Developer', status: 'Active', avatar: 'DL', joined: 'Jan 2025' }
-  ])
 
   // Support Ticket State
   const [ticketForm, setTicketForm] = useState({ category: 'Server Connectivity', priority: 'Medium', subject: '', message: '' })
@@ -35,12 +28,8 @@ export default function ServerConnectLanding({ servers, loadingServers, onSelect
     domain: ''
   })
 
-  // Sample Billing Transactions History
-  const [transactions] = useState([
-    { id: 'INV-2026-004', date: '2026-10-01', description: 'PRO SaaS Subscription (Monthly)', amount: '$49.00', status: 'Paid', method: 'Visa ending in 4242' },
-    { id: 'INV-2026-003', date: '2026-09-01', description: 'PRO SaaS Subscription (Monthly)', amount: '$49.00', status: 'Paid', method: 'Visa ending in 4242' },
-    { id: 'INV-2026-002', date: '2026-08-01', description: 'Starter SaaS Plan', amount: '$19.00', status: 'Paid', method: 'UPI / Direct Bank' }
-  ])
+  // Billing transactions history (no payment gateway is connected yet, so there are no real invoices)
+  const transactions = []
 
   const handleSubmitConnect = (e) => {
     e.preventDefault()
@@ -49,23 +38,6 @@ export default function ServerConnectLanding({ servers, loadingServers, onSelect
       return
     }
     onConnectServer(form, () => setShowConnectModal(false))
-  }
-
-  const handleInviteSubmit = (e) => {
-    e.preventDefault()
-    if (!inviteForm.email) return
-    const newMember = {
-      id: `usr-${Date.now()}`,
-      name: inviteForm.name || inviteForm.email.split('@')[0],
-      email: inviteForm.email,
-      role: inviteForm.role,
-      status: 'Active',
-      avatar: (inviteForm.name || inviteForm.email).slice(0, 2).toUpperCase(),
-      joined: 'Today'
-    }
-    setTeamMembers([...teamMembers, newMember])
-    setInviteForm({ email: '', name: '', role: 'Developer' })
-    setShowInviteModal(false)
   }
 
   const handleTicketSubmit = (e) => {
@@ -518,6 +490,13 @@ export default function ServerConnectLanding({ servers, loadingServers, onSelect
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
+                    {transactions.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                          No payment transactions yet.
+                        </td>
+                      </tr>
+                    )}
                     {transactions.map((tx) => (
                       <tr key={tx.id} className="hover:bg-white/5 transition">
                         <td className="px-4 py-3 font-bold text-white">{tx.id}</td>
@@ -548,74 +527,9 @@ export default function ServerConnectLanding({ servers, loadingServers, onSelect
           </div>
         )}
 
-        {/* TAB 3: TEAM MEMBERS MANAGEMENT */}
+        {/* TAB 3: TEAM MEMBERS MANAGEMENT (live data from /api/team) */}
         {activeTab === 'team' && (
-          <div className="space-y-8">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <div className="inline-flex items-center space-x-2 text-xs font-mono text-indigo-400 font-bold uppercase tracking-wider mb-1">
-                  <Users className="w-4 h-4" />
-                  <span>Access Control & Permissions</span>
-                </div>
-                <h2 className="text-3xl font-black text-white tracking-tight">Team Members</h2>
-                <p className="text-xs text-slate-400 font-mono mt-1">
-                  Manage collaborators, assign server node access, and configure developer roles
-                </p>
-              </div>
-
-              <button
-                onClick={() => setShowInviteModal(true)}
-                className="px-4 py-2 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 text-white font-extrabold text-xs font-mono rounded-2xl shadow-lg shadow-indigo-500/20 flex items-center space-x-2 shrink-0 transition cursor-pointer hover:scale-[1.02]"
-              >
-                <UserPlus className="w-4 h-4" />
-                <span>+ Invite Team Member</span>
-              </button>
-            </div>
-
-            {/* Team Members List */}
-            <div className="bg-[#0B0F19]/90 border border-white/10 rounded-3xl p-6 space-y-4 backdrop-blur-xl shadow-2xl font-mono">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {teamMembers.map((member) => (
-                  <div
-                    key={member.id}
-                    className="bg-slate-950/80 border border-white/10 hover:border-indigo-500/50 rounded-2xl p-4 flex items-center justify-between transition group shadow-md"
-                  >
-                    <div className="flex items-center space-x-3.5">
-                      <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center font-extrabold text-white text-sm shadow-md">
-                        {member.avatar}
-                      </div>
-                      <div>
-                        <h4 className="font-extrabold text-white text-sm tracking-tight flex items-center gap-2">
-                          <span>{member.name}</span>
-                          <span className={`px-2 py-0.5 rounded-full text-[9px] uppercase font-bold border ${
-                            member.role.includes('Admin')
-                              ? 'bg-purple-950 text-purple-300 border-purple-800'
-                              : 'bg-cyan-950 text-cyan-300 border-cyan-800'
-                          }`}>
-                            {member.role}
-                          </span>
-                        </h4>
-                        <p className="text-xs text-slate-400 mt-0.5">{member.email}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                      <span className="text-[10px] text-slate-500 font-bold hidden sm:inline">Joined {member.joined}</span>
-                      {!member.role.includes('Owner') && (
-                        <button
-                          onClick={() => setTeamMembers(teamMembers.filter((m) => m.id !== member.id))}
-                          className="p-2 text-rose-400 hover:bg-rose-950/80 rounded-xl transition cursor-pointer"
-                          title="Remove Member"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+          <TeamManager />
         )}
 
         {/* TAB 4: HELP & SUPPORT */}
@@ -891,85 +805,6 @@ export default function ServerConnectLanding({ servers, loadingServers, onSelect
                 >
                   <Plus className="w-4 h-4" />
                   <span>{connecting ? 'Connecting Node...' : 'Save & Connect Server'}</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 2: INVITE TEAM MEMBER */}
-      {showInviteModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xl flex items-center justify-center p-4">
-          <div className="bg-[#0B0E17] border border-white/15 rounded-3xl max-w-md w-full p-6 space-y-6 shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <div className="flex items-center space-x-3">
-                <div className="p-2.5 rounded-xl bg-indigo-950 text-indigo-400 border border-indigo-800">
-                  <UserPlus className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-white text-sm tracking-tight">Invite Team Member</h3>
-                  <p className="text-[11px] text-slate-400 font-mono">Grant access to server panel</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowInviteModal(false)}
-                className="w-8 h-8 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition cursor-pointer text-xs"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleInviteSubmit} className="space-y-4 font-mono text-xs">
-              <div className="space-y-1.5">
-                <label className="text-slate-300 font-bold">Email Address *</label>
-                <input
-                  type="email"
-                  required
-                  value={inviteForm.email}
-                  onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
-                  placeholder="developer@company.com"
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-slate-300 font-bold">Full Name (Optional)</label>
-                <input
-                  type="text"
-                  value={inviteForm.name}
-                  onChange={(e) => setInviteForm({ ...inviteForm, name: e.target.value })}
-                  placeholder="Alex Smith"
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-slate-300 font-bold">Access Role</label>
-                <select
-                  value={inviteForm.role}
-                  onChange={(e) => setInviteForm({ ...inviteForm, role: e.target.value })}
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-white focus:outline-none focus:border-indigo-500"
-                >
-                  <option value="Developer">Developer (Deploy & Logs Access)</option>
-                  <option value="Admin">Admin (Full Server & Billing Access)</option>
-                  <option value="Viewer">Viewer (Read-only Telemetry)</option>
-                </select>
-              </div>
-
-              <div className="pt-3 flex justify-end space-x-3 border-t border-white/10">
-                <button
-                  type="button"
-                  onClick={() => setShowInviteModal(false)}
-                  className="px-4 py-2 bg-slate-900 text-slate-300 rounded-xl font-bold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 text-white font-extrabold rounded-xl shadow-lg cursor-pointer"
-                >
-                  Send Invitation
                 </button>
               </div>
             </form>

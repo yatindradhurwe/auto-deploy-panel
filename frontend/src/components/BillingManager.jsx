@@ -10,7 +10,7 @@ export default function BillingManager({ apiBaseUrl = '' }) {
   const fetchBillingSummary = async () => {
     setLoading(true)
     try {
-      const token = localStorage.getItem('autodeploy_token')
+      const token = (localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token'))
       const res = await fetch(`${apiBaseUrl}/api/billing/summary`, {
         headers: { Authorization: `Bearer ${token}` }
       })
@@ -31,7 +31,7 @@ export default function BillingManager({ apiBaseUrl = '' }) {
     setUpgrading(planId)
     setMessage('')
     try {
-      const token = localStorage.getItem('autodeploy_token')
+      const token = (localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token'))
       const res = await fetch(`${apiBaseUrl}/api/billing/checkout`, {
         method: 'POST',
         headers: {

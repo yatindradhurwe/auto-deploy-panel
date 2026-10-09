@@ -1,4 +1,4 @@
-import { getServersByOrgId, createServer, updateServer, getServerById, recordAuditLog } from './db.service.js'
+import { getServersByOrgId, createServer, updateServer, getServerById, getOrganizationById, recordAuditLog } from './db.service.js'
 
 /**
  * Register new customer VPS server from agent installer script
@@ -7,9 +7,18 @@ export function registerAgentServer({ organizationId, token, hostname, ipAddress
   if (!organizationId) {
     throw new Error('organizationId is required for agent registration.')
   }
+  if (!token || typeof token !== 'string') {
+    throw new Error('A valid agent token is required for registration.')
+  }
 
+  // Only tokens issued to this organization during onboarding may register servers into it
+  const organization = getOrganizationById(organizationId)
   const orgServers = getServersByOrgId(organizationId)
-  const existing = orgServers.find(s => s.agentToken === token || s.ipAddress === ipAddress)
+  const existing = orgServers.find(s => s.agentToken === token)
+  const issuedTokens = (organization && organization.agentTokens) || []
+  if (!organization || (!existing && !issuedTokens.includes(token))) {
+    throw new Error('Invalid agent token for this organization.')
+  }
 
   if (existing) {
     const updated = updateServer(existing.id, {
@@ -61,7 +70,7 @@ export function processAgentHeartbeat({ serverId, agentToken, metrics }) {
     throw new Error(`Server '${serverId}' not found.`)
   }
 
-  if (server.agentToken && server.agentToken !== agentToken) {
+  if (!server.agentToken || server.agentToken !== agentToken) {
     throw new Error('Invalid agent authentication token.')
   }
 

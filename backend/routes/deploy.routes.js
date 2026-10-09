@@ -239,7 +239,7 @@ router.post('/ai-execute-fix', async (req, res) => {
   }
 })
 
-import { getUserSettings, saveUserSettings, createProject, saveProjectAutoUpdateConfig } from '../services/db.service.js'
+import { getUserSettings, saveUserSettings, createProject, saveProjectAutoUpdateConfig, getProjectAutoUpdateConfig } from '../services/db.service.js'
 
 /**
  * GET /api/deploy/get-github-token
@@ -458,14 +458,24 @@ router.post('/deploy', async (req, res) => {
         status: 'active'
       })
 
-      saveProjectAutoUpdateConfig(appName, {
-        enabled: true,
-        autoSyncInterval: 5,
-        branch,
-        gitRepoUrl: gitUrl,
-        projectPath: remoteDir,
-        host: req.body.host || '187.127.165.128'
-      })
+      // Auto-update configs are keyed by app name; don't let one user's deploy take over another user's config
+      const ownerUserId = req.user?.id || 'admin-001'
+      const existingAutoUpdate = getProjectAutoUpdateConfig(appName)
+      const existingOwner = existingAutoUpdate && existingAutoUpdate.updatedAt ? (existingAutoUpdate.ownerUserId || 'admin-001') : null
+      if (existingOwner && existingOwner !== ownerUserId) {
+        onLog(`[WARN] Auto-update not enabled: app name '${appName}' is already registered by another account.`, true, 'LOG')
+      } else {
+        saveProjectAutoUpdateConfig(appName, {
+          enabled: true,
+          autoSyncInterval: 5,
+          branch,
+          gitRepoUrl: gitUrl,
+          projectPath: remoteDir,
+          host: req.body.host || '187.127.165.128',
+          ownerUserId,
+          organizationId: orgId
+        })
+      }
     } catch (saveErr) {
       console.warn('Post-deployment project registration warning:', saveErr.message)
     }

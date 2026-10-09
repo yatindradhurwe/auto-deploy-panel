@@ -3,7 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import http from 'http'
 import https from 'https'
-import { exec, execSync } from 'child_process'
+import { exec, execSync, execFile } from 'child_process'
 import { authenticateToken } from '../middleware/auth.middleware.js'
 import { updateExistingDeployment, deleteServerProject } from '../services/ssh.service.js'
 import {
@@ -45,6 +45,45 @@ import {
 } from '../services/server.service.js'
 
 const router = express.Router()
+
+// Hostnames only (e.g. app.example.com) — blocks path traversal and config/shell injection via the domain field
+const DOMAIN_REGEX = /^(?!-)[a-zA-Z0-9-]{1,63}(?<!-)(\.(?!-)[a-zA-Z0-9-]{1,63}(?<!-))+$/
+const BRANCH_REGEX = /^[a-zA-Z0-9._\/-]{1,100}$/
+const PANEL_PM2_NAME = process.env.PANEL_PM2_NAME || 'auto-deploy-panel'
+
+/**
+ * Resolves a project directory that must exist. Returns null instead of silently falling back
+ * to the panel's own working directory (which is /var/www under PM2 — the parent of every site).
+ */
+function resolveProjectDir(projectPath) {
+  if (!projectPath || typeof projectPath !== 'string') return null
+  const dir = path.resolve(projectPath)
+  try {
+    return fs.statSync(dir).isDirectory() ? dir : null
+  } catch (e) {
+    return null
+  }
+}
+
+/**
+ * Top-level and system directories that must never be deleted from the file manager.
+ */
+function isProtectedPath(targetPath) {
+  const resolved = path.resolve(targetPath)
+  const depth = resolved.split(path.sep).filter(Boolean).length
+  return depth < 3 || /^\/(etc|usr|bin|sbin|lib|lib64|boot|proc|sys|dev)(\/|$)/.test(resolved)
+}
+
+/**
+ * The .env file the project actually uses: first of .env, .env.production, .env.local, else .env
+ */
+function findEnvFile(projectDir) {
+  for (const f of ['.env', '.env.production', '.env.local']) {
+    const p = path.join(projectDir, f)
+    if (fs.existsSync(p)) return p
+  }
+  return path.join(projectDir, '.env')
+}
 
 // Default presets for system default organization
 const DEFAULT_SERVERS = []
@@ -534,56 +573,6 @@ router.all('/ssl/certificates', async (req, res) => {
 })
 
 /**
- * POST /api/studio/ssl/issue
- * Issue new Let's Encrypt SSL certificate for domain
- */
-router.post('/ssl/issue', (req, res) => {
-  const { domain } = req.body
-  if (!domain) return res.status(400).json({ error: 'Domain name is required' })
-
-  res.json({
-    success: true,
-    message: `Let's Encrypt SSL Certificate successfully issued and configured for '${domain}'! Auto-renewal cron active.`
-  })
-})
-
-/**
- * POST /api/studio/nginx/config
- * Save & Reload Nginx Reverse Proxy Configuration
- */
-router.post('/nginx/config', (req, res) => {
-  const { domain, proxyPort = 5050 } = req.body
-  if (!domain) return res.status(400).json({ error: 'Domain name is required' })
-
-  const configText = `server {
-    listen 80;
-    server_name ${domain};
-    return 301 https://$host$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name ${domain};
-    ssl_certificate /etc/letsencrypt/live/${domain}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${domain}/privkey.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:${proxyPort};
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}`
-
-  res.json({
-    success: true,
-    message: `Nginx reverse proxy rule saved & reloaded for '${domain}' pointing to port ${proxyPort}!`,
-    config: configText
-  })
-})
-
-/**
  * GET & POST /api/studio/cron/list
  */
 router.all('/cron/list', async (req, res) => {
@@ -594,17 +583,6 @@ router.all('/cron/list', async (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, error: err.message })
   }
-})
-
-/**
- * POST /api/studio/cron/add
- */
-router.post('/cron/add', (req, res) => {
-  const { name, schedule } = req.body
-  res.json({
-    success: true,
-    message: `Cron task '${name}' ('${schedule}') created successfully on server!`
-  })
 })
 
 /**
@@ -878,7 +856,10 @@ router.all('/projects/realtime-fetch', (req, res) => {
  */
 router.post('/git/status', authenticateToken, (req, res) => {
   const { projectPath } = req.body
-  const targetDir = projectPath && fs.existsSync(projectPath) ? projectPath : path.resolve(process.cwd(), '..')
+  const targetDir = resolveProjectDir(projectPath)
+  if (!targetDir) {
+    return res.json({ success: false, branch: 'main', modifiedCount: 0, raw: 'Project directory not found' })
+  }
 
   exec('git status --short && git branch --show-current', { cwd: targetDir }, (error, stdout) => {
     if (error) {
@@ -897,9 +878,15 @@ router.post('/git/status', authenticateToken, (req, res) => {
  */
 router.post('/git/pull', authenticateToken, (req, res) => {
   const { projectPath, branch = 'main' } = req.body
-  const targetDir = projectPath && fs.existsSync(projectPath) ? projectPath : path.resolve(process.cwd(), '..')
+  const targetDir = resolveProjectDir(projectPath)
+  if (!targetDir) {
+    return res.status(400).json({ success: false, error: `Project directory not found: ${projectPath || '(none)'}` })
+  }
+  if (!BRANCH_REGEX.test(branch)) {
+    return res.status(400).json({ success: false, error: 'Invalid branch name' })
+  }
 
-  exec(`git pull origin ${branch}`, { cwd: targetDir }, (error, stdout, stderr) => {
+  execFile('git', ['pull', 'origin', branch], { cwd: targetDir }, (error, stdout, stderr) => {
     if (error) {
       return res.status(500).json({ success: false, error: stderr || error.message })
     }
@@ -913,18 +900,28 @@ router.post('/git/pull', authenticateToken, (req, res) => {
  */
 router.post('/git/push', authenticateToken, (req, res) => {
   const { projectPath, commitMessage = 'update from studio ide', branch = 'main' } = req.body
-  const targetDir = projectPath && fs.existsSync(projectPath) ? projectPath : path.resolve(process.cwd(), '..')
+  const targetDir = resolveProjectDir(projectPath)
+  if (!targetDir) {
+    return res.status(400).json({ success: false, error: `Project directory not found: ${projectPath || '(none)'}` })
+  }
+  if (!BRANCH_REGEX.test(branch)) {
+    return res.status(400).json({ success: false, error: 'Invalid branch name' })
+  }
 
-  const safeMsg = commitMessage.replace(/"/g, '\\"')
-  const cmd = process.platform === 'win32'
-    ? `git add . ; git commit -m "${safeMsg}" ; git push origin ${branch}`
-    : `git add . && git commit -m "${safeMsg}" && git push origin ${branch}`
-
-  exec(cmd, { cwd: targetDir }, (error, stdout, stderr) => {
-    if (error && !stdout.includes('working tree clean')) {
-      return res.status(500).json({ success: false, error: stderr || error.message })
-    }
-    res.json({ success: true, message: 'Git Push completed successfully', output: stdout || 'Already up to date.' })
+  // execFile passes the message as a single argument, so quotes, $ and backticks in it are safe
+  execFile('git', ['add', '.'], { cwd: targetDir }, (addErr, addOut, addStderr) => {
+    if (addErr) return res.status(500).json({ success: false, error: addStderr || addErr.message })
+    execFile('git', ['commit', '-m', String(commitMessage)], { cwd: targetDir }, (commitErr, commitOut) => {
+      const nothingToCommit = commitErr && /nothing to commit|working tree clean/.test(commitOut || '')
+      if (commitErr && !nothingToCommit) {
+        return res.status(500).json({ success: false, error: commitOut || commitErr.message })
+      }
+      execFile('git', ['push', 'origin', branch], { cwd: targetDir }, (pushErr, pushOut, pushStderr) => {
+        if (pushErr) return res.status(500).json({ success: false, error: pushStderr || pushErr.message })
+        // git push writes its progress to stderr
+        res.json({ success: true, message: 'Git Push completed successfully', output: [commitOut, pushOut, pushStderr].filter(Boolean).join('\n') || 'Already up to date.' })
+      })
+    })
   })
 })
 
@@ -941,7 +938,7 @@ router.post('/git/pull-and-update', authenticateToken, async (req, res) => {
     host = userSettings.host || '187.127.165.128',
     port = userSettings.port || '22',
     username = userSettings.username || 'root',
-    password = userSettings.password || 'Yatindra@1223',
+    password = userSettings.password || '',
     projectPath,
     appName,
     branch = 'main'
@@ -1012,7 +1009,7 @@ router.post('/projects/delete', authenticateToken, async (req, res) => {
   const host = (req.body.host || userSettings.host || '187.127.165.128').trim()
   const port = (req.body.port || userSettings.port || '22').toString().trim()
   const username = (req.body.username || userSettings.username || 'root').trim()
-  const password = req.body.password || userSettings.password || 'Yatindra@1223'
+  const password = req.body.password || userSettings.password || ''
   const {
     appName,
     projectPath,
@@ -1354,6 +1351,9 @@ router.post('/files/delete', authenticateToken, (req, res) => {
     if (!fs.existsSync(normalizedPath)) {
       return res.status(404).json({ error: 'File or directory not found' })
     }
+    if (isProtectedPath(normalizedPath)) {
+      return res.status(400).json({ error: `Refusing to delete protected path: ${normalizedPath}` })
+    }
     fs.rmSync(normalizedPath, { recursive: true, force: true })
     res.json({ success: true, message: 'Item deleted successfully' })
   } catch (err) {
@@ -1409,7 +1409,10 @@ router.post('/terminal/exec', authenticateToken, (req, res) => {
     return res.status(400).json({ error: 'Command is required' })
   }
 
-  const targetDir = projectPath && fs.existsSync(projectPath) ? projectPath : path.resolve(process.cwd(), '..')
+  const targetDir = resolveProjectDir(projectPath)
+  if (!targetDir) {
+    return res.status(400).json({ success: false, error: `Project directory not found: ${projectPath || '(none)'}`, output: '', exitCode: 1 })
+  }
   const safeCmd = command.trim()
 
   exec(safeCmd, { cwd: targetDir, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
@@ -1433,19 +1436,7 @@ router.post('/env/get', authenticateToken, (req, res) => {
     return res.status(400).json({ error: 'Invalid or missing project directory' })
   }
 
-  const envFiles = ['.env', '.env.production', '.env.local']
-  let envPath = ''
-  for (const f of envFiles) {
-    const p = path.join(projectPath, f)
-    if (fs.existsSync(p)) {
-      envPath = p
-      break
-    }
-  }
-
-  if (!envPath) {
-    envPath = path.join(projectPath, '.env')
-  }
+  const envPath = findEnvFile(projectPath)
 
   let rawContent = ''
   if (fs.existsSync(envPath)) {
@@ -1483,7 +1474,8 @@ router.post('/env/save', authenticateToken, (req, res) => {
     return res.status(400).json({ error: 'Invalid project directory' })
   }
 
-  const envPath = path.join(projectPath, '.env')
+  // Write back to the same file env/get loaded, not always .env
+  const envPath = findEnvFile(projectPath)
   let contentToWrite = rawContent || ''
 
   if (envVars && Array.isArray(envVars) && !rawContent) {
@@ -1535,7 +1527,11 @@ router.post('/git/rollback', authenticateToken, (req, res) => {
     return res.status(400).json({ error: 'Invalid rollback parameters' })
   }
 
-  exec(`git reset --hard ${commitHash}`, { cwd: projectPath }, (error, stdout, stderr) => {
+  if (!/^[0-9a-fA-F]{4,40}$/.test(commitHash)) {
+    return res.status(400).json({ error: 'Invalid commit hash' })
+  }
+
+  execFile('git', ['reset', '--hard', commitHash], { cwd: projectPath }, (error, stdout, stderr) => {
     if (error) {
       return res.status(500).json({ error: stderr || error.message })
     }
@@ -1550,11 +1546,17 @@ router.post('/git/rollback', authenticateToken, (req, res) => {
 router.post('/pm2/control', authenticateToken, (req, res) => {
   const { action, processId, appName } = req.body
   const target = processId !== undefined && processId !== null ? processId : appName
-  if (!target || !['restart', 'stop', 'reload', 'delete'].includes(action)) {
+  if (target === undefined || target === null || target === '' || !['restart', 'stop', 'reload', 'delete'].includes(action)) {
     return res.status(400).json({ error: 'Valid action and processId/appName are required' })
   }
+  if (!/^[a-zA-Z0-9._-]+$/.test(String(target))) {
+    return res.status(400).json({ error: 'Invalid process name' })
+  }
+  if ((action === 'stop' || action === 'delete') && (String(target) === PANEL_PM2_NAME || String(target) === 'all')) {
+    return res.status(400).json({ error: `Refusing to ${action} '${target}': it would shut down this control panel. Use SSH instead.` })
+  }
 
-  exec(`pm2 ${action} ${target}`, (error, stdout, stderr) => {
+  execFile('pm2', [action, String(target)], (error, stdout, stderr) => {
     if (error) {
       return res.status(500).json({ success: false, error: stderr || error.message })
     }
@@ -1573,7 +1575,8 @@ router.post('/pm2/logs', authenticateToken, (req, res) => {
   }
 
   const safeApp = appName.replace(/[^a-zA-Z0-9_-]/g, '')
-  exec(`pm2 logs ${safeApp} --lines ${lines} --nostream`, (error, stdout, stderr) => {
+  const safeLines = Math.min(Math.max(parseInt(lines, 10) || 80, 1), 5000)
+  exec(`pm2 logs ${safeApp} --lines ${safeLines} --nostream`, (error, stdout, stderr) => {
     let output = stdout || stderr || ''
     if (!output || error) {
       // Fallback: search pm2 log file directly
@@ -1597,34 +1600,6 @@ router.post('/pm2/logs', authenticateToken, (req, res) => {
 })
 
 /**
- * GET /api/studio/ssl/certificates
- * Returns active domain list and SSL certificate status
- */
-router.get('/ssl/certificates', authenticateToken, async (req, res) => {
-  try {
-    if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
-      const orgServers = getServersByOrgId(req.tenant.organizationId)
-      if (orgServers.length === 0) {
-        return res.json({ success: true, certificates: [] })
-      }
-      const certs = orgServers.filter(s => s.domain).map((s, idx) => ({
-        id: `cert-${s.id}`,
-        name: s.domain,
-        domains: s.domain,
-        expiry: '90 days (Let\'s Encrypt SSL)',
-        status: 'valid'
-      }))
-      return res.json({ success: true, certificates: certs })
-    }
-
-    const realCerts = await getRealSslCertificates(req.tenant?.server)
-    res.json({ success: true, certificates: realCerts })
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message })
-  }
-})
-
-/**
  * POST /api/studio/ssl/issue
  * Executes certbot --nginx -d <domain>
  */
@@ -1633,13 +1608,18 @@ router.post('/ssl/issue', authenticateToken, (req, res) => {
   if (!domain) {
     return res.status(400).json({ error: 'Domain name is required' })
   }
+  if (!DOMAIN_REGEX.test(domain)) {
+    return res.status(400).json({ error: 'Invalid domain name' })
+  }
+  if (!/^[^\s@'"`$;|&<>]+@[^\s@'"`$;|&<>]+\.[a-zA-Z]{2,}$/.test(email)) {
+    return res.status(400).json({ error: 'Invalid email address' })
+  }
 
-  const safeDomain = domain.replace(/[^a-zA-Z0-9.-]/g, '')
-  exec(`certbot --nginx -d ${safeDomain} --non-interactive --agree-tos -m ${email}`, (error, stdout, stderr) => {
+  execFile('certbot', ['--nginx', '-d', domain, '--non-interactive', '--agree-tos', '-m', email], (error, stdout, stderr) => {
     if (error) {
       return res.status(500).json({ success: false, error: stderr || error.message })
     }
-    res.json({ success: true, message: `SSL Certificate issued successfully for ${safeDomain}`, output: stdout })
+    res.json({ success: true, message: `SSL Certificate issued successfully for ${domain}`, output: stdout })
   })
 })
 
@@ -1648,9 +1628,16 @@ router.post('/ssl/issue', authenticateToken, (req, res) => {
  * Generates/updates Nginx reverse proxy configuration
  */
 router.post('/nginx/config', authenticateToken, (req, res) => {
-  const { domain, proxyPort, enableSsl = true } = req.body
+  const { domain, proxyPort } = req.body
   if (!domain || !proxyPort) {
     return res.status(400).json({ error: 'Domain and proxyPort are required' })
+  }
+  const port = parseInt(proxyPort, 10)
+  if (!DOMAIN_REGEX.test(domain)) {
+    return res.status(400).json({ error: 'Invalid domain name' })
+  }
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return res.status(400).json({ error: 'proxyPort must be a number between 1 and 65535' })
   }
 
   const nginxConfig = `
@@ -1659,7 +1646,7 @@ server {
     server_name ${domain};
 
     location / {
-        proxy_pass http://127.0.0.1:${proxyPort};
+        proxy_pass http://127.0.0.1:${port};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -1671,45 +1658,44 @@ server {
 }
 `
 
-  const targetPath = `/etc/nginx/sites-available/${domain}`
-  const symlinkPath = `/etc/nginx/sites-enabled/${domain}`
+  if (process.platform === 'win32' || !fs.existsSync('/etc/nginx')) {
+    return res.json({ success: true, message: `Nginx config generated (Simulated for non-Linux host)`, config: nginxConfig })
+  }
+
+  // Match the existing "<domain>.conf" naming so we update the site's config instead of adding a conflicting duplicate
+  const targetPath = `/etc/nginx/sites-available/${domain}.conf`
+  const symlinkPath = `/etc/nginx/sites-enabled/${domain}.conf`
+  const previousConfig = fs.existsSync(targetPath) ? fs.readFileSync(targetPath, 'utf8') : null
+  const hadSymlink = fs.existsSync(symlinkPath)
+
+  const rollback = () => {
+    try {
+      if (previousConfig !== null) fs.writeFileSync(targetPath, previousConfig, 'utf8')
+      else fs.unlinkSync(targetPath)
+      if (!hadSymlink && fs.existsSync(symlinkPath)) fs.unlinkSync(symlinkPath)
+    } catch (e) {}
+  }
 
   try {
-    if (process.platform !== 'win32' && fs.existsSync('/etc/nginx')) {
-      fs.writeFileSync(targetPath, nginxConfig, 'utf8')
-      if (!fs.existsSync(symlinkPath)) {
-        try { fs.symlinkSync(targetPath, symlinkPath) } catch(e){}
-      }
-      exec('nginx -t && systemctl reload nginx', (err, stdout, stderr) => {
-        if (err) return res.status(500).json({ success: false, error: stderr || err.message })
-        res.json({ success: true, message: `Nginx reverse proxy for ${domain} -> http://127.0.0.1:${proxyPort} active!`, config: nginxConfig })
-      })
-    } else {
-      res.json({ success: true, message: `Nginx config generated (Simulated for non-Linux host)`, config: nginxConfig })
-    }
+    fs.writeFileSync(targetPath, nginxConfig, 'utf8')
+    if (!hadSymlink) fs.symlinkSync(targetPath, symlinkPath)
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message, config: nginxConfig })
+    rollback()
+    return res.status(500).json({ success: false, error: err.message, config: nginxConfig })
   }
-})
 
-/**
- * GET /api/studio/cron/list
- * Reads user crontab
- */
-router.get('/cron/list', authenticateToken, async (req, res) => {
-  try {
-    if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
-      const orgServers = getServersByOrgId(req.tenant.organizationId)
-      if (orgServers.length === 0) {
-        return res.json({ success: true, cronJobs: [], jobs: [] })
-      }
+  execFile('nginx', ['-t'], (testErr, testOut, testStderr) => {
+    if (testErr) {
+      // Never leave a broken config in place: one bad file stops nginx reloading for every site
+      rollback()
+      return res.status(500).json({ success: false, error: `nginx -t failed, changes rolled back:\n${testStderr || testErr.message}`, config: nginxConfig })
     }
-
-    const realJobs = await getRealCronJobs(req.tenant?.server)
-    res.json({ success: true, cronJobs: realJobs, jobs: realJobs })
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message })
-  }
+    execFile('systemctl', ['reload', 'nginx'], (err, stdout, stderr) => {
+      if (err) return res.status(500).json({ success: false, error: stderr || err.message })
+      const sslNote = previousConfig && previousConfig.includes('ssl_certificate') ? ' Re-run "Issue SSL" to restore HTTPS for this domain.' : ''
+      res.json({ success: true, message: `Nginx reverse proxy for ${domain} -> http://127.0.0.1:${port} active!${sslNote}`, config: nginxConfig })
+    })
+  })
 })
 
 /**
@@ -1722,12 +1708,21 @@ router.post('/cron/save', authenticateToken, (req, res) => {
     return res.status(400).json({ error: 'Schedule and command are required' })
   }
 
-  const newEntry = `${schedule} ${command}`
-  exec(`(crontab -l 2>/dev/null; echo "${newEntry}") | crontab -`, (error, stdout, stderr) => {
-    if (error && process.platform !== 'win32') {
-      return res.status(500).json({ success: false, error: stderr || error.message })
-    }
-    res.json({ success: true, message: `Cron job added: "${newEntry}"`, schedule, command })
+  if (/[\r\n]/.test(schedule) || /[\r\n]/.test(command) || schedule.trim().split(/\s+/).length !== 5) {
+    return res.status(400).json({ error: 'Schedule must have 5 cron fields and neither field may contain line breaks' })
+  }
+
+  const newEntry = `${schedule.trim()} ${command.trim()}`
+  execFile('crontab', ['-l'], (listErr, current) => {
+    const existing = listErr ? '' : current
+    const updated = (existing && !existing.endsWith('\n') ? existing + '\n' : existing) + newEntry + '\n'
+    const child = execFile('crontab', ['-'], (error, stdout, stderr) => {
+      if (error) {
+        return res.status(500).json({ success: false, error: stderr || error.message })
+      }
+      res.json({ success: true, message: `Cron job added: "${newEntry}"`, schedule, command })
+    })
+    child.stdin.end(updated)
   })
 })
 
@@ -1797,34 +1792,6 @@ router.get('/autoupdate/list', authenticateToken, (req, res) => {
 router.get('/autoupdate/history', authenticateToken, (req, res) => {
   const history = getWebhookAuditLogs()
   res.json({ success: true, history })
-})
-
-/**
- * POST /api/studio/projects/realtime-fetch
- * Real-Time discovery & telemetry scan of all projects across live server and GitHub
- */
-router.post('/projects/realtime-fetch', authenticateToken, async (req, res) => {
-  try {
-    if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
-      const orgProjects = getProjectsByOrgId(req.tenant.organizationId)
-      return res.json({
-        success: true,
-        host: req.tenant.server?.ipAddress || '127.0.0.1',
-        timestamp: new Date().toISOString(),
-        projects: orgProjects
-      })
-    }
-
-    const projects = discoverServerProjects()
-    res.json({
-      success: true,
-      host: req.body.host || '187.127.165.128',
-      timestamp: new Date().toISOString(),
-      projects
-    })
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message })
-  }
 })
 
 /**

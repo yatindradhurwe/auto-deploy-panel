@@ -34,7 +34,7 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
     host: activeServer ? (activeServer.ipAddress || activeServer.host) : '187.127.165.128',
     port: activeServer ? (activeServer.port || 22) : 22,
     username: activeServer ? (activeServer.username || 'root') : 'root',
-    password: 'Yatindra@1223'
+    password: ''
   })
 
   const [detectingStack, setDetectingStack] = useState(false)
@@ -48,7 +48,7 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
         host: activeServer.ipAddress || activeServer.ftpHost || activeServer.hostname || activeServer.host || '187.127.165.128',
         port: activeServer.port || (activeServer.serverType === 'shared' ? 21 : 22),
         username: activeServer.username || activeServer.ftpUser || activeServer.cpanelUser || 'root',
-        password: activeServer.password || activeServer.ftpPassword || 'Yatindra@1223'
+        password: activeServer.password || activeServer.ftpPassword || ''
       }))
     }
   }, [activeServer])
@@ -248,7 +248,7 @@ export default function DeploymentWizard({ jwtToken, activeServer, apiBaseUrl = 
       setDeployId(data.deployId)
 
       // Connect EventSource SSE log stream with authentication token parameter
-      const tokenToUse = jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('token') || ''
+      const tokenToUse = jwtToken || localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || ''
       const streamUrl = `${apiBaseUrl}/api/deploy/stream/${data.deployId}?token=${encodeURIComponent(tokenToUse)}`
       const eventSource = new EventSource(streamUrl)
 
