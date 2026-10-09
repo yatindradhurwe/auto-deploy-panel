@@ -11,6 +11,7 @@ import teamRoutes from './routes/team.routes.js'
 import adminRoutes from './routes/admin.routes.js'
 import { authenticateToken, requireSystemAdmin } from './middleware/auth.middleware.js'
 import { initAutoUpdateService, executeProjectAutoUpdate } from './services/autoupdate.service.js'
+import { initMailService } from './services/mail.service.js'
 
 const app = express()
 const PORT = process.env.PORT || 4040
@@ -107,4 +108,5 @@ app.use('/api/studio', authenticateToken, requireSystemAdmin, requireTenant, req
 app.listen(PORT, HOST, () => {
   console.log(`[AUTODEPLOY-STUDIO-BACKEND] Multi-Tenant Engine Listening on http://${HOST}:${PORT}`)
   initAutoUpdateService()
+  initMailService()
 })

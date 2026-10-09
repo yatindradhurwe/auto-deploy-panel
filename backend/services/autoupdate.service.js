@@ -1,10 +1,13 @@
-import { updateExistingDeployment } from './ssh.service.js'
+import { getHost } from './host.service.js'
+import { updateProject } from './project-ops.service.js'
 import {
   getProjectAutoUpdateConfig,
   saveProjectAutoUpdateConfig,
   getAllProjectAutoUpdateConfigs,
   recordWebhookAuditLog,
-  getUserSettings
+  getUserSettings,
+  getServerById,
+  readDb
 } from './db.service.js'
 
 let isAutoUpdateRunning = false
@@ -35,23 +38,17 @@ export async function executeProjectAutoUpdate(appName, triggerSource = 'manual'
   let status = 'success'
 
   try {
-    const res = await updateExistingDeployment({
-      host,
-      port,
-      username,
-      password,
-      appName,
+    // Prefer the connected server record (stored credentials); fall back to the owner's saved SSH settings
+    const server = (config.serverId && getServerById(config.serverId)) ||
+      Object.values(readDb().servers || {}).find(s => (s.ipAddress === host || s.hostname === host) && (!config.organizationId || s.organizationId === config.organizationId)) ||
+      { id: `auto-${host}`, name: host, ipAddress: host, port, username, password }
+    await updateProject(getHost(server), {
       projectPath,
+      appName,
+      branch,
       gitRepoUrl,
-      branch
-    }, (log) => {
-      outputLog += (log.text || '')
-    })
-
-    if (res && res.output) {
-      outputLog = res.output
-    }
-    
+      githubToken: (ownerSettings.githubToken || '').trim()
+    }, (text) => { outputLog += text })
     status = 'success'
   } catch (err) {
     status = 'failed'

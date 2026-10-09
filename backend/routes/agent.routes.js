@@ -1,8 +1,9 @@
 import express from 'express'
 import { registerAgentServer, processAgentHeartbeat, generateInstallScriptHtml } from '../services/agent.service.js'
 import { authenticateToken } from '../middleware/auth.middleware.js'
-import { requireTenant } from '../middleware/tenant.middleware.js'
-import { getServersByOrgId, createServer, updateServer, deleteServer } from '../services/db.service.js'
+import { requireTenant, validateResourceOwnership } from '../middleware/tenant.middleware.js'
+import { getServersByOrgId, getServerById, createServer, updateServer, deleteServer } from '../services/db.service.js'
+import { publicServer, testServerConnection, forgetHost, isLocalServer } from '../services/host.service.js'
 
 const router = express.Router()
 
@@ -63,7 +64,8 @@ router.post('/heartbeat', (req, res) => {
  */
 router.get('/servers', authenticateToken, requireTenant, (req, res) => {
   try {
-    const servers = getServersByOrgId(req.tenant.organizationId)
+    // Credentials never leave the backend
+    const servers = getServersByOrgId(req.tenant.organizationId).map(publicServer)
     res.json({ servers })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -74,7 +76,7 @@ router.get('/servers', authenticateToken, requireTenant, (req, res) => {
  * POST /api/agent/servers
  * Manually connect a new server via SSH / IP credentials
  */
-router.post('/servers', authenticateToken, requireTenant, (req, res) => {
+router.post('/servers', authenticateToken, requireTenant, async (req, res) => {
   try {
     const {
       name,
@@ -112,6 +114,18 @@ router.post('/servers', authenticateToken, requireTenant, (req, res) => {
 
     const typeLabel = serverType === 'shared' ? 'Shared Server' : serverType === 'cloud' ? 'Cloud Instance' : 'VPS Node'
 
+    // A VPS is only saved once its SSH login actually works
+    let facts = {}
+    if (serverType.toLowerCase() === 'vps') {
+      const target = { ipAddress: ipAddress || hostname, port: Number(port) || 22, username: username || 'root', password: password || '', sshKey: sshKey || '' }
+      if (!target.password && !target.sshKey && !isLocalServer(target)) return res.status(400).json({ error: 'Enter the SSH password or private key.' })
+      try {
+        facts = await testServerConnection(target)
+      } catch (err) {
+        return res.status(400).json({ error: `Could not log in to ${target.ipAddress}: ${err.message}` })
+      }
+    }
+
     const server = createServer({
       organizationId: req.tenant.organizationId,
       createdBy: req.user ? req.user.id : null,
@@ -141,10 +155,11 @@ router.post('/servers', authenticateToken, requireTenant, (req, res) => {
       cloudApiKey,
       cloudRegion,
       cloudInstanceId,
+      os: facts.os,
       status: 'online'
     })
 
-    res.json({ success: true, server })
+    res.json({ success: true, server: { ...publicServer(server), ...facts } })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -155,7 +170,10 @@ router.post('/servers', authenticateToken, requireTenant, (req, res) => {
  */
 router.delete('/servers/:id', authenticateToken, requireTenant, (req, res) => {
   try {
+    const server = getServerById(req.params.id)
+    if (!server || !validateResourceOwnership(server, req)) return res.status(404).json({ error: 'Server not found.' })
     const deleted = deleteServer(req.params.id)
+    forgetHost(req.params.id)
     res.json({ success: deleted })
   } catch (err) {
     res.status(500).json({ error: err.message })

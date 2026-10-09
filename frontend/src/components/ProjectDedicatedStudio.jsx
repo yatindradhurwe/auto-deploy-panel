@@ -3,9 +3,10 @@ import {
   ArrowLeft, ExternalLink, RefreshCw, Send, Sparkles, Bot, Code, Globe,
   Smartphone, Monitor, Play, CheckCircle2, ShieldAlert, Cpu, Database, Key,
   Activity, Layers, FileCode, Plus, Check, CheckCheck, Upload, GitCommit,
-  Terminal, ChevronRight, X, AlertCircle, Eye, Sliders, Shield, Zap, FolderGit2, Trash2, Settings
+  Terminal, ChevronRight, X, AlertCircle, Eye, Sliders, Shield, Zap, FolderGit2, Trash2, Settings, Server
 } from 'lucide-react'
 import CodeStudio from './CodeStudio'
+import ProjectAgentPanel from './ProjectAgentPanel'
 import DatabaseManager from './DatabaseManager'
 import EnvManager from './EnvManager'
 import LogsTelemetryManager from './LogsTelemetryManager'
@@ -19,16 +20,7 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
   const [showSettingsModal, setShowSettingsModal] = useState(false)
 
   // AI Agent Left Panel State
-  const [provider, setProvider] = useState('claude') // 'claude' | 'gemini' | 'openai' | 'grok'
-  const [apiKey, setApiKey] = useState('')
-  const [userPrompt, setUserPrompt] = useState('')
   const [sidebarHidden, setSidebarHidden] = useState(false)
-
-  const [loadingAi, setLoadingAi] = useState(false)
-  const [chatMessages, setChatMessages] = useState([])
-  const [currentPlan, setCurrentPlan] = useState(null)
-  const [executingPlan, setExecutingPlan] = useState(false)
-  const [executionResult, setExecutionResult] = useState(null)
   const [errorMsg, setErrorMsg] = useState(null)
 
   // Server Update / Deployment Status
@@ -80,129 +72,6 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
       return `/api/studio/preview-proxy?url=${encodeURIComponent(directUrl)}&token=${encodeURIComponent(tok)}`
     }
     return directUrl
-  }
-
-  // Load API Key from localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem(`autodeploy_key_${provider}`) || localStorage.getItem('autodeploy_gemini_key')
-    setApiKey(saved || '')
-  }, [provider])
-
-  // Initial welcome AI message for project
-  useEffect(() => {
-    if (project) {
-      setChatMessages([
-        {
-          id: 'msg-welcome',
-          role: 'assistant',
-          content: `👋 Welcome to **${project.name}** Dedicated Project Studio!\n\nI am your AI Project Agent. I have scanned your complete project repository, environment configuration, database, and live PM2 processes.\n\nAsk me to add features, update UI designs, write APIs, run database queries, or deploy updates to your live server.`
-        }
-      ])
-    }
-  }, [project])
-
-  const handleKeyChange = (val) => {
-    setApiKey(val)
-    localStorage.setItem(`autodeploy_key_${provider}`, val)
-  }
-
-  // Send Natural Command to AI Agent
-  const handleSendAiPrompt = async (customPrompt = '') => {
-    const promptToUse = (customPrompt || userPrompt || '').trim()
-    if (!promptToUse) return
-
-    const token = getEffectiveToken()
-    const userMsgId = `usr-${Date.now()}`
-
-    setChatMessages((prev) => [
-      ...prev,
-      { id: userMsgId, role: 'user', content: promptToUse }
-    ])
-    setUserPrompt('')
-    setLoadingAi(true)
-    setErrorMsg(null)
-    setCurrentPlan(null)
-
-    try {
-      const res = await fetch('/api/studio/ai/agent/plan', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': token ? `Bearer ${token}` : ''
-        },
-        body: JSON.stringify({
-          userPrompt: promptToUse,
-          projectPath: project.path,
-          provider,
-          apiKey
-        })
-      })
-      const data = await res.json()
-      if (data.success && data.plan) {
-        setCurrentPlan(data.plan)
-        setChatMessages((prev) => [
-          ...prev,
-          {
-            id: `asst-${Date.now()}`,
-            role: 'assistant',
-            plan: data.plan,
-            content: `I've formulated an action plan to implement your request: **"${promptToUse}"**.\n\nSummary: ${data.plan.summary}`
-          }
-        ])
-      } else {
-        setErrorMsg(`AI Agent Plan Error: ${data.error || 'Failed to generate plan'}`)
-      }
-    } catch (err) {
-      setErrorMsg(`Request error: ${err.message}`)
-    } finally {
-      setLoadingAi(false)
-    }
-  }
-
-  // Execute Approved AI Plan
-  const handleExecutePlan = async (planToExec) => {
-    const planTarget = planToExec || currentPlan
-    if (!planTarget) return
-
-    const token = getEffectiveToken()
-    setExecutingPlan(true)
-    setErrorMsg(null)
-
-    try {
-      const res = await fetch('/api/studio/ai/agent/execute-plan', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': token ? `Bearer ${token}` : ''
-        },
-        body: JSON.stringify({
-          planId: planTarget.planId,
-          planData: planTarget,
-          autoCommit: true,
-          autoDeploy: true
-        })
-      })
-      const data = await res.json()
-      if (data.success) {
-        setExecutionResult(data)
-        setChatMessages((prev) => [
-          ...prev,
-          {
-            id: `exec-${Date.now()}`,
-            role: 'system',
-            content: `✅ **Plan Executed Successfully!**\n- Modified files: ${data.modifiedFiles?.join(', ') || 'None'}\n- Build Status: **${data.verificationStatus}**\n- Server Reload: **PM2 Active**`
-          }
-        ])
-        setCurrentPlan(null)
-        setIframeKey((k) => k + 1) // Refresh live preview
-      } else {
-        setErrorMsg(`Execution error: ${data.error}`)
-      }
-    } catch (err) {
-      setErrorMsg(`Execution failed: ${err.message}`)
-    } finally {
-      setExecutingPlan(false)
-    }
   }
 
   // One-Click Server Publish & Deploy Update
@@ -278,6 +147,9 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
             </span>
             <span className="text-[10px] bg-cyan-950/90 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full font-bold uppercase backdrop-blur-md hidden lg:inline-block shrink-0">
               {project?.type || 'Web App'}
+            </span>
+            <span title={activeServer?.ipAddress || ''} className="text-[10px] bg-slate-900 text-slate-300 border border-white/10 px-2 py-0.5 rounded-full font-bold hidden md:inline-flex items-center gap-1 shrink-0">
+              <Server className="w-3 h-3 text-cyan-400" /> {project?.serverName || activeServer?.name || 'This server'}
             </span>
           </div>
         </div>
@@ -452,17 +324,7 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
               <span className="font-extrabold text-white">AI Project Agent</span>
             </div>
 
-            {/* AI Model Selector */}
-            <select
-              value={provider}
-              onChange={(e) => setProvider(e.target.value)}
-              className="bg-slate-900 border border-slate-800 text-cyan-300 rounded-lg px-2 py-1 text-[11px] font-bold focus:outline-none"
-            >
-              <option value="claude">Claude 3.5 Sonnet</option>
-              <option value="gemini">Gemini 2.0 Flash</option>
-              <option value="openai">OpenAI (gpt-4o)</option>
-              <option value="grok">xAI Grok</option>
-            </select>
+<span className="text-[10px] text-slate-500 font-bold">Claude · ChatGPT · Gemini</span>
 
             <button
               onClick={() => setSidebarHidden(true)}
@@ -489,100 +351,13 @@ export default function ProjectDedicatedStudio({ project, jwtToken, activeServer
             </div>
           )}
 
-          {/* Chat Messages Stream */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 font-mono text-xs">
-            {chatMessages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`space-y-2 ${
-                  msg.role === 'user' ? 'text-right' : 'text-left'
-                }`}
-              >
-                <div
-                  className={`inline-block p-3 rounded-2xl max-w-[90%] text-left whitespace-pre-wrap leading-relaxed shadow-md ${
-                    msg.role === 'user'
-                      ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 text-white rounded-tr-none'
-                      : msg.role === 'system'
-                      ? 'bg-emerald-950/90 text-emerald-300 border border-emerald-800'
-                      : 'bg-slate-900 text-slate-200 border border-slate-800 rounded-tl-none'
-                  }`}
-                >
-                  {safeText(msg.content)}
-                </div>
-
-                {/* Proposed Execution Plan Card */}
-                {msg.plan && (
-                  <div className="p-3 bg-slate-950 border-2 border-cyan-500/60 rounded-xl space-y-2.5 text-left font-mono shadow-xl">
-                    <div className="font-bold text-cyan-300 text-[11px] flex items-center justify-between border-b border-slate-800 pb-1.5">
-                      <span>Proposed Execution Plan</span>
-                      <span className="text-[9px] bg-cyan-950 text-cyan-400 border border-cyan-800 px-1.5 py-0.5 rounded uppercase font-bold">
-                        {msg.plan.proposedChanges?.length || 0} Files
-                      </span>
-                    </div>
-
-                    <div className="space-y-1 text-[11px] text-slate-300">
-                      {msg.plan.planSteps?.map((st, idx) => (
-                        <div key={idx} className="flex items-center gap-1.5">
-                          <span className="text-cyan-400 font-bold">{idx + 1}.</span>
-                          <span>{safeText(st.description)}</span>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="pt-2 flex gap-2">
-                      <button
-                        onClick={() => handleExecutePlan(msg.plan)}
-                        disabled={executingPlan}
-                        className="flex-1 py-1.5 bg-gradient-to-r from-emerald-500 to-cyan-500 text-slate-950 font-extrabold rounded-lg flex items-center justify-center gap-1 cursor-pointer text-[11px]"
-                      >
-                        {executingPlan ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                        <span>Approve & Apply Plan</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-
-            {loadingAi && (
-              <div className="flex items-center space-x-2 text-cyan-400 font-mono text-xs p-3 bg-slate-950 border border-slate-800 rounded-xl">
-                <RefreshCw className="w-4 h-4 animate-spin text-cyan-400" />
-                <span>AI Project Agent formulation in progress...</span>
-              </div>
-            )}
-          </div>
-
-          {/* Bottom Natural Language Prompt Input Box */}
-          <div className="p-3 border-t border-slate-800 bg-slate-950 space-y-2">
-            <div className="relative">
-              <textarea
-                value={userPrompt}
-                onChange={(e) => setUserPrompt(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault()
-                    handleSendAiPrompt()
-                  }
-                }}
-                rows={3}
-                placeholder="Describe your site, ask to add features, write APIs, or change code... (Press Enter to send)"
-                className="w-full p-3 pr-10 bg-slate-900 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-500 text-xs font-mono focus:border-cyan-500 focus:outline-none resize-none"
-              ></textarea>
-
-              <button
-                onClick={() => handleSendAiPrompt()}
-                disabled={loadingAi || !userPrompt.trim()}
-                className="absolute right-2.5 bottom-3.5 p-2 bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-slate-950 rounded-lg transition cursor-pointer"
-              >
-                <Send className="w-4 h-4 font-bold" />
-              </button>
-            </div>
-
-            <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
-              <span>Model: {provider.toUpperCase()}</span>
-              <span>Project: {project?.name}</span>
-            </div>
-          </div>
+          <ProjectAgentPanel
+            projectPath={project?.path}
+            projectName={project?.name}
+            jwtToken={jwtToken}
+            activeServer={activeServer}
+            onFilesChanged={() => setIframeKey((k) => k + 1)}
+          />
         </aside>
 
         {/* Restore Sidebar Toggle Button (if hidden) */}

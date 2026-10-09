@@ -213,12 +213,12 @@ export default function ServerConnectLanding({ servers, loadingServers, onSelect
                         </div>
                       </div>
 
-                      <span className="px-3 py-1 rounded-full text-[10px] font-extrabold font-mono uppercase bg-emerald-950/90 text-emerald-300 border border-emerald-800/80 flex items-center gap-1.5 shadow-sm">
+                      <span title={srv.error || ''} className={`px-3 py-1 rounded-full text-[10px] font-extrabold font-mono uppercase flex items-center gap-1.5 shadow-sm border ${srv.status === 'offline' ? 'bg-rose-950/90 text-rose-300 border-rose-800/80' : srv.status === 'online' ? 'bg-emerald-950/90 text-emerald-300 border-emerald-800/80' : 'bg-slate-900 text-slate-400 border-slate-700'}`}>
                         <span className="relative flex h-2 w-2">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+                          {srv.status === 'online' && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}
+                          <span className={`relative inline-flex rounded-full h-2 w-2 ${srv.status === 'offline' ? 'bg-rose-400' : srv.status === 'online' ? 'bg-emerald-400' : 'bg-slate-500'}`}></span>
                         </span>
-                        {srv.status || 'ONLINE'}
+                        {srv.status === 'offline' ? 'unreachable' : (srv.status || 'checking')}
                       </span>
                     </div>
 
@@ -226,15 +226,15 @@ export default function ServerConnectLanding({ servers, loadingServers, onSelect
                     <div className="grid grid-cols-3 gap-2 font-mono text-xs pt-3 border-t border-white/5 relative z-10">
                       <div className="bg-slate-900/90 p-2.5 rounded-2xl border border-white/5 text-center shadow-inner">
                         <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider">CPU Load</span>
-                        <strong className="text-white text-sm font-extrabold">{srv.cpu !== undefined ? srv.cpu : 12}%</strong>
+                        <strong className="text-white text-sm font-extrabold">{srv.cpu ?? '—'}{srv.cpu !== undefined ? '%' : ''}</strong>
                       </div>
                       <div className="bg-slate-900/90 p-2.5 rounded-2xl border border-white/5 text-center shadow-inner">
                         <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider">RAM Usage</span>
-                        <strong className="text-cyan-400 text-sm font-extrabold">{srv.ram !== undefined ? srv.ram : 42}%</strong>
+                        <strong className="text-cyan-400 text-sm font-extrabold">{srv.ram ?? '—'}{srv.ram !== undefined ? '%' : ''}</strong>
                       </div>
                       <div className="bg-slate-900/90 p-2.5 rounded-2xl border border-white/5 text-center shadow-inner">
                         <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider">Active Apps</span>
-                        <strong className="text-emerald-400 text-sm font-extrabold">{srv.activeApps || 3}</strong>
+                        <strong className="text-emerald-400 text-sm font-extrabold">{srv.activeApps ?? '—'}</strong>
                       </div>
                     </div>
 

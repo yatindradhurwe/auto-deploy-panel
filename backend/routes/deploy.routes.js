@@ -1,8 +1,10 @@
 import express from 'express'
 import https from 'https'
-import { testSshConnection, scanPortsAndServices, executeDeployment } from '../services/ssh.service.js'
+import { testSshConnection, scanPortsAndServices } from '../services/ssh.service.js'
+import { runDeployPipeline, validateDeployConfig, STAGES } from '../services/deploy-pipeline.service.js'
+import { getHost } from '../services/host.service.js'
+import { initUpload, appendChunk, completeUpload, analyzeGitRepo } from '../services/upload.service.js'
 import { diagnoseDeploymentError, executeSshPatch } from '../services/ai.service.js'
-import { detectProjectStack } from '../services/detector.service.js'
 
 const router = express.Router()
 
@@ -10,108 +12,55 @@ const router = express.Router()
 const activeDeployments = new Map()
 
 /**
- * Detect Project Stack (Language, Framework, Entrypoint, Build/Start Commands)
+ * POST /api/deploy/analyze-git { gitUrl, branch }
+ * Shallow-clones the repository on the panel host and detects the stack from real files.
  */
+router.post('/analyze-git', async (req, res) => {
+  try {
+    const token = (getUserSettings(req.user?.id)?.githubToken || '').trim() || null
+    const result = await analyzeGitRepo({ gitUrl: req.body.gitUrl, branch: req.body.branch, token })
+    res.json({ success: true, ...result })
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, error: err.message })
+  }
+})
+
+// Back-compat alias used by older clients
 router.post('/detect-stack', async (req, res) => {
   try {
-    const { repoUrl, githubToken, fileList = [], repoName } = req.body
-    let filesToInspect = [...fileList]
-    let packageJson = null
-    let composerJson = null
-
-    // If GitHub Repo is provided and token available, fetch file tree via GitHub API
-    if (repoUrl && repoUrl.includes('github.com')) {
-      const match = repoUrl.match(/github\.com[\/:]([^\/]+)\/([^\/\.]+)/i)
-      if (match) {
-        const owner = match[1]
-        const repo = match[2]
-        const userId = req.user ? req.user.id : 'admin-001'
-        const userSettings = getUserSettings(userId)
-        const tok = (githubToken || userSettings.githubToken || '').trim()
-
-        if (tok) {
-          const fetchGithubFile = (filePath) => new Promise((resolve) => {
-            const options = {
-              hostname: 'api.github.com',
-              path: `/repos/${owner}/${repo}/contents/${filePath}`,
-              method: 'GET',
-              headers: {
-                'Authorization': tok.startsWith('bearer ') || tok.startsWith('token ') ? tok : `Bearer ${tok}`,
-                'User-Agent': 'AutoDeploy-Console-App',
-                'Accept': 'application/vnd.github.v3+json'
-              }
-            }
-            const request = https.request(options, (apiRes) => {
-              let body = ''
-              apiRes.on('data', chunk => body += chunk)
-              apiRes.on('end', () => {
-                if (apiRes.statusCode === 200) {
-                  try {
-                    const parsed = JSON.parse(body)
-                    if (parsed.content) {
-                      const decoded = Buffer.from(parsed.content, 'base64').toString('utf-8')
-                      return resolve(JSON.parse(decoded))
-                    }
-                  } catch (e) {}
-                }
-                resolve(null)
-              })
-            })
-            request.on('error', () => resolve(null))
-            request.end()
-          })
-
-          const fetchGithubTree = () => new Promise((resolve) => {
-            const options = {
-              hostname: 'api.github.com',
-              path: `/repos/${owner}/${repo}/git/trees/main?recursive=1`,
-              method: 'GET',
-              headers: {
-                'Authorization': tok.startsWith('bearer ') || tok.startsWith('token ') ? tok : `Bearer ${tok}`,
-                'User-Agent': 'AutoDeploy-Console-App',
-                'Accept': 'application/vnd.github.v3+json'
-              }
-            }
-            const request = https.request(options, (apiRes) => {
-              let body = ''
-              apiRes.on('data', chunk => body += chunk)
-              apiRes.on('end', () => {
-                if (apiRes.statusCode === 200) {
-                  try {
-                    const parsed = JSON.parse(body)
-                    if (parsed.tree && Array.isArray(parsed.tree)) {
-                      return resolve(parsed.tree.map(item => item.path))
-                    }
-                  } catch (e) {}
-                }
-                resolve([])
-              })
-            })
-            request.on('error', () => resolve([]))
-            request.end()
-          })
-
-          const ghFiles = await fetchGithubTree()
-          if (ghFiles.length > 0) filesToInspect = Array.from(new Set([...filesToInspect, ...ghFiles]))
-
-          packageJson = await fetchGithubFile('package.json')
-          composerJson = await fetchGithubFile('composer.json')
-        }
-      }
-    }
-
-    // Infer from repository name if list is small
-    if (filesToInspect.length === 0 && repoName) {
-      if (repoName.includes('php') || repoName.includes('laravel') || repoName.includes('wordpress')) filesToInspect.push('index.php', 'composer.json')
-      else if (repoName.includes('python') || repoName.includes('django') || repoName.includes('flask') || repoName.includes('fastapi')) filesToInspect.push('requirements.txt', 'main.py')
-      else if (repoName.includes('go') || repoName.includes('golang')) filesToInspect.push('go.mod', 'main.go')
-      else if (repoName.includes('java') || repoName.includes('spring')) filesToInspect.push('pom.xml')
-    }
-
-    const stack = detectProjectStack(filesToInspect, packageJson, composerJson)
-    res.json({ success: true, stack, detectedFilesCount: filesToInspect.length })
+    const token = (getUserSettings(req.user?.id)?.githubToken || '').trim() || null
+    const result = await analyzeGitRepo({ gitUrl: req.body.repoUrl || req.body.gitUrl, branch: req.body.branch, token })
+    res.json({ success: true, stack: result.analysis, branch: result.branch })
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message })
+    res.status(err.status || 500).json({ success: false, error: err.message })
+  }
+})
+
+/**
+ * Chunked uploads: POST /uploads { kind, name, size } → POST /uploads/:id/chunk?offset=N (raw bytes)
+ * → POST /uploads/:id/complete (extracts + analyzes a project, or identifies a database dump)
+ */
+router.post('/uploads', (req, res) => {
+  try {
+    res.json({ success: true, ...initUpload(req.body || {}, req.user?.id) })
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, error: err.message })
+  }
+})
+
+router.post('/uploads/:id/chunk', async (req, res) => {
+  try {
+    res.json({ success: true, ...(await appendChunk(req.params.id, req.query.offset, req, req.user?.id)) })
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, error: err.message, expectedOffset: err.expectedOffset })
+  }
+})
+
+router.post('/uploads/:id/complete', async (req, res) => {
+  try {
+    res.json({ success: true, ...(await completeUpload(req.params.id, req.user?.id)) })
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, error: err.message })
   }
 })
 
@@ -347,143 +296,107 @@ router.post('/github-repos', async (req, res) => {
 })
 
 /**
- * Trigger Deployment with Server-Sent Events (SSE) Live Log Streaming
+ * GET /api/deploy/stream/:deployId — Server-Sent Events: replays everything so far, then live events.
  */
 router.get('/stream/:deployId', (req, res) => {
-  const { deployId } = req.params
-  const deploy = activeDeployments.get(deployId)
-
-  if (!deploy) {
+  const deploy = activeDeployments.get(req.params.deployId)
+  if (!deploy || deploy.ownerUserId !== req.user?.id) {
     return res.status(404).json({ error: 'Deployment session not found or expired' })
   }
-
-  // Set SSE headers
-  res.setHeader('Content-Type', 'text/event-stream')
-  res.setHeader('Cache-Control', 'no-cache')
-  res.setHeader('Connection', 'keep-alive')
-  res.flushHeaders()
-
-  // Send historical logs first
-  deploy.logs.forEach((log) => {
-    res.write(`data: ${JSON.stringify(log)}\n\n`)
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no'
   })
-
-  // Add listener for new logs
-  const logListener = (logData) => {
-    res.write(`data: ${JSON.stringify(logData)}\n\n`)
+  for (const ev of deploy.events) res.write(`data: ${JSON.stringify(ev)}\n\n`)
+  if (deploy.status !== 'running') return res.end()
+  const listener = (ev) => {
+    res.write(`data: ${JSON.stringify(ev)}\n\n`)
+    if (ev.kind === 'result') res.end()
   }
-
-  deploy.listeners.push(logListener)
-
-  req.on('close', () => {
-    deploy.listeners = deploy.listeners.filter((l) => l !== logListener)
-  })
+  deploy.listeners.add(listener)
+  const ping = setInterval(() => res.write(': ping\n\n'), 15000)
+  req.on('close', () => { clearInterval(ping); deploy.listeners.delete(listener) })
 })
 
 import { makeDeploymentLockKey, acquireLock, releaseLock } from '../services/lock.service.js'
 import { recordWebhookEvent } from '../services/db.service.js'
 
 /**
- * Start Deployment Session
+ * POST /api/deploy/deploy — validates the wizard payload and starts the pipeline in the background.
  */
 router.post('/deploy', async (req, res) => {
+  let cfg
+  try {
+    cfg = validateDeployConfig({ ...req.body, _githubToken: (getUserSettings(req.user?.id)?.githubToken || '').trim() || null }, req.user?.id, req.tenant?.server || null)
+  } catch (err) {
+    return res.status(err.status || 400).json({ success: false, error: err.message })
+  }
+
   const orgId = req.tenant?.organizationId || 'org-default'
-  const targetProject = req.body.appName || req.body.projectId || 'default'
-  const environment = req.body.environment || 'production'
-
-  const lockKey = makeDeploymentLockKey(orgId, targetProject, environment)
-  const lockResult = acquireLock(lockKey, 10 * 60 * 1000)
-
+  const lockKey = makeDeploymentLockKey(orgId, cfg.appName, 'production')
+  const lockResult = acquireLock(lockKey, 45 * 60 * 1000)
   if (!lockResult.acquired) {
-    return res.status(409).json({
-      success: false,
-      error: lockResult.message || 'Deployment execution already in progress for this project.',
-      code: 'DEPLOYMENT_LOCKED'
-    })
+    return res.status(409).json({ success: false, error: lockResult.message || `A deployment of ${cfg.appName} is already running.`, code: 'DEPLOYMENT_LOCKED' })
   }
 
   const deployId = `deploy_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
-  const deploySession = {
-    id: deployId,
-    config: req.body,
-    logs: [],
-    listeners: [],
-    status: 'running',
-    startedAt: new Date().toISOString(),
-  }
+  const session = { id: deployId, ownerUserId: req.user?.id, events: [], listeners: new Set(), status: 'running', startedAt: Date.now() }
+  activeDeployments.set(deployId, session)
+  res.json({ success: true, deployId, stages: STAGES.map(({ id, label, weight }) => ({ id, label, weight })) })
 
-  activeDeployments.set(deployId, deploySession)
-
-  // Respond immediately with deployId
-  res.json({ success: true, deployId })
-
-  // Execute deployment in background and broadcast logs
-  const onLog = (chunk, isError = false, step = 'LOG') => {
-    const logItem = {
-      text: chunk,
-      isError,
-      step,
-      timestamp: new Date().toISOString(),
-    }
-    deploySession.logs.push(logItem)
-    deploySession.listeners.forEach((listener) => listener(logItem))
+  const emit = (ev) => {
+    const item = { ...ev, at: Date.now() }
+    session.events.push(item)
+    for (const l of session.listeners) l(item)
   }
 
   try {
-    await executeDeployment(req.body, onLog)
-    deploySession.status = 'success'
-    onLog(`[FINISHED] Deployment completed successfully!`, false, 'END')
-
-    try {
-      const appName = req.body.appName || req.body.repoName || 'my-app'
-      const orgId = req.tenant?.organizationId || 'org-default'
-      const serverId = req.tenant?.serverId || req.body.serverId || 'srv-001'
-      const domain = req.body.domain || ''
-      const gitUrl = req.body.gitRepoUrl || req.body.gitUrl || ''
-      const branch = req.body.branch || 'main'
-      const port = req.body.backendPort || 5050
-      const remoteDir = req.body.remoteDir || `/var/www/${appName}`
-
-      createProject({
-        organizationId: orgId,
-        serverId: serverId,
-        name: appName,
-        repoName: appName,
-        path: remoteDir,
-        gitUrl,
-        branch,
-        framework: req.body.framework || 'Node.js App',
-        port,
-        domain,
-        status: 'active'
-      })
-
-      // Auto-update configs are keyed by app name; don't let one user's deploy take over another user's config
-      const ownerUserId = req.user?.id || 'admin-001'
-      const existingAutoUpdate = getProjectAutoUpdateConfig(appName)
-      const existingOwner = existingAutoUpdate && existingAutoUpdate.updatedAt ? (existingAutoUpdate.ownerUserId || 'admin-001') : null
-      if (existingOwner && existingOwner !== ownerUserId) {
-        onLog(`[WARN] Auto-update not enabled: app name '${appName}' is already registered by another account.`, true, 'LOG')
-      } else {
-        saveProjectAutoUpdateConfig(appName, {
-          enabled: true,
-          autoSyncInterval: 5,
-          branch,
-          gitRepoUrl: gitUrl,
-          projectPath: remoteDir,
-          host: req.body.host || '187.127.165.128',
-          ownerUserId,
-          organizationId: orgId
+    const result = await runDeployPipeline(cfg, emit, { host: getHost(req.tenant?.server || null) })
+    session.status = result.success ? 'success' : 'failed'
+    if (result.success) {
+      try {
+        const gitUrl = cfg.source.type === 'git' ? cfg.source.gitUrl : ''
+        createProject({
+          organizationId: orgId,
+          serverId: req.tenant?.serverId || 'srv-default',
+          name: cfg.appName,
+          repoName: cfg.appName,
+          path: cfg.remoteDir,
+          gitUrl,
+          branch: cfg.source.branch || 'main',
+          framework: result.plan?.framework || 'App',
+          port: result.port || null,
+          domain: cfg.domain,
+          status: 'active'
         })
+        if (gitUrl) {
+          const ownerUserId = req.user?.id || 'admin-001'
+          const existing = getProjectAutoUpdateConfig(cfg.appName)
+          const existingOwner = existing && existing.updatedAt ? (existing.ownerUserId || 'admin-001') : null
+          if (!existingOwner || existingOwner === ownerUserId) {
+            saveProjectAutoUpdateConfig(cfg.appName, {
+              enabled: true,
+              autoSyncInterval: 5,
+              branch: cfg.source.branch,
+              gitRepoUrl: gitUrl,
+              projectPath: cfg.remoteDir,
+              host: req.tenant?.server?.ipAddress || '127.0.0.1',
+              serverId: req.tenant?.serverId || null,
+              ownerUserId,
+              organizationId: orgId
+            })
+          }
+        }
+      } catch (saveErr) {
+        console.warn('Post-deployment project registration warning:', saveErr.message)
       }
-    } catch (saveErr) {
-      console.warn('Post-deployment project registration warning:', saveErr.message)
     }
-  } catch (err) {
-    deploySession.status = 'failed'
-    onLog(`[FAILED] Deployment error: ${err.message}`, true, 'END')
   } finally {
     releaseLock(lockKey)
+    // Keep the transcript around for reconnects, then drop it
+    setTimeout(() => activeDeployments.delete(deployId), 60 * 60 * 1000)
   }
 })
 

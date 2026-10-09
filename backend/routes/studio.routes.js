@@ -3,47 +3,47 @@ import fs from 'fs'
 import path from 'path'
 import http from 'http'
 import https from 'https'
-import { exec, execSync, execFile } from 'child_process'
+import { fileURLToPath } from 'url'
 import { authenticateToken } from '../middleware/auth.middleware.js'
 import { isSystemAdminUser } from '../config/secrets.js'
-import { updateExistingDeployment, deleteServerProject } from '../services/ssh.service.js'
+import { hostFor, getHost, publicServer, isLocalServer, forgetHost, testServerConnection, q } from '../services/host.service.js'
+import { discoverProjects } from '../services/project-discovery.service.js'
+import { updateProject, deleteProject } from '../services/project-ops.service.js'
+import { validateResourceOwnership } from '../middleware/tenant.middleware.js'
 import {
   readDb,
   getProjectsByOrgId,
   getServerById,
   getServersByOrgId,
   createServer,
+  updateServer,
   deleteServer,
   getUserSettings,
   getProjectAutoUpdateConfig,
   saveProjectAutoUpdateConfig,
   getAllProjectAutoUpdateConfigs,
   getWebhookAuditLogs,
-  getEmailAccounts,
-  saveEmailAccount,
-  deleteEmailAccount,
-  getEmailMessages,
-  sendEmailMessage,
-  markEmailAsRead,
   purgeProjectAndRelatedResources
 } from '../services/db.service.js'
 import { executeProjectAutoUpdate } from '../services/autoupdate.service.js'
-import {
-  runAutonomousCodeAgent,
-  buildFullProjectContext,
-  generateProjectPlanAndDiff,
-  executeProjectPlan,
-  getProjectAgentHistory,
-  clearProjectAgentHistory
-} from '../services/ai.service.js'
+import * as mail from '../services/mail.service.js'
+import * as projectAgent from '../services/project-agent.service.js'
 import {
   getRealHostMetrics,
   getRealPm2Processes,
   getRealSslCertificates,
-  getRealCronJobs,
-  getRealDatabases,
-  getDatabaseSchema
+  getRealCronJobs
 } from '../services/server.service.js'
+import {
+  discoverDatabases,
+  listTables,
+  getTableData,
+  runQuery,
+  insertRow,
+  deleteRow,
+  createTable,
+  dropTable
+} from '../services/database.service.js'
 
 const router = express.Router()
 
@@ -53,536 +53,228 @@ const BRANCH_REGEX = /^[a-zA-Z0-9._\/-]{1,100}$/
 const PANEL_PM2_NAME = process.env.PANEL_PM2_NAME || 'auto-deploy-panel'
 
 /**
- * Resolves a project directory that must exist. Returns null instead of silently falling back
- * to the panel's own working directory (which is /var/www under PM2 — the parent of every site).
+ * Wraps a route: resolves the selected server's executor (X-Server-Id) and turns errors into JSON.
  */
-function resolveProjectDir(projectPath) {
-  if (!projectPath || typeof projectPath !== 'string') return null
-  const dir = path.resolve(projectPath)
+const withHost = (fn) => async (req, res) => {
   try {
-    return fs.statSync(dir).isDirectory() ? dir : null
-  } catch (e) {
-    return null
+    await fn(req, res, hostFor(req))
+  } catch (err) {
+    if (!res.headersSent) res.status(err.status || 500).json({ success: false, error: err.message })
   }
+}
+
+const PANEL_ROOT = path.resolve(fileURLToPath(new URL('../..', import.meta.url)))
+const LOCAL_SERVER_IDS = new Set(['srv-default', 'srv-001', 'srv-default-node', 'local', undefined, null, ''])
+
+/**
+ * A project directory that must exist on the selected server. Never falls back to another
+ * folder (the panel runs from /var/www, the parent of every site).
+ */
+async function resolveProjectDir(host, projectPath) {
+  if (!projectPath || typeof projectPath !== 'string') return null
+  const dir = path.posix.resolve(projectPath)
+  const st = await host.stat(dir)
+  return st?.isDirectory ? dir : null
+}
+
+async function requireProjectDir(host, projectPath) {
+  const dir = await resolveProjectDir(host, projectPath)
+  if (!dir) throw Object.assign(new Error(`Project directory not found on ${host.label}: ${projectPath || '(none)'}`), { status: 400 })
+  return dir
 }
 
 /**
  * Top-level and system directories that must never be deleted from the file manager.
  */
 function isProtectedPath(targetPath) {
-  const resolved = path.resolve(targetPath)
-  const depth = resolved.split(path.sep).filter(Boolean).length
+  const resolved = path.posix.resolve(targetPath)
+  const depth = resolved.split('/').filter(Boolean).length
   return depth < 3 || /^\/(etc|usr|bin|sbin|lib|lib64|boot|proc|sys|dev)(\/|$)/.test(resolved)
 }
 
 /**
  * The .env file the project actually uses: first of .env, .env.production, .env.local, else .env
  */
-function findEnvFile(projectDir) {
+async function findEnvFile(host, projectDir) {
   for (const f of ['.env', '.env.production', '.env.local']) {
-    const p = path.join(projectDir, f)
-    if (fs.existsSync(p)) return p
+    const p = `${projectDir}/${f}`
+    if (await host.exists(p)) return p
   }
-  return path.join(projectDir, '.env')
+  return `${projectDir}/.env`
 }
 
-// Default presets for system default organization
-const DEFAULT_SERVERS = []
-const SERVER_PROJECTS = []
-
-function getGitDetails(dirPath) {
-  let gitUrl = ''
-  let branch = 'main'
-  try {
-    const gitConfigPath = path.join(dirPath, '.git', 'config')
-    if (fs.existsSync(gitConfigPath)) {
-      const content = fs.readFileSync(gitConfigPath, 'utf8')
-      const match = content.match(/url\s*=\s*(.+)/)
-      if (match) gitUrl = match[1].trim()
-    }
-  } catch (e) {}
-
-  try {
-    const headPath = path.join(dirPath, '.git', 'HEAD')
-    if (fs.existsSync(headPath)) {
-      const headContent = fs.readFileSync(headPath, 'utf8').trim()
-      if (headContent.startsWith('ref: refs/heads/')) {
-        branch = headContent.replace('ref: refs/heads/', '')
-      }
-    }
-  } catch (e) {}
-
-  return { gitUrl, branch }
-}
-
-function getNginxDomainMap() {
-  const domainMapByPath = new Map()
-  const domainMapByPort = new Map()
-
-  const nginxDirs = ['/etc/nginx/sites-enabled', '/etc/nginx/sites-available', '/etc/nginx/conf.d']
-
-  nginxDirs.forEach(dir => {
-    if (fs.existsSync(dir)) {
-      try {
-        const files = fs.readdirSync(dir)
-        files.forEach(file => {
-          const fullPath = path.join(dir, file)
-          if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
-            const content = fs.readFileSync(fullPath, 'utf8')
-
-            const serverNameMatch = content.match(/server_name\s+([^;]+);/)
-            if (serverNameMatch) {
-              const rawNames = serverNameMatch[1].trim().split(/\s+/)
-              let validDomain = rawNames.find(n => n && !n.includes('_') && n !== 'localhost' && n !== '$host')
-
-              if (validDomain) {
-                validDomain = validDomain.replace(/^www\./i, '')
-                const rootMatch = content.match(/root\s+([^;]+);/)
-                if (rootMatch) {
-                  let rootP = rootMatch[1].trim().replace(/\\/g, '/')
-                  const mainP = rootP.replace(/\/dist\/?$/, '').replace(/\/frontend\/?$/, '').replace(/\/public_html\/?$/, '')
-                  domainMapByPath.set(mainP.toLowerCase(), validDomain)
-                  domainMapByPath.set(rootP.toLowerCase(), validDomain)
-                }
-
-                const proxyMatch = content.match(/proxy_pass\s+http:\/\/(?:127\.0\.0\.1|localhost):(\d+)/)
-                if (proxyMatch) {
-                  domainMapByPort.set(proxyMatch[1], validDomain)
-                }
-              }
-            }
-          }
-        })
-      } catch (e) {}
-    }
+/** Projects recorded for this server in db.json (from deployments), scoped to the organization. */
+function registeredProjectsFor(server, orgId, isSuper) {
+  const all = Object.values(readDb().projects || {})
+  return all.filter(p => {
+    if (!isSuper && orgId && p.organizationId && p.organizationId !== orgId) return false
+    if (!server) return LOCAL_SERVER_IDS.has(p.serverId)
+    if (p.serverId === server.id) return true
+    return isLocalServer(server) && LOCAL_SERVER_IDS.has(p.serverId)
   })
-
-  return { domainMapByPath, domainMapByPort }
 }
 
-function getProjectPort(dirPath) {
-  try {
-    const envPath = path.join(dirPath, '.env')
-    if (fs.existsSync(envPath)) {
-      const content = fs.readFileSync(envPath, 'utf8')
-      const match = content.match(/^PORT\s*=\s*(\d+)/m)
-      if (match) return match[1]
-    }
-  } catch (e) {}
-
-  try {
-    const pkgPath = path.join(dirPath, 'package.json')
-    if (fs.existsSync(pkgPath)) {
-      const content = fs.readFileSync(pkgPath, 'utf8')
-      const match = content.match(/-p\s+(\d+)|PORT=(\d+)|port\s+(\d+)/)
-      if (match) return match[1] || match[2] || match[3]
-    }
-  } catch (e) {}
-
-  return null
-}
-
-function discoverServerProjects(serverConfig = null) {
-  if (serverConfig && serverConfig.ipAddress && serverConfig.ipAddress !== '187.127.165.128' && serverConfig.ipAddress !== '127.0.0.1') {
-    const srvName = serverConfig.name || 'Server Node'
-    const srvId = serverConfig.id || 'srv-node'
-    const isShared = serverConfig.serverType === 'shared'
-
-    try {
-      const dbObj = readDb()
-      const dbProjects = Object.values(dbObj.projects || {}).filter(p => p.serverId === srvId || p.serverId === serverConfig.ipAddress)
-      if (dbProjects.length > 0) {
-        return dbProjects
-      }
-    } catch (e) {}
-
-    if (isShared) {
-      const cUser = serverConfig.cpanelUser || 'app'
-      const domain = serverConfig.domain || serverConfig.hostname || 'shared.domain.com'
-      return [
-        {
-          id: `proj-${srvId}-cpanel-main`,
-          serverId: srvId,
-          name: `${domain} (Main Website)`,
-          repoName: domain,
-          path: `/home/${cUser}/public_html`,
-          domain: domain,
-          gitUrl: `https://github.com/tenant-org/${domain.replace(/\./g, '-')}.git`,
-          branch: 'main',
-          type: 'cPanel PHP / Static Web App',
-          status: 'active'
-        },
-        {
-          id: `proj-${srvId}-cpanel-api`,
-          serverId: srvId,
-          name: `API Service (${domain}/api)`,
-          repoName: `${domain}-api`,
-          path: `/home/${cUser}/public_html/api`,
-          domain: `${domain}/api`,
-          gitUrl: `https://github.com/tenant-org/${domain.replace(/\./g, '-')}-api.git`,
-          branch: 'main',
-          type: 'cPanel Node.js Application',
-          status: 'active'
-        }
-      ]
-    }
-
-    return [
-      {
-        id: `proj-${srvId}-app1`,
-        serverId: srvId,
-        name: `${srvName} Primary Application`,
-        repoName: `${srvName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-app`,
-        path: `/var/www/${srvName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-app`,
-        domain: serverConfig.domain || null,
-        gitUrl: `https://github.com/tenant-org/${srvName.toLowerCase().replace(/[^a-z0-9]/g, '-')}.git`,
-        branch: 'main',
-        type: 'Active PM2 Service',
-        status: 'active'
-      }
-    ]
-  }
-
-  const candidateMap = new Map() // normPath -> { name, repoName }
-
-  // 1. Presets / Local dev paths
-  let currentWorkDir = process.cwd().replace(/\\/g, '/')
-  if (currentWorkDir.endsWith('/backend')) {
-    currentWorkDir = path.resolve(currentWorkDir, '..').replace(/\\/g, '/')
-  }
-
-  const localAppRoot = currentWorkDir
-  const localCrmRoot = path.resolve(currentWorkDir, '../crm-export').replace(/\\/g, '/')
-
-  if (fs.existsSync(localAppRoot) && localAppRoot !== '/var/www' && localAppRoot !== '/var/www/' && localAppRoot !== '/' && !localAppRoot.endsWith(':/')) {
-    candidateMap.set(localAppRoot, { name: 'AutoDeploy Panel (This Studio)', repoName: 'auto-deploy-panel', domain: 'automate-deployment.yjtechnosoft.com' })
-  }
-  if (fs.existsSync(localCrmRoot) && localCrmRoot !== '/var/www' && localCrmRoot !== '/') {
-    candidateMap.set(localCrmRoot, { name: 'TOP Income Producer CRM (crm-export)', repoName: 'crm-export', domain: 'tip-crm.yjtechnosoft.com' })
-  }
-
-  // 2. Scan /var/www subdirectories
-  const varWww = '/var/www'
-  if (fs.existsSync(varWww)) {
-    try {
-      const entries = fs.readdirSync(varWww, { withFileTypes: true })
-      entries.forEach(entry => {
-        if (entry.isDirectory() && entry.name !== 'html') {
-          const fullP = path.join(varWww, entry.name).replace(/\\/g, '/')
-          if (!candidateMap.has(fullP) && fullP !== '/var/www') {
-            candidateMap.set(fullP, { name: entry.name, repoName: entry.name })
-          }
-        }
-      })
-    } catch (e) {}
-  }
-
-  candidateMap.delete('/var/www')
-  candidateMap.delete('/var/www/')
-
-  // 3. Scan /home/*/htdocs/* subdirectories
-  const homeDir = '/home'
-  if (fs.existsSync(homeDir)) {
-    try {
-      const users = fs.readdirSync(homeDir, { withFileTypes: true })
-      users.forEach(u => {
-        if (u.isDirectory()) {
-          const htdocs = path.join(homeDir, u.name, 'htdocs')
-          if (fs.existsSync(htdocs)) {
-            const apps = fs.readdirSync(htdocs, { withFileTypes: true })
-            apps.forEach(app => {
-              if (app.isDirectory()) {
-                const fullP = path.join(htdocs, app.name).replace(/\\/g, '/')
-                if (!candidateMap.has(fullP)) {
-                  candidateMap.set(fullP, { name: app.name, repoName: app.name })
-                }
-              }
-            })
-          }
-        }
-      })
-    } catch (e) {}
-  }
-
-  // 4. PM2 Active Processes
-  const pm2Cwds = new Set()
-  try {
-    const stdout = execSync('pm2 jlist', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] })
-    if (stdout) {
-      const jsonStart = stdout.indexOf('[')
-      const jsonEnd = stdout.lastIndexOf(']')
-      if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
-        const jsonStr = stdout.substring(jsonStart, jsonEnd + 1)
-        const procs = JSON.parse(jsonStr)
-        procs.forEach(p => {
-          const procName = p.name || 'pm2-app'
-          const cwd = p.pm2_env && p.pm2_env.pm_cwd
-          const normCwd = (cwd && fs.existsSync(cwd)) ? path.resolve(cwd).replace(/\\/g, '/') : `/var/www/${procName}`
-          pm2Cwds.add(normCwd)
-          if (!candidateMap.has(normCwd)) {
-            candidateMap.set(normCwd, { name: procName, repoName: procName })
-          }
-        })
-      }
-    }
-  } catch (e) {}
-
-  const { domainMapByPath, domainMapByPort } = getNginxDomainMap()
-
-  // Consolidate subdirectories (e.g. /var/www/my-app/backend -> merge into /var/www/my-app)
-  const candidatePaths = Array.from(candidateMap.keys())
-  candidatePaths.forEach(p => {
-    const parentDir = path.dirname(p).replace(/\\/g, '/')
-    if (candidateMap.has(parentDir) && parentDir !== '/var/www' && parentDir !== '/home' && parentDir !== '/') {
-      const childMeta = candidateMap.get(p)
-      const parentMeta = candidateMap.get(parentDir)
-      if (childMeta.domain && !parentMeta.domain) parentMeta.domain = childMeta.domain
-      candidateMap.delete(p)
-    }
-  })
-
-  const projects = []
-
-  candidateMap.forEach((meta, dirPath) => {
-    const folderName = path.basename(dirPath)
-    const { gitUrl, branch } = getGitDetails(dirPath)
-    const isRunningPm2 = Array.from(pm2Cwds).some(cwd => cwd === dirPath || cwd.startsWith(dirPath + '/') || dirPath.startsWith(cwd + '/')) || meta.name === 'auto-deploy-panel' || meta.name === 'tip-crm-backend'
-
-    let displayName = meta.name
-    if (displayName === folderName) {
-      displayName = folderName.replace(/[-_.]/g, ' ').toUpperCase()
-    }
-
-    const normDir = dirPath.toLowerCase()
-    let projectDomain = meta.domain || domainMapByPath.get(normDir) || ''
-
-    if (!projectDomain) {
-      domainMapByPath.forEach((dom, p) => {
-        if (!projectDomain && (p.endsWith('/' + folderName.toLowerCase()) || p.includes(folderName.toLowerCase()))) {
-          projectDomain = dom
-        }
-      })
-    }
-
-    if (!projectDomain) {
-      const pPort = getProjectPort(dirPath) || meta.port
-      if (pPort && domainMapByPort.has(String(pPort))) {
-        projectDomain = domainMapByPort.get(String(pPort))
-      }
-    }
-
-    projects.push({
-      id: `proj-${folderName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
-      name: displayName,
-      repoName: meta.repoName || folderName,
-      path: dirPath,
-      domain: projectDomain ? projectDomain.replace(/^www\./i, '') : null,
-      gitUrl: gitUrl || `https://github.com/yatindradhurwe/${folderName}.git`,
-      branch: branch || 'main',
-      type: isRunningPm2 ? 'Active PM2 Service' : (fs.existsSync(path.join(dirPath, 'package.json')) ? 'Node.js App' : 'Web Application'),
-      status: isRunningPm2 ? 'active' : 'idle'
-    })
-  })
-
-  return projects
+async function discoverServerProjects(req, host) {
+  const server = req.tenant?.server || null
+  const registered = registeredProjectsFor(server, req.tenant?.organizationId, isSuperAdminUser(req))
+  return discoverProjects(host, registered, { panelRoot: host.isLocal ? PANEL_ROOT : null })
 }
 
 /**
- * GET /api/studio/servers
+ * Live metrics for one server, never throwing: unreachable servers are reported as offline.
  */
-/**
- * GET & POST /api/studio/servers
- */
-router.all('/servers', async (req, res) => {
+const metricsCache = new Map() // server id -> { at, data }
+async function serverStatus(server, { fresh = false } = {}) {
+  const key = server?.id || 'local'
+  const cached = metricsCache.get(key)
+  if (!fresh && cached && Date.now() - cached.at < 20000) return cached.data
+  let data
   try {
-    const targetServer = req.tenant?.server || null
-    const hostMetrics = await getRealHostMetrics(targetServer)
-    const pm2Procs = await getRealPm2Processes(targetServer)
-
-    let orgServers = req.tenant?.organizationId ? getServersByOrgId(req.tenant.organizationId) : []
-
-    if (orgServers.length === 0) {
-      orgServers = [{
-        id: 'srv-default-node',
-        organizationId: req.tenant?.organizationId || 'org-default',
-        name: 'Production Server Node 01',
-        hostname: 'automate-deployment.yjtechnosoft.com',
-        ipAddress: '187.127.165.128',
-        port: 22,
-        username: 'root',
-        os: hostMetrics.osType || 'Ubuntu 22.04 LTS (x86_64)',
-        agentId: 'agent-prod-01',
-        status: 'online',
-        cpu: hostMetrics.cpu,
-        ram: hostMetrics.memory,
-        disk: hostMetrics.disk,
-        activeApps: pm2Procs.length,
-        domain: 'automate-deployment.yjtechnosoft.com',
-        lastSeen: new Date().toISOString()
-      }]
-    } else {
-      orgServers = orgServers.map(s => ({
-        ...s,
-        cpu: s.id === targetServer?.id ? hostMetrics.cpu : (s.cpu || 12),
-        ram: s.id === targetServer?.id ? hostMetrics.memory : (s.ram || 42),
-        disk: s.id === targetServer?.id ? hostMetrics.disk : (s.disk || 32),
-        activeApps: pm2Procs.length,
-        status: s.status || 'online',
-        lastSeen: new Date().toISOString()
-      }))
-    }
-
-    res.json({ success: true, servers: orgServers })
+    const host = getHost(server)
+    const [metrics, procs] = await Promise.race([
+      Promise.all([getRealHostMetrics(host), getRealPm2Processes(host)]),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out after 12s')), 12000))
+    ])
+    data = { status: 'online', cpu: metrics.cpu, ram: metrics.memory, disk: metrics.disk, os: metrics.osType, nodeVersion: metrics.nodeVersion, uptimeSeconds: metrics.uptimeSeconds, cpuCores: metrics.cpuCores, totalRamMb: metrics.totalRamMb, activeApps: procs.filter(p => p.status === 'online').length, totalApps: procs.length, lastSeen: new Date().toISOString(), error: null }
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message })
+    data = { status: 'offline', error: err.message, lastSeen: cached?.data?.lastSeen || null }
   }
-})
+  metricsCache.set(key, { at: Date.now(), data })
+  return data
+}
+
+function orgServers(req) {
+  const servers = isSuperAdminUser(req) && req.tenant?.organizationId === 'org-default'
+    ? Object.values(readDb().servers || {}).filter(s => s.organizationId === 'org-default' || !s.organizationId)
+    : getServersByOrgId(req.tenant?.organizationId)
+  return servers
+}
 
 /**
- * POST /api/studio/servers/scan
- * Real-time Server Node scan
+ * GET & POST /api/studio/servers — every connected server with live status and load.
  */
-router.post('/servers/scan', async (req, res) => {
-  try {
-    const hostMetrics = await getRealHostMetrics(req.tenant?.server)
-    const pm2Procs = await getRealPm2Processes(req.tenant?.server)
-    const host = req.body.host || req.tenant?.server?.ipAddress || '187.127.165.128'
+router.all('/servers', withHost(async (req, res) => {
+  const servers = orgServers(req)
+  const list = await Promise.all(servers.map(async s => ({ ...publicServer(s), ...(await serverStatus(s)) })))
+  res.json({ success: true, servers: list, activeServerId: req.tenant?.serverId || null })
+}))
 
-    const liveNode = {
-      id: req.tenant?.server?.id || 'srv-001',
-      name: req.tenant?.server?.name || 'Production Server Node 01',
-      host: host,
-      port: req.tenant?.server?.port || 22,
-      username: req.tenant?.server?.username || 'root',
-      status: 'online',
-      os: hostMetrics.osType || 'Ubuntu 22.04 LTS (x86_64)',
-      cpuUsage: hostMetrics.cpu,
-      ramUsage: hostMetrics.memory,
-      diskUsage: hostMetrics.disk,
-      activeApps: pm2Procs.length,
-      domain: req.tenant?.server?.domain || 'automate-deployment.yjtechnosoft.com',
-      lastConnected: new Date().toISOString()
-    }
-
-    res.json({
-      success: true,
-      message: `Real-Time SSH scan completed for ${host}. Hardware load & PM2 services synchronized.`,
-      server: liveNode,
-      processes: pm2Procs
-    })
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message })
-  }
-})
+/**
+ * POST /api/studio/servers/scan — fresh metrics + PM2 processes for the selected server.
+ */
+router.post('/servers/scan', withHost(async (req, res, host) => {
+  const server = req.tenant?.server || null
+  const status = await serverStatus(server, { fresh: true })
+  if (status.status !== 'online') return res.status(502).json({ success: false, error: status.error })
+  const processes = await getRealPm2Processes(host)
+  res.json({
+    success: true,
+    message: `Scanned ${host.label}.`,
+    server: { ...(server ? publicServer(server) : { id: 'local', name: host.label }), ...status, cpuUsage: status.cpu, ramUsage: status.ram, diskUsage: status.disk },
+    processes
+  })
+}))
 
 /**
  * Helper to verify if user is Super Admin
  */
 const isSuperAdminUser = (req) => isSystemAdminUser(req.user) && !req.user.impersonatedBy
 
-/**
- * POST /api/studio/servers/add
- */
-router.post('/servers/add', (req, res) => {
-  const {
-    name,
-    serverType = 'vps',
-    provider = 'custom',
-    authType = 'password',
-    host,
-    ipAddress,
+function serverInput(body) {
+  const host = String(body.ipAddress || body.host || body.hostname || '').trim()
+  if (!/^[A-Za-z0-9.:-]{1,255}$/.test(host)) throw Object.assign(new Error('Enter the server IP address or hostname.'), { status: 400 })
+  const port = Number(body.port) || 22
+  if (port < 1 || port > 65535) throw Object.assign(new Error('Invalid SSH port.'), { status: 400 })
+  const username = String(body.username || 'root').trim()
+  if (!/^[a-z_][a-z0-9_.-]{0,31}$/i.test(username)) throw Object.assign(new Error('Invalid SSH username.'), { status: 400 })
+  return {
+    name: String(body.name || host).trim().slice(0, 80),
+    ipAddress: host,
+    hostname: String(body.hostname || host).trim(),
     port,
     username,
-    password,
-    sshKey,
-    domain,
-    cpanelUrl,
-    cpanelUser,
-    cpanelApiToken,
-    ftpHost,
-    ftpPort,
-    ftpUser,
-    ftpPassword,
-    webRootPath,
-    sharedDbHost,
-    sharedDbUser,
-    sharedDbPassword,
-    cloudProvider,
-    cloudApiKey,
-    cloudRegion,
-    cloudInstanceId
-  } = req.body
-
-  const targetHost = ipAddress || host || ftpHost || cpanelUrl
-  if (!name || (!targetHost && serverType !== 'cloud')) {
-    return res.status(400).json({ error: 'Server name and Host/IP address are required' })
+    password: body.password || '',
+    sshKey: body.sshKey || '',
+    domain: String(body.domain || '').trim()
   }
+}
 
+/**
+ * POST /api/studio/servers/test — checks SSH credentials without saving anything.
+ */
+router.post('/servers/test', withHost(async (req, res) => {
+  const input = serverInput(req.body)
+  if (!input.password && !input.sshKey && !isLocalServer(input)) throw Object.assign(new Error('Enter the SSH password or private key.'), { status: 400 })
+  const info = await testServerConnection(input)
+  res.json({ success: true, ...info, local: isLocalServer(input) })
+}))
+
+/**
+ * POST /api/studio/servers/add — verifies SSH access, then saves the server.
+ */
+router.post('/servers/add', withHost(async (req, res) => {
+  const input = serverInput(req.body)
+  if (!input.password && !input.sshKey && !isLocalServer(input)) throw Object.assign(new Error('Enter the SSH password or private key.'), { status: 400 })
+  const orgId = req.tenant?.organizationId || 'org-default'
+  if (getServersByOrgId(orgId).some(s => s.ipAddress === input.ipAddress && Number(s.port || 22) === input.port)) {
+    throw Object.assign(new Error(`${input.ipAddress} is already connected.`), { status: 409 })
+  }
+  const info = await testServerConnection(input)
   const created = createServer({
-    organizationId: req.tenant?.organizationId || 'org-default',
-    createdBy: req.user ? req.user.id : null,
-    name,
-    serverType: serverType.toLowerCase(),
-    provider,
-    authType,
-    hostname: targetHost || '',
-    ipAddress: ipAddress || host || ftpHost || '',
-    port: parseInt(port) || (serverType === 'shared' ? 21 : 22),
-    username: username || ftpUser || cpanelUser || 'root',
-    password: password || ftpPassword || '',
-    sshKey: sshKey || '',
-    domain: domain || '',
-    cpanelUrl,
-    cpanelUser,
-    cpanelApiToken,
-    ftpHost,
-    ftpPort,
-    ftpUser,
-    ftpPassword,
-    webRootPath,
-    sharedDbHost,
-    sharedDbUser,
-    sharedDbPassword,
-    cloudProvider,
-    cloudApiKey,
-    cloudRegion,
-    cloudInstanceId,
+    ...input,
+    organizationId: orgId,
+    createdBy: req.user?.id || null,
+    serverType: 'vps',
+    authType: input.sshKey ? 'ssh_key' : 'password',
+    os: info.os,
     status: 'online'
   })
+  res.json({ success: true, message: `Connected to ${created.name} (${info.os}).`, server: { ...publicServer(created), ...info } })
+}))
 
-  res.json({
-    success: true,
-    message: `Server node '${name}' connected successfully!`,
-    server: created
-  })
-})
+/**
+ * POST /api/studio/servers/update — rename or change credentials (re-tested before saving).
+ */
+router.post('/servers/update', withHost(async (req, res) => {
+  const server = getServerById(req.body.serverId || req.body.id)
+  if (!server || !validateResourceOwnership(server, req)) throw Object.assign(new Error('Server not found.'), { status: 404 })
+  const input = serverInput({ ...server, ...req.body, password: req.body.password || server.password, sshKey: req.body.sshKey || server.sshKey })
+  if (req.body.password || req.body.sshKey || input.ipAddress !== server.ipAddress || input.port !== Number(server.port || 22) || input.username !== server.username) {
+    await testServerConnection(input)
+  }
+  const updated = updateServer(server.id, input)
+  forgetHost(server.id)
+  metricsCache.delete(server.id)
+  res.json({ success: true, message: 'Server updated.', server: publicServer(updated) })
+}))
+
+/**
+ * POST /api/studio/servers/delete — disconnects a server (nothing on the server is touched).
+ */
+router.post('/servers/delete', withHost(async (req, res) => {
+  const server = getServerById(req.body.serverId || req.body.id)
+  if (!server || !validateResourceOwnership(server, req)) throw Object.assign(new Error('Server not found.'), { status: 404 })
+  if (isLocalServer(server)) throw Object.assign(new Error('This is the server the panel itself runs on; it cannot be removed.'), { status: 400 })
+  deleteServer(server.id)
+  forgetHost(server.id)
+  metricsCache.delete(server.id)
+  res.json({ success: true, message: `${server.name} disconnected. Its apps keep running.` })
+}))
 
 /**
  * GET & POST /api/studio/ssl/certificates
- * Real-time Let's Encrypt SSL Certificates Discovery
  */
-router.all('/ssl/certificates', async (req, res) => {
-  try {
-    const targetServer = req.tenant?.server || null
-    const realCerts = await getRealSslCertificates(targetServer)
-    res.json({ success: true, certificates: realCerts })
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message })
-  }
-})
+router.all('/ssl/certificates', withHost(async (req, res, host) => {
+  res.json({ success: true, certificates: await getRealSslCertificates(host) })
+}))
 
 /**
  * GET & POST /api/studio/cron/list
  */
-router.all('/cron/list', async (req, res) => {
-  try {
-    const targetServer = req.tenant?.server || null
-    const realJobs = await getRealCronJobs(targetServer)
-    res.json({ success: true, cronJobs: realJobs, jobs: realJobs })
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message })
-  }
-})
+router.all('/cron/list', withHost(async (req, res, host) => {
+  const jobs = await getRealCronJobs(host)
+  res.json({ success: true, cronJobs: jobs, jobs })
+}))
 
 /**
  * GET /api/studio/webhooks/logs
@@ -709,938 +401,392 @@ function getCandidateScore(proj) {
 
 /**
  * GET & POST /api/studio/projects
- * Returns list of server applications & organization projects strictly scoped by tenant
+ * Projects on the selected server (discovered live + recorded deployments), one per domain/folder
  */
-router.all('/projects', (req, res) => {
-  try {
-    const isSuper = isSuperAdminUser(req)
-    const orgId = req.tenant?.organizationId || 'org-default'
-    const reqServerId = req.headers['x-server-id'] || req.query.serverId || req.body?.serverId
-    const targetServer = req.tenant?.server || (reqServerId ? getServerById(reqServerId) : null)
+router.all('/projects', withHost(async (req, res, host) => {
+  const discovered = await discoverServerProjects(req, host)
+  const server = req.tenant?.server || null
+  const domainMap = new Map()
+  const pathMap = new Map()
 
-    let orgProjects = getProjectsByOrgId(orgId) || []
-    const discovered = discoverServerProjects(targetServer)
-
-    const allCandidates = [...orgProjects, ...discovered]
-
-    const domainMap = new Map()
-    const pathMap = new Map()
-
-    allCandidates.forEach(p => {
-      const normP = p.path ? path.resolve(p.path).replace(/\\/g, '/').toLowerCase() : ''
-      let dom = p.domain ? p.domain.trim().toLowerCase().replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '') : null
-
-      if (!dom) {
-        if (normP && !pathMap.has(normP)) {
-          pathMap.set(normP, p)
-        }
-        return
-      }
-
-      if (!domainMap.has(dom)) {
-        domainMap.set(dom, p)
-      } else {
-        const existing = domainMap.get(dom)
-        const currentScore = getCandidateScore(p)
-        const existingScore = getCandidateScore(existing)
-        if (currentScore > existingScore) {
-          domainMap.set(dom, p)
-        }
-      }
-    })
-
-    const finalProjects = []
-    const seenPaths = new Set()
-
-    domainMap.forEach((p, dom) => {
-      const normP = p.path ? path.resolve(p.path).replace(/\\/g, '/').toLowerCase() : ''
-      if (!seenPaths.has(normP)) {
-        seenPaths.add(normP)
-        finalProjects.push({
-          ...p,
-          organizationId: orgId,
-          serverId: targetServer?.id || 'srv-001',
-          domain: dom
-        })
-      }
-    })
-
-    pathMap.forEach((p, normP) => {
-      if (!seenPaths.has(normP)) {
-        seenPaths.add(normP)
-        finalProjects.push({
-          ...p,
-          organizationId: orgId,
-          serverId: targetServer?.id || 'srv-001'
-        })
-      }
-    })
-
-    res.json({ success: true, projects: finalProjects })
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message })
+  for (const p of discovered) {
+    const dom = p.domain ? p.domain.trim().toLowerCase().replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '') : null
+    if (!dom) {
+      if (!pathMap.has(p.path)) pathMap.set(p.path, p)
+      continue
+    }
+    const existing = domainMap.get(dom)
+    if (!existing || getCandidateScore(p) > getCandidateScore(existing)) domainMap.set(dom, p)
   }
-})
+
+  const seen = new Set()
+  const projects = []
+  for (const p of [...domainMap.values(), ...pathMap.values()]) {
+    if (seen.has(p.path)) continue
+    seen.add(p.path)
+    projects.push({ ...p, organizationId: req.tenant?.organizationId || 'org-default', serverId: server?.id || 'srv-default', serverName: server?.name || host.label })
+  }
+  res.json({ success: true, projects, server: server ? publicServer(server) : null })
+}))
 
 /**
  * GET & POST /api/studio/server-metrics
- * Returns comprehensive telemetry and process list for ALL server projects & PM2 services
  */
-router.all('/server-metrics', async (req, res) => {
-  try {
-    const hostMetrics = await getRealHostMetrics(req.tenant?.server)
-    const pm2Processes = await getRealPm2Processes(req.tenant?.server)
-    const host = req.body?.host || req.tenant?.server?.ipAddress || '187.127.165.128'
-
-    const serverInfo = req.tenant?.server ? {
-      host: req.tenant.server.ipAddress || req.tenant.server.hostname || host,
-      status: req.tenant.server.status || 'online',
-      cpu: hostMetrics.cpu,
-      memory: hostMetrics.memory,
-      disk: hostMetrics.disk,
-      nodeVersion: hostMetrics.nodeVersion,
-      uptimeSeconds: hostMetrics.uptimeSeconds
-    } : {
-      ...hostMetrics,
-      host
-    }
-
-    res.json({
-      success: true,
-      server: serverInfo,
-      processes: pm2Processes
-    })
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message })
-  }
-})
+router.all('/server-metrics', withHost(async (req, res, host) => {
+  const [metrics, processes] = await Promise.all([getRealHostMetrics(host), getRealPm2Processes(host)])
+  const server = req.tenant?.server
+  res.json({
+    success: true,
+    server: { ...metrics, host: server?.ipAddress || server?.hostname || '127.0.0.1', name: server?.name || host.label, status: 'online' },
+    processes
+  })
+}))
 
 /**
- * GET & POST /api/studio/projects/realtime-fetch
- * Rescans server applications & PM2 services in real-time
+ * GET & POST /api/studio/projects/realtime-fetch — rescan (same data as /projects, never cached)
  */
-router.all('/projects/realtime-fetch', (req, res) => {
-  try {
-    const reqServerId = req.headers['x-server-id'] || req.query.serverId || req.body?.serverId
-    const targetServer = req.tenant?.server || (reqServerId ? getServerById(reqServerId) : null)
-    const discovered = discoverServerProjects(targetServer)
-    const orgId = req.tenant?.organizationId || 'org-default'
-    const orgProjects = getProjectsByOrgId(orgId)
-    const pathSet = new Set(orgProjects.map(p => p.path ? path.resolve(p.path).replace(/\\/g, '/').toLowerCase() : ''))
-
-    discovered.forEach(dp => {
-      const normP = dp.path ? path.resolve(dp.path).replace(/\\/g, '/').toLowerCase() : ''
-      if (!pathSet.has(normP)) {
-        orgProjects.push({
-          ...dp,
-          organizationId: orgId,
-          serverId: targetServer?.id || req.tenant?.serverId || 'srv-default'
-        })
-      }
-    })
-
-    res.json({
-      success: true,
-      message: `Retrieved ${orgProjects.length} projects & live PM2 services from server.`,
-      projects: orgProjects
-    })
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message })
-  }
-})
+router.all('/projects/realtime-fetch', withHost(async (req, res, host) => {
+  const projects = (await discoverServerProjects(req, host)).map(p => ({ ...p, organizationId: req.tenant?.organizationId || 'org-default', serverId: req.tenant?.server?.id || 'srv-default' }))
+  res.json({ success: true, message: `Found ${projects.length} projects on ${host.label}.`, projects })
+}))
 
 /**
  * POST /api/studio/git/status
- * Returns git status of project
  */
-router.post('/git/status', authenticateToken, (req, res) => {
-  const { projectPath } = req.body
-  const targetDir = resolveProjectDir(projectPath)
-  if (!targetDir) {
-    return res.json({ success: false, branch: 'main', modifiedCount: 0, raw: 'Project directory not found' })
-  }
-
-  exec('git status --short && git branch --show-current', { cwd: targetDir }, (error, stdout) => {
-    if (error) {
-      return res.json({ success: false, branch: 'main', modifiedCount: 0, raw: 'Not a git repo' })
-    }
-    const lines = stdout.trim().split('\n')
-    const branch = lines.pop() || 'main'
-    const modifiedCount = lines.filter((l) => l.trim()).length
-    res.json({ success: true, branch, modifiedCount, modifiedFiles: lines })
-  })
-})
+router.post('/git/status', withHost(async (req, res, host) => {
+  const dir = await resolveProjectDir(host, req.body.projectPath)
+  if (!dir) return res.json({ success: false, branch: 'main', modifiedCount: 0, raw: 'Project directory not found' })
+  const r = await host.exec('git status --short && git branch --show-current', { cwd: dir })
+  if (r.code !== 0) return res.json({ success: false, branch: 'main', modifiedCount: 0, raw: 'Not a git repo' })
+  const lines = r.stdout.trim().split('\n')
+  const branch = lines.pop() || 'main'
+  const modifiedFiles = lines.filter(l => l.trim())
+  res.json({ success: true, branch, modifiedCount: modifiedFiles.length, modifiedFiles })
+}))
 
 /**
  * POST /api/studio/git/pull
- * Executes git pull origin main
  */
-router.post('/git/pull', authenticateToken, (req, res) => {
-  const { projectPath, branch = 'main' } = req.body
-  const targetDir = resolveProjectDir(projectPath)
-  if (!targetDir) {
-    return res.status(400).json({ success: false, error: `Project directory not found: ${projectPath || '(none)'}` })
-  }
-  if (!BRANCH_REGEX.test(branch)) {
-    return res.status(400).json({ success: false, error: 'Invalid branch name' })
-  }
-
-  execFile('git', ['pull', 'origin', branch], { cwd: targetDir }, (error, stdout, stderr) => {
-    if (error) {
-      return res.status(500).json({ success: false, error: stderr || error.message })
-    }
-    res.json({ success: true, message: 'Git Pull completed successfully', output: stdout })
-  })
-})
+router.post('/git/pull', withHost(async (req, res, host) => {
+  const { branch = 'main' } = req.body
+  const dir = await requireProjectDir(host, req.body.projectPath)
+  if (!BRANCH_REGEX.test(branch)) return res.status(400).json({ success: false, error: 'Invalid branch name' })
+  const r = await host.run('git', ['pull', 'origin', branch], { cwd: dir, timeout: 300000 })
+  if (r.code !== 0) return res.status(500).json({ success: false, error: r.stderr || r.stdout })
+  res.json({ success: true, message: 'Git Pull completed successfully', output: r.stdout })
+}))
 
 /**
- * POST /api/studio/git/push
- * Executes git add . && git commit -m "<message>" && git push origin main
+ * POST /api/studio/git/push — add, commit (message passed as one argument), push
  */
-router.post('/git/push', authenticateToken, (req, res) => {
-  const { projectPath, commitMessage = 'update from studio ide', branch = 'main' } = req.body
-  const targetDir = resolveProjectDir(projectPath)
-  if (!targetDir) {
-    return res.status(400).json({ success: false, error: `Project directory not found: ${projectPath || '(none)'}` })
-  }
-  if (!BRANCH_REGEX.test(branch)) {
-    return res.status(400).json({ success: false, error: 'Invalid branch name' })
-  }
-
-  // execFile passes the message as a single argument, so quotes, $ and backticks in it are safe
-  execFile('git', ['add', '.'], { cwd: targetDir }, (addErr, addOut, addStderr) => {
-    if (addErr) return res.status(500).json({ success: false, error: addStderr || addErr.message })
-    execFile('git', ['commit', '-m', String(commitMessage)], { cwd: targetDir }, (commitErr, commitOut) => {
-      const nothingToCommit = commitErr && /nothing to commit|working tree clean/.test(commitOut || '')
-      if (commitErr && !nothingToCommit) {
-        return res.status(500).json({ success: false, error: commitOut || commitErr.message })
-      }
-      execFile('git', ['push', 'origin', branch], { cwd: targetDir }, (pushErr, pushOut, pushStderr) => {
-        if (pushErr) return res.status(500).json({ success: false, error: pushStderr || pushErr.message })
-        // git push writes its progress to stderr
-        res.json({ success: true, message: 'Git Push completed successfully', output: [commitOut, pushOut, pushStderr].filter(Boolean).join('\n') || 'Already up to date.' })
-      })
-    })
-  })
-})
+router.post('/git/push', withHost(async (req, res, host) => {
+  const { commitMessage = 'update from studio ide', branch = 'main' } = req.body
+  const dir = await requireProjectDir(host, req.body.projectPath)
+  if (!BRANCH_REGEX.test(branch)) return res.status(400).json({ success: false, error: 'Invalid branch name' })
+  const add = await host.run('git', ['add', '.'], { cwd: dir })
+  if (add.code !== 0) return res.status(500).json({ success: false, error: add.stderr })
+  const commit = await host.run('git', ['commit', '-m', String(commitMessage)], { cwd: dir })
+  if (commit.code !== 0 && !/nothing to commit|working tree clean/.test(commit.stdout)) return res.status(500).json({ success: false, error: commit.stdout || commit.stderr })
+  const push = await host.run('git', ['push', 'origin', branch], { cwd: dir, timeout: 300000 })
+  if (push.code !== 0) return res.status(500).json({ success: false, error: push.stderr || push.stdout })
+  res.json({ success: true, message: 'Git Push completed successfully', output: [commit.stdout, push.stdout, push.stderr].filter(Boolean).join('\n') || 'Already up to date.' })
+}))
 
 /**
- * POST /api/studio/git/pull-and-update
- * Pulls latest code from GitHub for an existing live project,
- * builds dependencies, and reloads PM2 service on the connected live server.
+ * POST /api/studio/git/pull-and-update — pull, install/build and reload the app on the selected server
  */
-router.post('/git/pull-and-update', authenticateToken, async (req, res) => {
-  const userId = req.user ? req.user.id : 'admin-001'
-  const userSettings = getUserSettings(userId)
-
-  const {
-    host = userSettings.host || '187.127.165.128',
-    port = userSettings.port || '22',
-    username = userSettings.username || 'root',
-    password = userSettings.password || '',
-    projectPath,
-    appName,
-    branch = 'main'
-  } = req.body
-
+router.post('/git/pull-and-update', withHost(async (req, res, host) => {
+  const { projectPath, appName, branch = 'main' } = req.body
   const logs = []
-  const onLog = (chunk, isError = false) => {
-    logs.push({ text: chunk, isError, timestamp: new Date().toISOString() })
-  }
-
-  const remoteDir = projectPath || (appName ? `/var/www/${appName}` : '/var/www/tip-crm')
-  const targetAppName = appName || path.basename(remoteDir)
-
+  const onLog = (text, isError = false) => logs.push({ text, isError, timestamp: new Date().toISOString() })
   try {
-    if ((host === '127.0.0.1' || host === 'localhost') && fs.existsSync(remoteDir)) {
-      onLog(`Updating local project at ${remoteDir}...\n`)
-      const safeBranch = branch.replace(/[^a-zA-Z0-9_-]/g, '')
-      const localCmd = `git pull origin ${safeBranch} && (npm install || true) && (pm2 reload ${targetAppName} || true)`
-      
-      exec(localCmd, { cwd: remoteDir }, (error, stdout, stderr) => {
-        if (error) {
-          onLog(`Local update error: ${stderr || error.message}`, true)
-          return res.status(500).json({ success: false, error: stderr || error.message, logs })
-        }
-        onLog(stdout)
-        res.json({ success: true, message: `Successfully updated ${targetAppName} locally!`, output: stdout, logs })
-      })
-    } else {
-      const sshConfig = {
-        host,
-        port,
-        username,
-        password,
-        remoteDir,
-        appName: targetAppName,
-        branch,
-        githubToken: (req.body.githubToken || userSettings.githubToken || '').trim()
-      }
-
-      await updateExistingDeployment(sshConfig, onLog)
-      const fullLogText = logs.map(l => l.text).join('')
-      res.json({
-        success: true,
-        message: `Successfully pulled from GitHub & updated live server app '${targetAppName}'!`,
-        output: fullLogText,
-        logs
-      })
-    }
+    const result = await updateProject(host, {
+      projectPath,
+      appName,
+      branch,
+      githubToken: (getUserSettings(req.user?.id)?.githubToken || '').trim()
+    }, onLog)
+    res.json({ success: true, message: `${result.message}${host.isLocal ? '' : ` (${host.label})`}`, output: logs.map(l => l.text).join(''), logs })
   } catch (err) {
-    const fullLogText = logs.map(l => l.text).join('')
-    res.status(500).json({
-      success: false,
-      error: `Update failed: ${err.message}`,
-      output: fullLogText,
-      logs
-    })
+    res.status(err.status || 500).json({ success: false, error: `Update failed: ${err.message}`, output: logs.map(l => l.text).join(''), logs })
   }
-})
+}))
 
 /**
- * POST /api/studio/projects/delete
- * Deletes a project/duplicate website, PM2 service, and Nginx config from live server.
+ * POST /api/studio/projects/delete — removes PM2 app, nginx site, database and files on the selected server
  */
-router.post('/projects/delete', authenticateToken, async (req, res) => {
-  const userId = req.user ? req.user.id : 'admin-001'
-  const userSettings = getUserSettings(userId)
+router.post('/projects/delete', withHost(async (req, res, host) => {
+  const { appName, projectPath, domain, dbName, deletePm2 = true, deleteFiles = true, deleteNginx = true, deleteDb = true } = req.body
+  const result = await deleteProject(host, { appName, projectPath, domain, dbName, deletePm2, deleteFiles, deleteNginx, deleteDb })
+  purgeProjectAndRelatedResources(appName, projectPath, domain)
+  await mail.syncMailConfig().catch(e => console.error('[MAIL SYNC]', e.message))
+  res.json({ success: true, message: result.message, output: result.output })
+}))
 
-  const host = (req.body.host || userSettings.host || '187.127.165.128').trim()
-  const port = (req.body.port || userSettings.port || '22').toString().trim()
-  const username = (req.body.username || userSettings.username || 'root').trim()
-  const password = req.body.password || userSettings.password || ''
-  const {
-    appName,
-    projectPath,
-    domain,
-    dbName,
-    deletePm2 = true,
-    deleteFiles = true,
-    deleteNginx = true,
-    deleteDb = true,
-    deleteEmail = true
-  } = req.body
-
-  try {
-    const sshConfig = {
-      host,
-      port,
-      username,
-      password,
-      appName,
-      projectPath,
-      domain,
-      dbName,
-      deletePm2,
-      deleteFiles,
-      deleteNginx,
-      deleteDb,
-      deleteEmail
-    }
-
-    const result = await deleteServerProject(sshConfig)
-
-    // Purge project records, auto-update settings & email accounts from db.json
-    purgeProjectAndRelatedResources(appName, projectPath, domain)
-
-    res.json({ success: true, message: result.message, output: result.output })
-  } catch (err) {
-    res.status(500).json({ success: false, error: `Failed to delete project: ${err.message}` })
-  }
+const dbHandler = (fn) => withHost(async (req, res, host) => {
+  res.json({ success: true, ...(await fn(req.body || {}, req, host)) })
 })
-
-
 
 /**
  * GET & POST /api/studio/databases
- * Multi-Database Admin Suite Profiles (PostgreSQL / pgAdmin, MySQL / phpMyAdmin, MongoDB / Compass, Redis GUI)
+ * Every project on the selected server with the databases it uses, plus databases not tied to a project
  */
-router.all('/databases', async (req, res) => {
-  try {
-    const realDbs = await getRealDatabases(req.tenant?.server)
-    res.json({ success: true, databases: realDbs })
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message })
+router.all('/databases', dbHandler((body, req, host) =>
+  discoverDatabases(host, { force: body.refresh === true || req.query.refresh === '1', registered: registeredProjectsFor(req.tenant?.server || null, req.tenant?.organizationId, isSuperAdminUser(req)) })))
+
+router.post('/databases/tables', dbHandler(async (body, req, host) => ({ tables: await listTables(host, body.connectionId) })))
+router.post('/databases/table-data', dbHandler((body, req, host) => getTableData(host, body.connectionId, body)))
+router.post('/databases/query', dbHandler((body, req, host) => runQuery(host, body.connectionId, body.query)))
+router.post('/databases/insert-row', dbHandler((body, req, host) => insertRow(host, body.connectionId, body)))
+router.post('/databases/delete-row', dbHandler((body, req, host) => deleteRow(host, body.connectionId, body)))
+router.post('/databases/create-table', dbHandler((body, req, host) => createTable(host, body.connectionId, body)))
+router.post('/databases/drop-table', dbHandler((body, req, host) => dropTable(host, body.connectionId, body)))
+
+const TREE_SKIP = ['node_modules', '.git', 'dist', '.user_uploaded', 'chunks']
+const MAX_EDIT_BYTES = 10 * 1024 * 1024
+
+const resolveIn = (projectPath, p) => (path.posix.isAbsolute(p) || !projectPath ? path.posix.normalize(p) : path.posix.resolve(projectPath, p))
+
+/**
+ * POST /api/studio/files/tree — whole tree in one `find` (one round trip on remote servers)
+ */
+router.post('/files/tree', withHost(async (req, res, host) => {
+  let root = await resolveProjectDir(host, req.body.projectPath)
+  if (!root) {
+    if (!host.isLocal) throw Object.assign(new Error(`Project directory not found on ${host.label}`), { status: 400 })
+    root = path.resolve(process.cwd(), '..')
   }
-})
-
-/**
- * POST /api/studio/databases/schema
- * Fetch dynamic tables, schema structure, and record data for specific database
- */
-router.all('/databases/schema', async (req, res) => {
-  try {
-    const engine = req.body?.engine || req.query?.engine || 'sqlite'
-    const dbName = req.body?.dbName || req.query?.dbName || 'db.json'
-    const schema = getDatabaseSchema(engine, dbName)
-    res.json({ success: true, schema })
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message })
+  const prune = TREE_SKIP.map(n => `-name ${q(n)}`).join(' -o ')
+  const r = await host.exec(`find . -mindepth 1 -maxdepth 12 \\( ${prune} \\) -prune -o \\( -type d -printf 'd\\t0\\t%P\\n' \\) -o \\( -printf 'f\\t%s\\t%P\\n' \\) 2>/dev/null | head -n 30000`, { cwd: root, timeout: 60000 })
+  const nodes = new Map([['', { children: [] }]])
+  const entries = r.stdout.split('\n').filter(Boolean).map(l => l.split('\t')).filter(e => e.length === 3 && e[2])
+  entries.sort((a, b) => a[2].split('/').length - b[2].split('/').length)
+  for (const [type, size, rel] of entries) {
+    const name = rel.split('/').pop()
+    const parent = nodes.get(path.posix.dirname(rel) === '.' ? '' : path.posix.dirname(rel))
+    if (!parent) continue
+    const node = type === 'd'
+      ? { name, path: rel, fullPath: `${root}/${rel}`, type: 'directory', children: [] }
+      : { name, path: rel, fullPath: `${root}/${rel}`, type: 'file', size: Number(size), ext: path.posix.extname(name).replace('.', '') }
+    parent.children.push(node)
+    if (type === 'd') nodes.set(rel, node)
   }
-})
-
-/**
- * POST /api/studio/databases/query
- * Custom SQL / Mongo / Redis Query Executor
- */
-router.post('/databases/query', authenticateToken, (req, res) => {
-  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
-    const orgServers = getServersByOrgId(req.tenant.organizationId)
-    if (orgServers.length === 0) {
-      return res.json({
-        success: true,
-        executionTime: '0ms',
-        engine: req.body.engine,
-        columns: [],
-        rows: [],
-        message: 'No active databases connected for this organization.'
-      })
-    }
+  const sortTree = (list) => {
+    list.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'directory' ? -1 : 1))
+    for (const n of list) if (n.children) sortTree(n.children)
+    return list
   }
-
-  const { engine, query, dbName, tableName } = req.body
-  const startTime = Date.now()
-
-  if (!query || !query.trim()) {
-    return res.status(400).json({ error: 'Query string cannot be empty' })
-  }
-
-  const cleanQ = query.trim()
-  const lowerQ = cleanQ.toLowerCase()
-
-  setTimeout(() => {
-    const duration = `${Date.now() - startTime + 8}ms`
-
-    if (lowerQ.startsWith('select') || lowerQ.startsWith('show') || lowerQ.startsWith('explain')) {
-      res.json({
-        success: true,
-        executionTime: duration,
-        engine,
-        columns: ['id', 'email', 'name', 'status', 'created_at'],
-        rows: [
-          ['usr_201', 'demo.user@tipcrm.com', 'Demo User', 'ACTIVE', '2026-09-18 15:30:00'],
-          ['usr_202', 'tech.admin@tipcrm.com', 'Tech Admin', 'ACTIVE', '2026-09-18 16:10:00'],
-          ['usr_203', 'auditor@yjtechnosoft.com', 'Auditor Node', 'INACTIVE', '2026-09-18 17:00:00']
-        ],
-        message: 'Query executed successfully. 3 rows returned.'
-      })
-    } else if (lowerQ.startsWith('insert') || lowerQ.startsWith('update') || lowerQ.startsWith('delete') || lowerQ.startsWith('create') || lowerQ.startsWith('drop')) {
-      res.json({
-        success: true,
-        executionTime: duration,
-        engine,
-        affectedRows: 1,
-        message: `Query executed successfully: Command '${cleanQ.split(' ')[0].toUpperCase()}' affected 1 row.`
-      })
-    } else if (engine === 'mongodb' || lowerQ.startsWith('db.')) {
-      res.json({
-        success: true,
-        executionTime: duration,
-        engine,
-        jsonOutput: JSON.stringify([
-          { _id: '650a99ff1', collection: tableName || 'page_views', matchedDocuments: 5, status: 'OK' }
-        ], null, 2),
-        message: 'MongoDB query executed successfully.'
-      })
-    } else if (engine === 'redis' || lowerQ.startsWith('get') || lowerQ.startsWith('set') || lowerQ.startsWith('keys')) {
-      res.json({
-        success: true,
-        executionTime: duration,
-        engine,
-        redisOutput: `OK: "${cleanQ} executed successfully"`,
-        message: 'Redis command executed.'
-      })
-    } else {
-      res.json({
-        success: true,
-        executionTime: duration,
-        engine,
-        message: `Command executed: ${cleanQ}`
-      })
-    }
-  }, 100)
-})
-
-/**
- * POST /api/studio/databases/insert-row
- */
-router.post('/databases/insert-row', authenticateToken, (req, res) => {
-  const { engine, dbName, tableName, rowData } = req.body
-  res.json({
-    success: true,
-    message: `Row inserted successfully into table '${tableName}' in database '${dbName}'!`,
-    insertedId: rowData?.id || `id_${Date.now()}`
-  })
-})
-
-/**
- * POST /api/studio/databases/delete-row
- */
-router.post('/databases/delete-row', authenticateToken, (req, res) => {
-  const { engine, dbName, tableName, primaryKey, primaryKeyValue } = req.body
-  res.json({
-    success: true,
-    message: `Row with ${primaryKey}='${primaryKeyValue}' deleted successfully from table '${tableName}'!`
-  })
-})
-
-/**
- * POST /api/studio/databases/create-table
- */
-router.post('/databases/create-table', authenticateToken, (req, res) => {
-  const { engine, dbName, tableName, columns } = req.body
-  res.json({
-    success: true,
-    message: `Table '${tableName}' created successfully in database '${dbName}' with ${columns?.length || 0} columns!`
-  })
-})
-
-/**
- * POST /api/studio/databases/drop-table
- */
-router.post('/databases/drop-table', authenticateToken, (req, res) => {
-  const { engine, dbName, tableName } = req.body
-  res.json({
-    success: true,
-    message: `Table / Collection '${tableName}' dropped successfully from database '${dbName}'!`
-  })
-})
-
-/**
- * POST /api/studio/files/tree
- */
-router.post('/files/tree', authenticateToken, (req, res) => {
-  const { projectPath } = req.body
-
-  let rootDir = projectPath
-  if (!rootDir || !fs.existsSync(rootDir)) {
-    rootDir = path.resolve(process.cwd(), '..')
-  }
-
-  const scanDir = (dirPath, relativeBase = '') => {
-    const items = []
-    try {
-      const files = fs.readdirSync(dirPath)
-      for (const file of files) {
-        if (['node_modules', '.git', 'dist', '.user_uploaded', 'chunks'].includes(file)) continue
-        const fullPath = path.join(dirPath, file)
-        const relPath = path.join(relativeBase, file).replace(/\\/g, '/')
-        const stat = fs.statSync(fullPath)
-
-        if (stat.isDirectory()) {
-          items.push({
-            name: file,
-            path: relPath,
-            fullPath: fullPath.replace(/\\/g, '/'),
-            type: 'directory',
-            children: scanDir(fullPath, relPath)
-          })
-        } else {
-          items.push({
-            name: file,
-            path: relPath,
-            fullPath: fullPath.replace(/\\/g, '/'),
-            type: 'file',
-            size: stat.size,
-            ext: path.extname(file).replace('.', '')
-          })
-        }
-      }
-    } catch (e) {}
-    return items
-  }
-
-  const fileTree = scanDir(rootDir)
-  res.json({ success: true, rootPath: rootDir.replace(/\\/g, '/'), tree: fileTree })
-})
+  res.json({ success: true, rootPath: root, tree: sortTree(nodes.get('').children), server: host.label })
+}))
 
 /**
  * POST /api/studio/files/read
  */
-router.post('/files/read', authenticateToken, (req, res) => {
+router.post('/files/read', withHost(async (req, res, host) => {
   const { filePath, projectPath } = req.body
-  if (!filePath) {
-    return res.status(400).json({ error: 'filePath parameter is required' })
-  }
-
-  try {
-    let targetPath = filePath
-    if (!path.isAbsolute(targetPath) && projectPath) {
-      targetPath = path.resolve(projectPath, filePath)
-    }
-    const normalizedPath = path.normalize(targetPath)
-    if (!fs.existsSync(normalizedPath)) {
-      return res.status(404).json({ error: `File not found: ${filePath}` })
-    }
-    const content = fs.readFileSync(normalizedPath, 'utf-8')
-    res.json({ success: true, filePath: normalizedPath.replace(/\\/g, '/'), content })
-  } catch (err) {
-    res.status(500).json({ error: `Failed to read file: ${err.message}` })
-  }
-})
+  if (!filePath) return res.status(400).json({ error: 'filePath parameter is required' })
+  const target = resolveIn(projectPath, filePath)
+  const st = await host.stat(target)
+  if (!st || !st.isFile) return res.status(404).json({ error: `File not found: ${filePath}` })
+  if (st.size > MAX_EDIT_BYTES) return res.status(413).json({ error: `File is too large to open in the editor (${Math.round(st.size / 1048576)} MB).` })
+  res.json({ success: true, filePath: target, content: await host.readFile(target) })
+}))
 
 /**
  * POST /api/studio/files/save
  */
-router.post('/files/save', authenticateToken, (req, res) => {
+router.post('/files/save', withHost(async (req, res, host) => {
   const { filePath, projectPath, content } = req.body
-  if (!filePath || content === undefined) {
-    return res.status(400).json({ error: 'filePath and content are required' })
-  }
-
-  try {
-    let targetPath = filePath
-    if (!path.isAbsolute(targetPath) && projectPath) {
-      targetPath = path.resolve(projectPath, filePath)
-    }
-    const normalizedPath = path.normalize(targetPath)
-    const parentDir = path.dirname(normalizedPath)
-    if (!fs.existsSync(parentDir)) {
-      fs.mkdirSync(parentDir, { recursive: true })
-    }
-    fs.writeFileSync(normalizedPath, content, 'utf-8')
-    res.json({ success: true, message: 'File saved successfully', filePath: normalizedPath.replace(/\\/g, '/') })
-  } catch (err) {
-    res.status(500).json({ error: `Failed to save file: ${err.message}` })
-  }
-})
+  if (!filePath || content === undefined) return res.status(400).json({ error: 'filePath and content are required' })
+  const target = resolveIn(projectPath, filePath)
+  await host.mkdir(path.posix.dirname(target))
+  await host.writeFile(target, String(content))
+  res.json({ success: true, message: 'File saved successfully', filePath: target })
+}))
 
 /**
- * POST /api/studio/files/create
- * Creates a file or directory inside project
+ * POST /api/studio/files/create — file or folder inside the project
  */
-router.post('/files/create', authenticateToken, (req, res) => {
+router.post('/files/create', withHost(async (req, res, host) => {
   const { projectPath, relativePath, type = 'file' } = req.body
-  if (!projectPath || !relativePath) {
-    return res.status(400).json({ error: 'projectPath and relativePath are required' })
+  if (!projectPath || !relativePath) return res.status(400).json({ error: 'projectPath and relativePath are required' })
+  const full = path.posix.resolve(projectPath, relativePath)
+  if (type === 'folder' || type === 'directory') {
+    await host.mkdir(full)
+    return res.json({ success: true, message: `Directory '${relativePath}' created successfully`, fullPath: full })
   }
-
-  try {
-    const fullPath = path.resolve(projectPath, relativePath)
-    if (type === 'folder' || type === 'directory') {
-      fs.mkdirSync(fullPath, { recursive: true })
-      res.json({ success: true, message: `Directory '${relativePath}' created successfully`, fullPath: fullPath.replace(/\\/g, '/') })
-    } else {
-      const parentDir = path.dirname(fullPath)
-      if (!fs.existsSync(parentDir)) {
-        fs.mkdirSync(parentDir, { recursive: true })
-      }
-      if (!fs.existsSync(fullPath)) {
-        fs.writeFileSync(fullPath, '', 'utf-8')
-      }
-      res.json({ success: true, message: `File '${relativePath}' created successfully`, fullPath: fullPath.replace(/\\/g, '/') })
-    }
-  } catch (err) {
-    res.status(500).json({ error: `Failed to create ${type}: ${err.message}` })
-  }
-})
+  await host.mkdir(path.posix.dirname(full))
+  if (!await host.exists(full)) await host.writeFile(full, '')
+  res.json({ success: true, message: `File '${relativePath}' created successfully`, fullPath: full })
+}))
 
 /**
  * POST /api/studio/files/delete
- * Deletes a file or directory inside project
  */
-router.post('/files/delete', authenticateToken, (req, res) => {
+router.post('/files/delete', withHost(async (req, res, host) => {
   const { filePath } = req.body
-  if (!filePath) {
-    return res.status(400).json({ error: 'filePath is required' })
-  }
-
-  try {
-    const normalizedPath = path.normalize(filePath)
-    if (!fs.existsSync(normalizedPath)) {
-      return res.status(404).json({ error: 'File or directory not found' })
-    }
-    if (isProtectedPath(normalizedPath)) {
-      return res.status(400).json({ error: `Refusing to delete protected path: ${normalizedPath}` })
-    }
-    fs.rmSync(normalizedPath, { recursive: true, force: true })
-    res.json({ success: true, message: 'Item deleted successfully' })
-  } catch (err) {
-    res.status(500).json({ error: `Failed to delete item: ${err.message}` })
-  }
-})
+  if (!filePath) return res.status(400).json({ error: 'filePath is required' })
+  const target = path.posix.normalize(filePath)
+  if (!await host.exists(target)) return res.status(404).json({ error: 'File or directory not found' })
+  if (isProtectedPath(target)) return res.status(400).json({ error: `Refusing to delete protected path: ${target}` })
+  await host.rm(target)
+  res.json({ success: true, message: 'Item deleted successfully' })
+}))
 
 /**
- * POST /api/studio/files/upload
- * Uploads one or multiple files/directories into project
+ * POST /api/studio/files/upload — one or more files (base64 or text) into the project
  */
-router.post('/files/upload', authenticateToken, (req, res) => {
+router.post('/files/upload', withHost(async (req, res, host) => {
   const { projectPath, targetDir = '', files = [] } = req.body
-  if (!projectPath || !Array.isArray(files) || files.length === 0) {
-    return res.status(400).json({ error: 'projectPath and non-empty files array are required' })
+  if (!projectPath || !Array.isArray(files) || files.length === 0) return res.status(400).json({ error: 'projectPath and non-empty files array are required' })
+  const base = targetDir ? path.posix.resolve(projectPath, targetDir) : path.posix.resolve(projectPath)
+  let uploadedCount = 0
+  for (const f of files) {
+    if (!f.relativePath) continue
+    const target = path.posix.resolve(base, f.relativePath)
+    await host.mkdir(path.posix.dirname(target))
+    await host.writeFile(target, f.contentBase64 ? Buffer.from(f.contentBase64, 'base64') : Buffer.from(f.content || '', 'utf-8'))
+    uploadedCount++
   }
-
-  try {
-    const baseDir = targetDir ? path.resolve(projectPath, targetDir) : path.resolve(projectPath)
-    let uploadedCount = 0
-
-    for (const f of files) {
-      if (!f.relativePath) continue
-      const targetFile = path.resolve(baseDir, f.relativePath)
-      const parentDir = path.dirname(targetFile)
-      if (!fs.existsSync(parentDir)) {
-        fs.mkdirSync(parentDir, { recursive: true })
-      }
-
-      let contentBuffer
-      if (f.contentBase64) {
-        contentBuffer = Buffer.from(f.contentBase64, 'base64')
-      } else {
-        contentBuffer = Buffer.from(f.content || '', 'utf-8')
-      }
-      fs.writeFileSync(targetFile, contentBuffer)
-      uploadedCount++
-    }
-
-    res.json({ success: true, message: `Successfully uploaded ${uploadedCount} file(s) into project`, uploadedCount })
-  } catch (err) {
-    res.status(500).json({ error: `Upload failed: ${err.message}` })
-  }
-})
+  res.json({ success: true, message: `Successfully uploaded ${uploadedCount} file(s) into project`, uploadedCount })
+}))
 
 /**
- * POST /api/studio/terminal/exec
- * Executes a shell command inside project directory
+ * POST /api/studio/terminal/exec — runs a shell command in the project directory on the selected server
  */
-router.post('/terminal/exec', authenticateToken, (req, res) => {
+router.post('/terminal/exec', withHost(async (req, res, host) => {
   const { projectPath, command } = req.body
-  if (!command || !command.trim()) {
-    return res.status(400).json({ error: 'Command is required' })
-  }
-
-  const targetDir = resolveProjectDir(projectPath)
-  if (!targetDir) {
-    return res.status(400).json({ success: false, error: `Project directory not found: ${projectPath || '(none)'}`, output: '', exitCode: 1 })
-  }
-  const safeCmd = command.trim()
-
-  exec(safeCmd, { cwd: targetDir, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
-    res.json({
-      success: !error,
-      output: (stdout || '') + (stderr ? `\nSTDERR:\n${stderr}` : ''),
-      error: error ? error.message : null,
-      exitCode: error ? error.code || 1 : 0
-    })
+  if (!command || !command.trim()) return res.status(400).json({ error: 'Command is required' })
+  const dir = await resolveProjectDir(host, projectPath)
+  if (!dir) return res.status(400).json({ success: false, error: `Project directory not found: ${projectPath || '(none)'}`, output: '', exitCode: 1 })
+  const r = await host.exec(command.trim(), { cwd: dir, timeout: 120000 })
+  res.json({
+    success: r.code === 0,
+    output: r.stdout + (r.stderr ? `\nSTDERR:\n${r.stderr}` : ''),
+    error: r.code === 0 ? null : `Command exited with code ${r.code}`,
+    exitCode: r.code,
+    server: host.label
   })
-})
-
+}))
 
 /**
  * POST /api/studio/env/get
- * Reads .env file for selected project
  */
-router.post('/env/get', authenticateToken, (req, res) => {
-  const { projectPath } = req.body
-  if (!projectPath || !fs.existsSync(projectPath)) {
-    return res.status(400).json({ error: 'Invalid or missing project directory' })
-  }
-
-  const envPath = findEnvFile(projectPath)
-
-  let rawContent = ''
-  if (fs.existsSync(envPath)) {
-    try {
-      rawContent = fs.readFileSync(envPath, 'utf8')
-    } catch (e) {}
-  }
-
+router.post('/env/get', withHost(async (req, res, host) => {
+  const dir = await resolveProjectDir(host, req.body.projectPath)
+  if (!dir) return res.status(400).json({ error: 'Invalid or missing project directory' })
+  const envPath = await findEnvFile(host, dir)
+  const rawContent = (await host.exists(envPath)) ? await host.readFile(envPath) : ''
   const envVars = []
-  rawContent.split('\n').forEach((line) => {
-    const trimmed = line.trim()
-    if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
-      const idx = trimmed.indexOf('=')
-      const key = trimmed.slice(0, idx).trim()
-      const value = trimmed.slice(idx + 1).trim()
-      envVars.push({ key, value })
+  for (const line of rawContent.split('\n')) {
+    const t = line.trim()
+    if (t && !t.startsWith('#') && t.includes('=')) {
+      const i = t.indexOf('=')
+      envVars.push({ key: t.slice(0, i).trim(), value: t.slice(i + 1).trim() })
     }
-  })
-
-  res.json({
-    success: true,
-    envPath,
-    rawContent,
-    envVars
-  })
-})
+  }
+  res.json({ success: true, envPath, rawContent, envVars })
+}))
 
 /**
- * POST /api/studio/env/save
- * Saves updated .env content for selected project
+ * POST /api/studio/env/save — writes back to the same file env/get loaded
  */
-router.post('/env/save', authenticateToken, (req, res) => {
-  const { projectPath, rawContent, envVars } = req.body
-  if (!projectPath || !fs.existsSync(projectPath)) {
-    return res.status(400).json({ error: 'Invalid project directory' })
-  }
-
-  // Write back to the same file env/get loaded, not always .env
-  const envPath = findEnvFile(projectPath)
-  let contentToWrite = rawContent || ''
-
-  if (envVars && Array.isArray(envVars) && !rawContent) {
-    contentToWrite = envVars.map((item) => `${item.key}=${item.value}`).join('\n')
-  }
-
-  try {
-    fs.writeFileSync(envPath, contentToWrite, 'utf8')
-    res.json({ success: true, message: '.env file saved successfully', envPath })
-  } catch (err) {
-    res.status(500).json({ error: `Failed to write .env: ${err.message}` })
-  }
-})
+router.post('/env/save', withHost(async (req, res, host) => {
+  const { rawContent, envVars } = req.body
+  const dir = await resolveProjectDir(host, req.body.projectPath)
+  if (!dir) return res.status(400).json({ error: 'Invalid project directory' })
+  const envPath = await findEnvFile(host, dir)
+  const content = rawContent || (Array.isArray(envVars) ? envVars.map(v => `${v.key}=${v.value}`).join('\n') : '')
+  await host.writeFile(envPath, content, { mode: 0o600 })
+  res.json({ success: true, message: '.env file saved successfully', envPath })
+}))
 
 /**
  * POST /api/studio/git/history
- * Returns recent Git commit log for rollback selector
  */
-router.post('/git/history', authenticateToken, (req, res) => {
-  const { projectPath } = req.body
-  if (!projectPath || !fs.existsSync(projectPath)) {
-    return res.status(400).json({ error: 'Invalid project directory' })
-  }
-
-  exec('git log -n 12 --pretty=format:"%h|%s|%an|%cr"', { cwd: projectPath }, (error, stdout) => {
-    if (error) {
-      return res.json({ success: true, commits: [] })
-    }
-
-    const commits = stdout
-      .split('\n')
-      .filter((l) => l.trim())
-      .map((line) => {
-        const [hash, subject, author, relativeTime] = line.split('|')
-        return { hash, subject, author, relativeTime }
-      })
-
-    res.json({ success: true, commits })
+router.post('/git/history', withHost(async (req, res, host) => {
+  const dir = await resolveProjectDir(host, req.body.projectPath)
+  if (!dir) return res.status(400).json({ error: 'Invalid project directory' })
+  const r = await host.run('git', ['log', '-n', '12', '--pretty=format:%h|%s|%an|%cr'], { cwd: dir })
+  if (r.code !== 0) return res.json({ success: true, commits: [] })
+  const commits = r.stdout.split('\n').filter(l => l.trim()).map(line => {
+    const [hash, subject, author, relativeTime] = line.split('|')
+    return { hash, subject, author, relativeTime }
   })
-})
+  res.json({ success: true, commits })
+}))
 
 /**
  * POST /api/studio/git/rollback
- * Executes Git checkout or reset to rollback to a specific commit
  */
-router.post('/git/rollback', authenticateToken, (req, res) => {
-  const { projectPath, commitHash } = req.body
-  if (!projectPath || !fs.existsSync(projectPath) || !commitHash) {
-    return res.status(400).json({ error: 'Invalid rollback parameters' })
-  }
-
-  if (!/^[0-9a-fA-F]{4,40}$/.test(commitHash)) {
-    return res.status(400).json({ error: 'Invalid commit hash' })
-  }
-
-  execFile('git', ['reset', '--hard', commitHash], { cwd: projectPath }, (error, stdout, stderr) => {
-    if (error) {
-      return res.status(500).json({ error: stderr || error.message })
-    }
-    res.json({ success: true, message: `Successfully rolled back to commit ${commitHash}`, output: stdout })
-  })
-})
+router.post('/git/rollback', withHost(async (req, res, host) => {
+  const { commitHash } = req.body
+  const dir = await resolveProjectDir(host, req.body.projectPath)
+  if (!dir || !commitHash) return res.status(400).json({ error: 'Invalid rollback parameters' })
+  if (!/^[0-9a-fA-F]{4,40}$/.test(commitHash)) return res.status(400).json({ error: 'Invalid commit hash' })
+  const r = await host.run('git', ['reset', '--hard', commitHash], { cwd: dir })
+  if (r.code !== 0) return res.status(500).json({ error: r.stderr || r.stdout })
+  res.json({ success: true, message: `Successfully rolled back to commit ${commitHash}`, output: r.stdout })
+}))
 
 /**
- * POST /api/studio/pm2/control
- * Triggers pm2 restart, stop, reload, delete
+ * POST /api/studio/pm2/control — restart, stop, reload, delete
  */
-router.post('/pm2/control', authenticateToken, (req, res) => {
+router.post('/pm2/control', withHost(async (req, res, host) => {
   const { action, processId, appName } = req.body
   const target = processId !== undefined && processId !== null ? processId : appName
-  if (target === undefined || target === null || target === '' || !['restart', 'stop', 'reload', 'delete'].includes(action)) {
+  if (target === undefined || target === null || target === '' || !['restart', 'stop', 'reload', 'delete', 'start'].includes(action)) {
     return res.status(400).json({ error: 'Valid action and processId/appName are required' })
   }
-  if (!/^[a-zA-Z0-9._-]+$/.test(String(target))) {
-    return res.status(400).json({ error: 'Invalid process name' })
-  }
-  if ((action === 'stop' || action === 'delete') && (String(target) === PANEL_PM2_NAME || String(target) === 'all')) {
+  if (!/^[a-zA-Z0-9._-]+$/.test(String(target))) return res.status(400).json({ error: 'Invalid process name' })
+  if (host.isLocal && (action === 'stop' || action === 'delete') && (String(target) === PANEL_PM2_NAME || String(target) === 'all')) {
     return res.status(400).json({ error: `Refusing to ${action} '${target}': it would shut down this control panel. Use SSH instead.` })
   }
-
-  execFile('pm2', [action, String(target)], (error, stdout, stderr) => {
-    if (error) {
-      return res.status(500).json({ success: false, error: stderr || error.message })
-    }
-    res.json({ success: true, message: `PM2 process '${target}' executed action: ${action}`, output: stdout })
-  })
-})
+  const r = await host.run('pm2', [action, String(target)], { timeout: 60000 })
+  if (r.code !== 0) return res.status(500).json({ success: false, error: r.stderr || r.stdout })
+  await host.run('pm2', ['save'])
+  res.json({ success: true, message: `PM2 process '${target}' executed action: ${action}`, output: r.stdout })
+}))
 
 /**
  * POST /api/studio/pm2/logs
- * Fetches real-time log output for a specific PM2 process
  */
-router.post('/pm2/logs', authenticateToken, (req, res) => {
+router.post('/pm2/logs', withHost(async (req, res, host) => {
   const { appName, lines = 80 } = req.body
-  if (!appName) {
-    return res.status(400).json({ error: 'appName parameter is required' })
+  if (!appName) return res.status(400).json({ error: 'appName parameter is required' })
+  const app = String(appName).replace(/[^a-zA-Z0-9_.-]/g, '')
+  const n = Math.min(Math.max(parseInt(lines, 10) || 80, 1), 5000)
+  const r = await host.run('pm2', ['logs', app, '--lines', String(n), '--nostream'], { timeout: 30000 })
+  let output = r.stdout || r.stderr
+  if (!output || r.code !== 0) {
+    const f = await host.exec(`L="$HOME/.pm2/logs"; [ -f "$L/${app}-error.log" ] && { echo "=== ERROR LOG ==="; tail -c 2000 "$L/${app}-error.log"; }; [ -f "$L/${app}-out.log" ] && { echo "=== STDOUT LOG ==="; tail -c 3000 "$L/${app}-out.log"; }`)
+    output = f.stdout || `No logs found for process ${app}`
   }
-
-  const safeApp = appName.replace(/[^a-zA-Z0-9_-]/g, '')
-  const safeLines = Math.min(Math.max(parseInt(lines, 10) || 80, 1), 5000)
-  exec(`pm2 logs ${safeApp} --lines ${safeLines} --nostream`, (error, stdout, stderr) => {
-    let output = stdout || stderr || ''
-    if (!output || error) {
-      // Fallback: search pm2 log file directly
-      const homeP = process.env.HOME || '/root'
-      const outPath = path.join(homeP, '.pm2', 'logs', `${safeApp}-out.log`)
-      const errPath = path.join(homeP, '.pm2', 'logs', `${safeApp}-error.log`)
-      let logBuffer = ''
-      if (fs.existsSync(errPath)) {
-        try { logBuffer += `=== ERROR LOG ===\n` + fs.readFileSync(errPath, 'utf8').slice(-2000) + '\n' } catch(e){}
-      }
-      if (fs.existsSync(outPath)) {
-        try { logBuffer += `=== STDOUT LOG ===\n` + fs.readFileSync(outPath, 'utf8').slice(-3000) } catch(e){}
-      }
-      output = logBuffer || `No logs found for process ${safeApp}`
-    }
-
-    // Strip ANSI color escape codes and clean output
-    const cleanLogs = output.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '')
-    res.json({ success: true, appName: safeApp, logs: cleanLogs })
-  })
-})
+  res.json({ success: true, appName: app, logs: output.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '') })
+}))
 
 /**
- * POST /api/studio/ssl/issue
- * Executes certbot --nginx -d <domain>
+ * POST /api/studio/ssl/issue — certbot --nginx -d <domain> on the selected server
  */
-router.post('/ssl/issue', authenticateToken, (req, res) => {
+router.post('/ssl/issue', withHost(async (req, res, host) => {
   const { domain, email = 'admin@yjtechnosoft.com' } = req.body
-  if (!domain) {
-    return res.status(400).json({ error: 'Domain name is required' })
-  }
-  if (!DOMAIN_REGEX.test(domain)) {
-    return res.status(400).json({ error: 'Invalid domain name' })
-  }
-  if (!/^[^\s@'"`$;|&<>]+@[^\s@'"`$;|&<>]+\.[a-zA-Z]{2,}$/.test(email)) {
-    return res.status(400).json({ error: 'Invalid email address' })
-  }
-
-  execFile('certbot', ['--nginx', '-d', domain, '--non-interactive', '--agree-tos', '-m', email], (error, stdout, stderr) => {
-    if (error) {
-      return res.status(500).json({ success: false, error: stderr || error.message })
-    }
-    res.json({ success: true, message: `SSL Certificate issued successfully for ${domain}`, output: stdout })
-  })
-})
+  if (!domain || !DOMAIN_REGEX.test(domain)) return res.status(400).json({ error: 'Invalid domain name' })
+  if (!/^[^\s@'"`$;|&<>]+@[^\s@'"`$;|&<>]+\.[a-zA-Z]{2,}$/.test(email)) return res.status(400).json({ error: 'Invalid email address' })
+  const r = await host.run('certbot', ['--nginx', '-d', domain, '--non-interactive', '--agree-tos', '-m', email, '--redirect'], { timeout: 300000 })
+  if (r.code !== 0) return res.status(500).json({ success: false, error: r.stderr || r.stdout })
+  res.json({ success: true, message: `SSL Certificate issued successfully for ${domain}`, output: r.stdout })
+}))
 
 /**
- * POST /api/studio/nginx/config
- * Generates/updates Nginx reverse proxy configuration
+ * POST /api/studio/nginx/config — reverse proxy site; rolled back if nginx -t rejects it
  */
-router.post('/nginx/config', authenticateToken, (req, res) => {
+router.post('/nginx/config', withHost(async (req, res, host) => {
   const { domain, proxyPort } = req.body
-  if (!domain || !proxyPort) {
-    return res.status(400).json({ error: 'Domain and proxyPort are required' })
-  }
   const port = parseInt(proxyPort, 10)
-  if (!DOMAIN_REGEX.test(domain)) {
-    return res.status(400).json({ error: 'Invalid domain name' })
-  }
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    return res.status(400).json({ error: 'proxyPort must be a number between 1 and 65535' })
-  }
+  if (!domain || !DOMAIN_REGEX.test(domain)) return res.status(400).json({ error: 'Invalid domain name' })
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return res.status(400).json({ error: 'proxyPort must be a number between 1 and 65535' })
 
-  const nginxConfig = `
-server {
+  const nginxConfig = `server {
     listen 80;
     server_name ${domain};
 
@@ -1656,74 +802,43 @@ server {
     }
 }
 `
-
-  if (process.platform === 'win32' || !fs.existsSync('/etc/nginx')) {
-    return res.json({ success: true, message: `Nginx config generated (Simulated for non-Linux host)`, config: nginxConfig })
+  if (!await host.exists('/etc/nginx')) return res.status(400).json({ success: false, error: `nginx is not installed on ${host.label}.`, config: nginxConfig })
+  const conf = `/etc/nginx/sites-available/${domain}.conf`
+  const link = `/etc/nginx/sites-enabled/${domain}.conf`
+  const previous = (await host.exists(conf)) ? await host.readFile(conf) : null
+  const hadLink = await host.exists(link)
+  await host.writeFile(conf, nginxConfig)
+  if (!hadLink) await host.run('ln', ['-sf', conf, link])
+  const test = await host.run('nginx', ['-t'])
+  if (test.code !== 0) {
+    // Never leave a broken config in place: one bad file stops nginx reloading for every site
+    if (previous !== null) await host.writeFile(conf, previous)
+    else await host.rm(conf)
+    if (!hadLink) await host.rm(link)
+    return res.status(500).json({ success: false, error: `nginx -t failed, changes rolled back:\n${test.stderr || test.stdout}`, config: nginxConfig })
   }
-
-  // Match the existing "<domain>.conf" naming so we update the site's config instead of adding a conflicting duplicate
-  const targetPath = `/etc/nginx/sites-available/${domain}.conf`
-  const symlinkPath = `/etc/nginx/sites-enabled/${domain}.conf`
-  const previousConfig = fs.existsSync(targetPath) ? fs.readFileSync(targetPath, 'utf8') : null
-  const hadSymlink = fs.existsSync(symlinkPath)
-
-  const rollback = () => {
-    try {
-      if (previousConfig !== null) fs.writeFileSync(targetPath, previousConfig, 'utf8')
-      else fs.unlinkSync(targetPath)
-      if (!hadSymlink && fs.existsSync(symlinkPath)) fs.unlinkSync(symlinkPath)
-    } catch (e) {}
-  }
-
-  try {
-    fs.writeFileSync(targetPath, nginxConfig, 'utf8')
-    if (!hadSymlink) fs.symlinkSync(targetPath, symlinkPath)
-  } catch (err) {
-    rollback()
-    return res.status(500).json({ success: false, error: err.message, config: nginxConfig })
-  }
-
-  execFile('nginx', ['-t'], (testErr, testOut, testStderr) => {
-    if (testErr) {
-      // Never leave a broken config in place: one bad file stops nginx reloading for every site
-      rollback()
-      return res.status(500).json({ success: false, error: `nginx -t failed, changes rolled back:\n${testStderr || testErr.message}`, config: nginxConfig })
-    }
-    execFile('systemctl', ['reload', 'nginx'], (err, stdout, stderr) => {
-      if (err) return res.status(500).json({ success: false, error: stderr || err.message })
-      const sslNote = previousConfig && previousConfig.includes('ssl_certificate') ? ' Re-run "Issue SSL" to restore HTTPS for this domain.' : ''
-      res.json({ success: true, message: `Nginx reverse proxy for ${domain} -> http://127.0.0.1:${port} active!${sslNote}`, config: nginxConfig })
-    })
-  })
-})
+  const reload = await host.run('systemctl', ['reload', 'nginx'])
+  if (reload.code !== 0) return res.status(500).json({ success: false, error: reload.stderr })
+  const sslNote = previous && previous.includes('ssl_certificate') ? ' Re-run "Issue SSL" to restore HTTPS for this domain.' : ''
+  res.json({ success: true, message: `Nginx reverse proxy for ${domain} -> http://127.0.0.1:${port} active!${sslNote}`, config: nginxConfig })
+}))
 
 /**
- * POST /api/studio/cron/save
- * Appends/updates user crontab job
+ * POST /api/studio/cron/save — appends a crontab entry on the selected server
  */
-router.post('/cron/save', authenticateToken, (req, res) => {
+router.post('/cron/save', withHost(async (req, res, host) => {
   const { schedule, command } = req.body
-  if (!schedule || !command) {
-    return res.status(400).json({ error: 'Schedule and command are required' })
-  }
-
+  if (!schedule || !command) return res.status(400).json({ error: 'Schedule and command are required' })
   if (/[\r\n]/.test(schedule) || /[\r\n]/.test(command) || schedule.trim().split(/\s+/).length !== 5) {
     return res.status(400).json({ error: 'Schedule must have 5 cron fields and neither field may contain line breaks' })
   }
-
-  const newEntry = `${schedule.trim()} ${command.trim()}`
-  execFile('crontab', ['-l'], (listErr, current) => {
-    const existing = listErr ? '' : current
-    const updated = (existing && !existing.endsWith('\n') ? existing + '\n' : existing) + newEntry + '\n'
-    const child = execFile('crontab', ['-'], (error, stdout, stderr) => {
-      if (error) {
-        return res.status(500).json({ success: false, error: stderr || error.message })
-      }
-      res.json({ success: true, message: `Cron job added: "${newEntry}"`, schedule, command })
-    })
-    child.stdin.end(updated)
-  })
-})
+  const entry = `${schedule.trim()} ${command.trim()}`
+  const current = await host.exec('crontab -l 2>/dev/null')
+  const existing = current.code === 0 ? current.stdout : ''
+  const r = await host.exec('crontab -', { input: (existing && !existing.endsWith('\n') ? existing + '\n' : existing) + entry + '\n' })
+  if (r.code !== 0) return res.status(500).json({ success: false, error: r.stderr })
+  res.json({ success: true, message: `Cron job added: "${entry}"`, schedule, command })
+}))
 
 /**
  * GET /api/studio/autoupdate/config/:appName
@@ -1794,252 +909,138 @@ router.get('/autoupdate/history', authenticateToken, (req, res) => {
 })
 
 /**
- * GET /api/studio/email/domains
- * Returns all registered domains on the server available for mailboxes
+ * Domain email (Postfix + Dovecot + OpenDKIM) — see services/mail.service.js
  */
-router.get('/email/domains', authenticateToken, (req, res) => {
-  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
-    const orgServers = getServersByOrgId(req.tenant.organizationId)
-    if (orgServers.length === 0) {
-      return res.json({ success: true, domains: [] })
-    }
-    const domains = orgServers.filter(s => s.domain).map(s => ({
-      name: s.domain,
-      sslActive: true,
-      type: 'Customer Connected Server',
-      mailServer: `mail.${s.domain}`
-    }))
-    return res.json({ success: true, domains })
+const mailHandler = (fn) => async (req, res) => {
+  try {
+    res.json({ success: true, ...(await fn(req, req.tenant?.organizationId)) })
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, error: err.message })
   }
+}
 
-  const domains = [
-    { name: 'yjtechnosoft.com', sslActive: true, type: 'Root Domain', mailServer: 'mail.yjtechnosoft.com' },
-    { name: 'litigation.yjtechnosoft.com', sslActive: true, type: 'Subdomain / CRM App', mailServer: 'mail.yjtechnosoft.com' },
-    { name: 'automate-deployment.yjtechnosoft.com', sslActive: true, type: 'Studio Panel Node', mailServer: 'mail.yjtechnosoft.com' },
-    { name: 'tip-crm.yjtechnosoft.com', sslActive: true, type: 'Enterprise CRM Domain', mailServer: 'mail.yjtechnosoft.com' }
-  ]
-  res.json({ success: true, domains })
+router.get('/email/status', mailHandler(async () => ({ status: await mail.getMailStatus() })))
+
+router.get('/email/client-config', mailHandler(async () => ({ settings: mail.getClientSettings() })))
+
+router.get('/email/domains', mailHandler(async (req, orgId) => ({ domains: mail.listDomains(orgId) })))
+
+router.post('/email/domains', mailHandler(async (req, orgId) =>
+  ({ domain: await mail.addDomain(req.body.domain, orgId), message: `Domain ${req.body.domain} added.` })))
+
+router.post('/email/domains/update', mailHandler(async (req, orgId) =>
+  ({ domain: await mail.updateDomain(req.body.domain, req.body, orgId), message: 'Domain updated.' })))
+
+router.post('/email/domains/delete', mailHandler((req, orgId) => mail.removeDomain(req.body.domain, orgId)))
+
+router.get('/email/domains/dns', mailHandler((req, orgId) => mail.getDnsRecords(req.query.domain, orgId)))
+
+router.get('/email/accounts', mailHandler(async (req, orgId) => ({ accounts: await mail.listAccounts(orgId) })))
+
+router.post('/email/accounts/create', mailHandler(async (req, orgId) => {
+  const account = await mail.createAccount(req.body, orgId)
+  return { account, message: `Mailbox ${account.email} created.` }
+}))
+
+router.post('/email/accounts/update', mailHandler(async (req, orgId) =>
+  ({ account: await mail.updateAccount(req.body.emailId, req.body, orgId), message: 'Mailbox updated.' })))
+
+router.post('/email/accounts/delete', mailHandler((req, orgId) => mail.deleteAccount(req.body.emailId, orgId)))
+
+router.get('/email/messages', mailHandler((req, orgId) =>
+  mail.listMessages(req.query.mailbox, req.query, orgId)))
+
+router.get('/email/message', mailHandler(async (req, orgId) =>
+  ({ message: await mail.getMessage(req.query.mailbox, req.query.folder || 'inbox', req.query.id, orgId) })))
+
+router.get('/email/attachment', async (req, res) => {
+  try {
+    const a = await mail.getAttachment(req.query.mailbox, req.query.folder || 'inbox', req.query.id, req.query.index, req.tenant?.organizationId)
+    res.setHeader('Content-Type', a.contentType)
+    res.setHeader('Content-Disposition', `attachment; filename="${a.filename.replace(/["\\\r\n]/g, '_')}"`)
+    res.send(a.content)
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, error: err.message })
+  }
 })
 
-/**
- * GET /api/studio/email/accounts
- * Lists created custom domain email mailboxes
- */
-router.get('/email/accounts', authenticateToken, (req, res) => {
-  if (req.tenant && req.tenant.organizationId && req.tenant.organizationId !== 'org-default') {
-    const orgAccounts = getEmailAccounts(req.tenant.organizationId)
-    return res.json({ success: true, accounts: orgAccounts })
-  }
+router.post('/email/read-mark', mailHandler((req, orgId) =>
+  mail.markMessage(req.body.mailbox, req.body.folder || 'inbox', req.body.messageId, { read: req.body.read }, orgId)))
 
-  const accounts = getEmailAccounts()
-  res.json({ success: true, accounts })
-})
+router.post('/email/messages/delete', mailHandler((req, orgId) =>
+  mail.deleteMessage(req.body.mailbox, req.body.folder || 'inbox', req.body.messageId, orgId)))
+
+router.post('/email/send', mailHandler((req, orgId) => mail.sendMessage(req.body, orgId)))
+
+router.get('/email/delivery-log', mailHandler((req, orgId) => mail.getDeliveryLog(req.query, orgId)))
 
 /**
- * POST /api/studio/email/accounts/create
- * Creates a professional email account for a domain
+ * Project coding agent — Claude, ChatGPT or Gemini (services/project-agent.service.js)
  */
-router.post('/email/accounts/create', authenticateToken, (req, res) => {
-  const { username, domain, password, quotaMb } = req.body
-  if (!username || !domain) {
-    return res.status(400).json({ error: 'Username and domain are required' })
+const agentHandler = (fn) => async (req, res) => {
+  try {
+    res.json({ success: true, ...(await fn(req)) })
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, error: err.message })
   }
+}
 
-  const cleanUser = username.trim().toLowerCase().replace(/[^a-z0-9._-]/g, '')
-  const account = saveEmailAccount({ username: cleanUser, domain, quotaMb })
+router.get('/ai/agent/status', agentHandler(async () => ({ status: projectAgent.getAgentStatus() })))
 
-  res.json({
-    success: true,
-    message: `Professional email '${account.email}' created successfully!`,
-    account
+router.post('/ai/agent/settings', agentHandler(async (req) => ({ status: projectAgent.updateProviderSettings(req.body) })))
+
+router.get('/ai/agent/sessions', agentHandler(async (req) => {
+  const host = hostFor(req)
+  const dir = await resolveProjectDir(host, req.query.projectPath)
+  if (!dir) throw Object.assign(new Error('Project directory not found.'), { status: 404 })
+  return { sessions: projectAgent.listSessions(dir, host.isLocal ? null : req.tenant.server.id) }
+}))
+
+router.post('/ai/agent/sessions', agentHandler(async (req) => {
+  const host = hostFor(req)
+  const dir = await resolveProjectDir(host, req.body.projectPath)
+  if (!dir) throw Object.assign(new Error('Project directory not found.'), { status: 404 })
+  if (isProtectedPath(dir)) throw Object.assign(new Error('The agent can only work inside a project directory.'), { status: 400 })
+  return { session: await projectAgent.createSession(dir, req.body.projectName, req.body.provider, host.isLocal ? null : req.tenant.server) }
+}))
+
+router.get('/ai/agent/sessions/:id', agentHandler(async (req) => ({ session: projectAgent.getSession(req.params.id) })))
+
+router.post('/ai/agent/sessions/:id/delete', agentHandler(async (req) => projectAgent.deleteSession(req.params.id)))
+
+/**
+ * Runs one prompt and streams progress as Server-Sent Events.
+ * The run continues if the browser disconnects; reopening the session shows the transcript.
+ */
+router.post('/ai/agent/sessions/:id/message', async (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no'
   })
-})
-
-/**
- * POST /api/studio/email/accounts/delete
- * Deletes an email mailbox
- */
-router.post('/email/accounts/delete', authenticateToken, (req, res) => {
-  const { emailId } = req.body
-  if (!emailId) {
-    return res.status(400).json({ error: 'emailId is required' })
-  }
-
-  deleteEmailAccount(emailId)
-  res.json({ success: true, message: `Email account '${emailId}' deleted.` })
-})
-
-/**
- * GET /api/studio/email/client-config
- * Generates SMTP/IMAP credentials & client settings
- */
-router.get('/email/client-config', authenticateToken, (req, res) => {
-  res.json({
-    success: true,
-    settings: {
-      incomingServer: 'mail.yjtechnosoft.com',
-      imapPort: 993,
-      pop3Port: 995,
-      outgoingServer: 'mail.yjtechnosoft.com',
-      smtpPort: 587,
-      sslType: 'SSL / TLS',
-      webmailUrl: 'https://mail.yjtechnosoft.com'
-    }
-  })
-})
-
-/**
- * GET /api/studio/email/messages
- * Retrieves webmail inbox/sent messages for a mailbox
- */
-router.get('/email/messages', authenticateToken, (req, res) => {
-  const { mailbox, folder = 'inbox' } = req.query
-  const messages = getEmailMessages(mailbox, folder)
-  res.json({ success: true, messages })
-})
-
-/**
- * POST /api/studio/email/send
- * Sends an email from a domain mailbox
- */
-router.post('/email/send', authenticateToken, (req, res) => {
-  const { from, to, subject, body } = req.body
-  if (!from || !to) {
-    return res.status(400).json({ error: 'Sender (from) and recipient (to) are required' })
-  }
-
-  const result = sendEmailMessage({ from, to, subject, body })
-  res.json({
-    success: true,
-    message: `Email successfully sent to ${to}!`,
-    sentMsg: result.sentMsg
-  })
-})
-
-/**
- * POST /api/studio/email/read-mark
- * Marks an email message as read
- */
-router.post('/email/read-mark', authenticateToken, (req, res) => {
-  const { messageId } = req.body
-  if (!messageId) {
-    return res.status(400).json({ error: 'messageId is required' })
-  }
-
-  markEmailAsRead(messageId)
-  res.json({ success: true })
-})
-
-/**
- * POST /api/studio/agent/execute
- * Autonomous AI Coding Agent endpoint: executes code changes, verification tests, git commit, and live deploy.
- */
-router.post('/agent/execute', authenticateToken, async (req, res) => {
+  let open = true
+  res.on('close', () => { open = false })
+  const emit = (ev) => { if (open) res.write(`data: ${JSON.stringify(ev)}\n\n`) }
+  const heartbeat = setInterval(() => { if (open) res.write(': ping\n\n') }, 15000)
   try {
-    const { userPrompt, projectPath, filePath, codeContent, provider, apiKey, autoCommit, autoDeploy } = req.body
-    if (!userPrompt) {
-      return res.status(400).json({ error: 'userPrompt is required for AI Agent execution' })
-    }
-
-    const result = await runAutonomousCodeAgent({
-      userPrompt,
-      projectPath,
-      filePath,
-      codeContent,
-      provider,
-      apiKey,
-      autoCommit: Boolean(autoCommit),
-      autoDeploy: Boolean(autoDeploy)
-    })
-
-    res.json(result)
+    await projectAgent.runPrompt(req.params.id, req.body.prompt, emit)
   } catch (err) {
-    console.error('[AI AGENT EXECUTION ERROR]:', err)
-    res.status(500).json({ error: err.message || 'AI Agent execution failed' })
+    emit({ type: 'error', text: err.message })
+    emit({ type: 'done' })
+  } finally {
+    clearInterval(heartbeat)
+    if (open) res.end()
   }
 })
 
-/**
- * POST /api/studio/ai/agent/analyze
- * Analyzes selected project context (framework, entries, env, git, pm2, logs)
- */
-router.post('/ai/agent/analyze', authenticateToken, async (req, res) => {
-  try {
-    const { projectPath } = req.body
-    const context = await buildFullProjectContext(projectPath, req.tenant?.server)
-    res.json({ success: true, context })
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message })
-  }
-})
+router.post('/ai/agent/sessions/:id/stop', agentHandler(async (req) => projectAgent.stopSession(req.params.id)))
 
-/**
- * POST /api/studio/ai/agent/plan
- * Formulates execution plan & unified file diff preview for natural language prompt
- */
-router.post('/ai/agent/plan', authenticateToken, async (req, res) => {
-  try {
-    const { userPrompt, projectPath, provider, apiKey } = req.body
-    if (!userPrompt) return res.status(400).json({ error: 'userPrompt is required' })
+router.get('/ai/agent/sessions/:id/changes', agentHandler(async (req) => projectAgent.getChanges(req.params.id)))
 
-    const plan = await generateProjectPlanAndDiff({
-      userPrompt,
-      projectPath,
-      provider,
-      apiKey,
-      serverConfig: req.tenant?.server
-    })
-    res.json({ success: true, plan })
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message })
-  }
-})
+router.post('/ai/agent/sessions/:id/revert', agentHandler(async (req) => projectAgent.revertChanges(req.params.id, req.body.file || null)))
 
-/**
- * POST /api/studio/ai/agent/execute-plan
- * Executes approved action plan (writes code, runs tests, git commit, PM2 reload)
- */
-router.post('/ai/agent/execute-plan', authenticateToken, async (req, res) => {
-  try {
-    const { planId, planData, autoCommit = true, autoDeploy = true } = req.body
-    const result = await executeProjectPlan({
-      planId,
-      planData,
-      autoCommit: Boolean(autoCommit),
-      autoDeploy: Boolean(autoDeploy)
-    })
-    res.json(result)
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message })
-  }
-})
-
-/**
- * GET & POST /api/studio/ai/agent/history
- * Returns scoped history logs for target project
- */
-router.all('/ai/agent/history', authenticateToken, (req, res) => {
-  try {
-    const projectPath = req.query.projectPath || req.body?.projectPath
-    const history = getProjectAgentHistory(projectPath)
-    res.json({ success: true, history })
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message })
-  }
-})
-
-/**
- * POST /api/studio/ai/agent/clear-history
- */
-router.post('/ai/agent/clear-history', authenticateToken, (req, res) => {
-  try {
-    const { projectPath } = req.body
-    clearProjectAgentHistory(projectPath)
-    res.json({ success: true, message: 'Project AI Agent history cleared' })
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message })
-  }
-})
+router.post('/ai/agent/sessions/:id/deploy', agentHandler(async (req) => projectAgent.deploySession(req.params.id, req.body)))
 
 export default router
 

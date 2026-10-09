@@ -6,6 +6,8 @@ export default function ServerSelectorDropdown({ activeServerId, onServerSelect,
   const [isOpen, setIsOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [addError, setAddError] = useState(null)
 
   // New server form state
   const [serverType, setServerType] = useState('vps')
@@ -33,6 +35,15 @@ export default function ServerSelectorDropdown({ activeServerId, onServerSelect,
       const data = await res.json()
       if (data.servers) {
         setServers(data.servers)
+        // Live reachability (admin endpoint; skipped for other roles)
+        fetch(`${apiBaseUrl}/api/studio/servers`, { headers: { Authorization: `Bearer ${token}` } })
+          .then(r => (r.ok ? r.json() : null))
+          .then(live => {
+            if (!live?.servers) return
+            const byId = new Map(live.servers.map(s => [s.id, s]))
+            setServers(list => list.map(s => (byId.has(s.id) ? { ...s, ...byId.get(s.id) } : s)))
+          })
+          .catch(() => {})
       }
     } catch (err) {
       console.error('Failed to fetch organization servers:', err)
@@ -55,6 +66,8 @@ export default function ServerSelectorDropdown({ activeServerId, onServerSelect,
 
   const handleAddServer = async (e) => {
     e.preventDefault()
+    setAdding(true)
+    setAddError(null)
     try {
       const token = localStorage.getItem('autodeploy_token')
       const res = await fetch(`${apiBaseUrl}/api/agent/servers`, {
@@ -73,9 +86,13 @@ export default function ServerSelectorDropdown({ activeServerId, onServerSelect,
         setShowAddModal(false)
         fetchServers()
         if (onServerSelect) onServerSelect(data.server.id)
+      } else {
+        setAddError(data.error || 'Could not connect to the server.')
       }
     } catch (err) {
-      alert('Failed to add server: ' + err.message)
+      setAddError('Failed to add server: ' + err.message)
+    } finally {
+      setAdding(false)
     }
   }
 
@@ -92,7 +109,7 @@ export default function ServerSelectorDropdown({ activeServerId, onServerSelect,
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center space-x-2.5 px-3 py-1.5 bg-slate-900 border border-slate-700/80 hover:border-cyan-500/50 rounded-xl text-xs font-semibold text-slate-200 transition-all shadow-sm cursor-pointer"
       >
-        <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+        <div className={`w-2 h-2 rounded-full ${currentServer.status === 'offline' ? 'bg-rose-400' : 'bg-emerald-400 animate-pulse'}`} title={currentServer.error || currentServer.status || ''} />
         {getTypeIcon(currentServer.serverType)}
         <span className="max-w-[140px] truncate">{currentServer.name}</span>
         <span className="font-mono text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">
@@ -133,8 +150,11 @@ export default function ServerSelectorDropdown({ activeServerId, onServerSelect,
                         {srv.serverType || 'vps'}
                       </span>
                     </div>
-                    <div className="font-mono text-[10px] text-slate-400">
+                    <div className="font-mono text-[10px] text-slate-400 flex items-center gap-1.5">
+                      <span className={`w-1.5 h-1.5 rounded-full ${srv.status === 'offline' ? 'bg-rose-400' : srv.status === 'online' ? 'bg-emerald-400' : 'bg-slate-500'}`} />
                       {srv.ipAddress || srv.ftpHost || srv.hostname || '0.0.0.0'}
+                      {srv.status === 'offline' && <span className="text-rose-400">unreachable</span>}
+                      {srv.status === 'online' && srv.activeApps !== undefined && <span className="text-slate-500">· {srv.activeApps} apps</span>}
                     </div>
                   </div>
                 </div>
@@ -215,19 +235,22 @@ export default function ServerSelectorDropdown({ activeServerId, onServerSelect,
                 />
               </div>
 
+              {addError && <div className="p-2.5 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-200">{addError}</div>}
+              {serverType === 'vps' && <p className="text-[11px] text-slate-500">The SSH login is tested before the server is saved. Credentials stay on the panel's backend.</p>}
               <div className="flex space-x-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() => { setShowAddModal(false); setAddError(null) }}
                   className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold rounded-xl shadow-lg shadow-cyan-500/20"
+                  disabled={adding}
+                  className="flex-1 py-2 bg-cyan-500 hover:bg-cyan-400 disabled:opacity-60 text-slate-950 font-bold rounded-xl shadow-lg shadow-cyan-500/20"
                 >
-                  Connect Server
+                  {adding ? 'Testing SSH login…' : 'Connect Server'}
                 </button>
               </div>
             </form>

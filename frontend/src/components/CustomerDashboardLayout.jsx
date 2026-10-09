@@ -28,6 +28,7 @@ import ServerConnectLanding from './ServerConnectLanding'
 import MarketplaceView from './MarketplaceView'
 
 import DeploymentWizard from './DeploymentWizard'
+import { getActiveServerId, setActiveServerId as rememberActiveServer } from '../utils/activeServer'
 
 export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogout, apiBaseUrl = '' }) {
   const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'servers' | 'projects' | 'deployments' | 'databases' | 'code' | 'env' | 'domains' | 'logs' | 'email' | 'team' | 'billing' | 'settings'
@@ -36,7 +37,7 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [servers, setServers] = useState([])
-  const [activeServerId, setActiveServerId] = useState('')
+  const [activeServerId, setActiveServerId] = useState(() => getActiveServerId())
   const [loadingServers, setLoadingServers] = useState(true)
   const [showAiDrawer, setShowAiDrawer] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -66,9 +67,17 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
       const data = await res.json()
       if (data.servers) {
         setServers(data.servers)
-        if (data.servers.length > 0 && !activeServerId) {
-          setActiveServerId(data.servers[0].id)
-        }
+        // Keep the remembered server if it still exists; otherwise fall back to the first one
+        setActiveServerId(current => (data.servers.some(s => s.id === current) ? current : (data.servers[0]?.id || '')))
+        // Live status/load per server (admin endpoint; silently skipped for other roles)
+        fetch(`${apiBaseUrl}/api/studio/servers`, { headers: { Authorization: `Bearer ${jwtToken}` } })
+          .then(r => (r.ok ? r.json() : null))
+          .then(live => {
+            if (!live?.servers) return
+            const byId = new Map(live.servers.map(s => [s.id, s]))
+            setServers(list => list.map(s => (byId.has(s.id) ? { ...s, ...byId.get(s.id) } : s)))
+          })
+          .catch(() => {})
       }
     } catch (err) {
       console.error('Failed to fetch customer servers:', err)
@@ -115,9 +124,13 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
   }, [])
 
   useEffect(() => {
+    // Every API request now targets this server (see utils/activeServer.js)
+    rememberActiveServer(activeServerId)
     if (activeServerId) {
       fetchActiveServerMetrics(activeServerId)
     }
+    // A project studio belongs to the server it was opened on
+    setActiveWorkspaceProject(p => (p && p.serverId && activeServerId && p.serverId !== activeServerId ? null : p))
   }, [activeServerId])
 
   const handleConnectServer = async (e) => {
@@ -290,7 +303,7 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
           </button>
         </div>
       </header>
-      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8">
+      <main key={activeServerId} className="flex-1 max-w-7xl w-full mx-auto px-6 py-8">
         {component}
       </main>
     </div>
@@ -346,6 +359,7 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
 
     return (
       <AllProjectsHub
+        key={activeServerId}
         server={activeServer}
         jwtToken={jwtToken}
         currentUser={currentUser}
@@ -498,7 +512,7 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
         </aside>
 
         {/* Central Customer Area */}
-        <main className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-6 w-full">
+        <main key={activeServerId} className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-6 w-full">
           {/* Active Workspace Server Context Switcher Bar */}
           <div className="bg-gradient-to-r from-slate-900 via-slate-900/95 to-blue-950/40 border border-slate-800 rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 shadow-md">
             <div className="flex items-center space-x-2.5 overflow-x-auto no-scrollbar">

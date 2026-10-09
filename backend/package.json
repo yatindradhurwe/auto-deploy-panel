@@ -8,11 +8,15 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.132.1",
+    "@google/genai": "^2.28.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.3",
+    "mailparser": "^3.9.37",
     "nodemailer": "^10.0.10",
+    "openai": "^7.31.0",
     "ssh2": "^1.15.0"
   }
 }
