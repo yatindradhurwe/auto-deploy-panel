@@ -60,6 +60,11 @@ export function startImpersonation(token, user) {
 }
 
 export function stopImpersonation() {
+  // End the impersonation session on the server, not just in this browser
+  const impersonationToken = getAuthToken()
+  if (impersonationToken) {
+    fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${impersonationToken}` }, keepalive: true }).catch(() => {})
+  }
   const adminToken = sessionStorage.getItem('autodeploy_admin_token')
   const adminUser = sessionStorage.getItem('autodeploy_admin_user')
   sessionStorage.removeItem('autodeploy_admin_token')

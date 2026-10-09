@@ -209,6 +209,7 @@ export function readDb() {
     if (!parsed.idempotencyKeys) parsed.idempotencyKeys = {}
     if (!parsed.webhookEvents) parsed.webhookEvents = {}
     if (!parsed.supportTickets) parsed.supportTickets = []
+    if (!parsed.sessions) parsed.sessions = {}
     // Platform roles were 'admin' (super admin) / 'user' (customer); they are now 'superadmin' / 'admin'.
     // Re-applied on every read until the next write persists the marker, so it stays idempotent.
     if (!parsed.platformRolesMigratedAt) {

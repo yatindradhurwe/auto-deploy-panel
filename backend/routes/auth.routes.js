@@ -3,6 +3,8 @@ import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import { authenticateToken, signSessionToken } from '../middleware/auth.middleware.js'
 import { getPlatformRole, getUserStatus, getPlatformSettings } from '../services/admin.service.js'
+import { revokeSession } from '../services/session.service.js'
+import { createRateLimiter, rejectIfLimited, clientIp } from '../middleware/rateLimit.middleware.js'
 import {
   getUserByEmail,
   getUserById,
@@ -24,12 +26,21 @@ const router = express.Router()
 const DEFAULT_ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'admin@tipcrm.com').toLowerCase()
 const DEFAULT_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || ''
 
+// Brute-force protection: per account+IP and per IP
+const loginByAccount = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 8 })
+const loginByIp = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 40 })
+const signupByIp = createRateLimiter({ windowMs: 60 * 60 * 1000, max: 10 })
+
+// Compared against when the account doesn't exist, so response time doesn't reveal which emails are registered
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('autodeploy-timing-equalizer', 10)
+
 /**
  * POST /api/auth/signup
  */
 router.post('/signup', (req, res) => {
   try {
     const { fullName, email, password, orgName } = req.body
+    if (rejectIfLimited(res, [[signupByIp, clientIp(req)]])) return
 
     const platform = getPlatformSettings()
     if (!platform.allowSignups) {
@@ -76,7 +87,7 @@ router.post('/signup', (req, res) => {
     // Update user primary organizationId
     updateUser(newUser.id, { organizationId: org.id })
 
-    const token = signSessionToken(newUser, { organizationId: org.id })
+    const token = signSessionToken(newUser, { organizationId: org.id, req })
 
     recordAuditLog({
       organizationId: org.id,
@@ -117,13 +128,18 @@ router.post('/login', (req, res) => {
       return res.status(400).json({ error: 'Email address and password are required.' })
     }
 
-    const cleanEmail = email.trim().toLowerCase()
+    const cleanEmail = String(email).trim().toLowerCase()
+    const accountKey = `${clientIp(req)}|${cleanEmail}`
+    if (rejectIfLimited(res, [[loginByAccount, accountKey], [loginByIp, clientIp(req)]])) return
     let user = getUserByEmail(cleanEmail)
 
     // Handle system default admin fallback if not yet in DB users
     if (!user && cleanEmail === DEFAULT_ADMIN_EMAIL && DEFAULT_ADMIN_PASSWORD) {
       user = getUserById('admin-001')
-      if (!user) {
+      // Once the primary admin has changed their email from the profile page, the bootstrap email no longer signs in
+      if (user && user.email !== DEFAULT_ADMIN_EMAIL) {
+        user = null
+      } else if (!user) {
         user = createUser({
           id: 'admin-001',
           fullName: 'System Admin',
@@ -135,14 +151,9 @@ router.post('/login', (req, res) => {
       }
     }
 
+    const isValidPassword = bcrypt.compareSync(String(password), (user && user.passwordHash) || DUMMY_PASSWORD_HASH) && !!(user && user.passwordHash)
     if (!user) {
       return res.status(401).json({ error: 'Invalid email address or password.' })
-    }
-
-    // Check Password
-    let isValidPassword = false
-    if (user.passwordHash) {
-      isValidPassword = bcrypt.compareSync(password, user.passwordHash)
     }
 
     if (!isValidPassword) {
@@ -157,6 +168,7 @@ router.post('/login', (req, res) => {
       return res.status(503).json({ error: platform.maintenanceMessage, code: 'MAINTENANCE_MODE' })
     }
 
+    loginByAccount.reset(accountKey)
     const loginIp = req.headers['x-forwarded-for'] || req.ip || '127.0.0.1'
     updateUser(user.id, { lastLoginAt: new Date().toISOString(), lastLoginIp: String(loginIp).split(',')[0].trim() })
 
@@ -166,7 +178,7 @@ router.post('/login', (req, res) => {
     const activeOrg = getOrganizationById(activeOrgId) || (orgs.length > 0 ? orgs[0] : null)
     const servers = activeOrgId ? getServersByOrgId(activeOrgId) : []
 
-    const token = signSessionToken(user, { organizationId: activeOrgId })
+    const token = signSessionToken(user, { organizationId: activeOrgId, req })
 
     recordAuditLog({
       organizationId: activeOrgId,
@@ -230,6 +242,7 @@ router.get('/me', authenticateToken, (req, res) => {
         fullName: user.fullName || user.name || 'User',
         name: user.fullName || user.name || 'User',
         email: user.email,
+        phone: user.phone || '',
         organizationId: activeOrgId,
         role: getPlatformRole(user),
         impersonatedBy: req.user.impersonatedBy || null,
@@ -320,6 +333,15 @@ router.post('/settings', authenticateToken, (req, res) => {
  * POST /api/auth/logout
  */
 router.post('/logout', authenticateToken, (req, res) => {
+  revokeSession(req.user.sid, req.user.id)
+  recordAuditLog({
+    organizationId: req.user.organizationId || 'org-default',
+    userId: req.user.id,
+    action: 'USER_LOGOUT',
+    resourceType: 'auth',
+    resourceId: req.user.id,
+    ip: clientIp(req)
+  })
   res.json({ message: 'Session logged out successfully' })
 })
 

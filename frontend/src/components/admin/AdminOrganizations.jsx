@@ -80,7 +80,13 @@ function OrgDetailModal({ orgId, plans, onClose, onChanged, apiBaseUrl }) {
                 ['Owner', org.ownerEmail || '—'],
                 ['Created', formatDate(org.createdAt)],
                 ['Period ends', formatDate(org.currentPeriodEnd)],
-                ['ID', <span className="font-mono">{org.id}</span>]
+                ['ID', <span className="font-mono">{org.id}</span>],
+                ['Legal name', org.details?.legalName || '—'],
+                ['GSTIN / Tax ID', org.details?.taxId || '—'],
+                ['Business email', org.details?.email || '—'],
+                ['Business phone', org.details?.phone || '—'],
+                ['Website', org.details?.website || '—'],
+                ['Address', [org.details?.addressLine, org.details?.city, org.details?.state, org.details?.postalCode, org.details?.country].filter(Boolean).join(', ') || '—']
               ].map(([k, v]) => (
                 <div key={k} className="min-w-0">
                   <dt className="text-slate-500">{k}</dt>

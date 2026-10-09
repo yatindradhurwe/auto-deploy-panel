@@ -6,6 +6,7 @@ import AdminPlans from './admin/AdminPlans'
 import AdminSettings from './admin/AdminSettings'
 import AdminSupport from './admin/AdminSupport'
 import { AdminServers, AdminSubscriptions, AdminAuditLog } from './admin/AdminRecords'
+import ProfilePage from './ProfilePage'
 
 const PAGE_TITLES = {
   dashboard: ['Platform overview', 'Users, revenue and activity across every tenant'],
@@ -16,10 +17,11 @@ const PAGE_TITLES = {
   support: ['Support tickets', 'Questions and issues raised by admins from their panel'],
   plans: ['Plans & pricing', 'Limits and prices offered to customers'],
   'audit-logs': ['Audit trail', 'Every sign-in and administrative action'],
-  settings: ['Platform settings', 'Registration, maintenance mode and announcements']
+  settings: ['Platform settings', 'Registration, maintenance mode and announcements'],
+  profile: ['My profile', 'Your account details, sign-in email, password and company details']
 }
 
-export default function SuperAdminPortal({ activeTab = 'dashboard', apiBaseUrl = '', currentUser, onNavigate = () => {} }) {
+export default function SuperAdminPortal({ activeTab = 'dashboard', apiBaseUrl = '', currentUser, onNavigate = () => {}, onSessionUpdate }) {
   const [title, subtitle] = PAGE_TITLES[activeTab] || PAGE_TITLES.dashboard
   const props = { apiBaseUrl, currentUser, onNavigate }
 
@@ -38,6 +40,7 @@ export default function SuperAdminPortal({ activeTab = 'dashboard', apiBaseUrl =
       {activeTab === 'plans' && <AdminPlans {...props} />}
       {activeTab === 'audit-logs' && <AdminAuditLog {...props} />}
       {activeTab === 'settings' && <AdminSettings {...props} />}
+      {activeTab === 'profile' && <ProfilePage apiBaseUrl={apiBaseUrl} onSessionUpdate={onSessionUpdate} />}
     </div>
   )
 }

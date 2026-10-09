@@ -1,14 +1,18 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Eye, Megaphone, Wrench } from 'lucide-react'
 import { stopImpersonation } from './components/admin/adminApi'
 import SaaSAuthPages from './components/SaaSAuthPages'
 import CustomerDashboardLayout from './components/CustomerDashboardLayout'
 import SuperAdminDashboardLayout from './components/SuperAdminDashboardLayout'
+import { TOKEN_KEY, getStoredToken, storeSession, clearStoredSession, revokeToken } from './utils/session'
 
 const isSuperAdminUser = (user) => (user?.role === 'superadmin' || user?.id === 'admin-001') && !user?.impersonatedBy
+const isImpersonating = () => {
+  try { return !!sessionStorage.getItem('autodeploy_admin_token') } catch { return false }
+}
 
 export default function App() {
-  const [jwtToken, setJwtToken] = useState(() => localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token') || '')
+  const [jwtToken, setJwtToken] = useState(getStoredToken)
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       const saved = localStorage.getItem('autodeploy_user')
@@ -20,6 +24,28 @@ export default function App() {
   const [verifyingSession, setVerifyingSession] = useState(true)
   const [platformStatus, setPlatformStatus] = useState(null)
   const [maintenanceMessage, setMaintenanceMessage] = useState('')
+  const [sessionNotice, setSessionNotice] = useState('')
+  const endingRef = useRef(false)
+
+  // Drops the local session and shows the login screen (the server side is already gone or being revoked)
+  const resetToLogin = (notice = '') => {
+    clearStoredSession()
+    setJwtToken('')
+    setCurrentUser(null)
+    setSessionNotice(notice)
+    window.history.replaceState(null, '', '/')
+  }
+
+  // The server ended this session (logged out elsewhere, revoked, expired, suspended…)
+  const handleSessionEnded = (message) => {
+    if (endingRef.current) return
+    endingRef.current = true
+    if (isImpersonating()) {
+      stopImpersonation()
+      return
+    }
+    resetToLogin(message || 'Your session has ended. Please log in again.')
+  }
 
   useEffect(() => {
     fetch('/api/auth/platform-status')
@@ -28,10 +54,31 @@ export default function App() {
       .catch(() => {})
   }, [])
 
+  useEffect(() => {
+    const onEnded = (e) => handleSessionEnded(e.detail?.message)
+    // Another tab logged in, out, or switched accounts
+    const onStorage = (e) => {
+      if (e.key !== TOKEN_KEY && e.key !== null) return
+      if (!getStoredToken()) {
+        if (endingRef.current) return
+        endingRef.current = true
+        resetToLogin('You were logged out in another tab.')
+      } else if (e.newValue && e.newValue !== e.oldValue) {
+        window.location.reload()
+      }
+    }
+    window.addEventListener('autodeploy:session-ended', onEnded)
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener('autodeploy:session-ended', onEnded)
+      window.removeEventListener('storage', onStorage)
+    }
+  }, [])
+
   // Verify JWT session on initial load
   useEffect(() => {
     const verifySession = async () => {
-      const token = localStorage.getItem('autodeploy_token') || localStorage.getItem('autodeploy_jwt_token')
+      const token = getStoredToken()
       if (!token) {
         setVerifyingSession(false)
         return
@@ -44,18 +91,14 @@ export default function App() {
           const data = await res.json()
           if (data.user) {
             setCurrentUser(data.user)
-            localStorage.setItem('autodeploy_user', JSON.stringify(data.user))
+            storeSession(null, data.user)
           }
         } else if (res.status === 503) {
           const data = await res.json().catch(() => ({}))
           setMaintenanceMessage(data.error || 'The platform is under maintenance. Please check back shortly.')
         } else if (res.status === 401 || res.status === 403) {
-          // An expired impersonation session returns the admin to their own session
-          if (sessionStorage.getItem('autodeploy_admin_token')) {
-            stopImpersonation()
-            return
-          }
-          handleLogout()
+          const data = await res.json().catch(() => ({}))
+          handleSessionEnded(data.error)
         }
       } catch (err) {
         console.warn('Session verification check:', err)
@@ -69,31 +112,29 @@ export default function App() {
   const handleLoginSuccess = (user, token) => {
     // Super admins land in the platform console, admins in their server panel
     window.history.replaceState(null, '', isSuperAdminUser(user) ? '/admin/dashboard' : '/app/dashboard')
+    endingRef.current = false
+    storeSession(token, user)
+    setSessionNotice('')
     setCurrentUser(user)
     setJwtToken(token)
-    localStorage.setItem('autodeploy_token', token)
-    localStorage.setItem('autodeploy_user', JSON.stringify(user))
+  }
+
+  // Profile changes refresh the stored user; a password change also issues a new token
+  const handleSessionUpdate = (user, token) => {
+    const merged = { ...currentUser, ...user }
+    storeSession(token, merged)
+    setCurrentUser(merged)
+    if (token) setJwtToken(token)
   }
 
   const handleLogout = async () => {
-    if (currentUser?.impersonatedBy) {
+    if (currentUser?.impersonatedBy || isImpersonating()) {
       stopImpersonation()
       return
     }
-    try {
-      if (jwtToken) {
-        await fetch('/api/auth/logout', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${jwtToken}` }
-        }).catch(() => {})
-      }
-    } finally {
-      localStorage.removeItem('autodeploy_token')
-      localStorage.removeItem('autodeploy_jwt_token')
-      localStorage.removeItem('autodeploy_user')
-      setJwtToken('')
-      setCurrentUser(null)
-    }
+    endingRef.current = true
+    await revokeToken(jwtToken)
+    resetToLogin()
   }
 
   if (verifyingSession) {
@@ -125,7 +166,7 @@ export default function App() {
   }
 
   if (!jwtToken || !currentUser) {
-    return <SaaSAuthPages platformStatus={platformStatus} onAuthSuccess={(token, user) => handleLoginSuccess(user, token)} />
+    return <SaaSAuthPages platformStatus={platformStatus} sessionNotice={sessionNotice} onAuthSuccess={(token, user) => handleLoginSuccess(user, token)} />
   }
 
   const banners = (
@@ -169,6 +210,7 @@ export default function App() {
           currentUser={currentUser}
           jwtToken={jwtToken}
           onLogout={handleLogout}
+          onSessionUpdate={handleSessionUpdate}
         />
       </>
     )
@@ -181,6 +223,7 @@ export default function App() {
         currentUser={currentUser}
         jwtToken={jwtToken}
         onLogout={handleLogout}
+        onSessionUpdate={handleSessionUpdate}
       />
     </>
   )

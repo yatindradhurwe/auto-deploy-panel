@@ -2,13 +2,13 @@ import React, { useState, useEffect } from 'react'
 import {
   Crown, Users, Building, Server, RefreshCw, Zap, ShieldAlert, BarChart3,
   LogOut, Layers, Key, Activity, Clock, ShieldCheck, CreditCard, ChevronRight,
-  Eye, AlertTriangle, ArrowLeft, Menu, X, Settings, Tags, LifeBuoy
+  Eye, AlertTriangle, ArrowLeft, Menu, X, Settings, Tags, LifeBuoy, UserCircle
 } from 'lucide-react'
 import SuperAdminPortal from './SuperAdminPortal'
 import { AdminIdempotencyPanel } from './AdminIdempotencyPanel'
 
-export default function SuperAdminDashboardLayout({ currentUser, jwtToken, onLogout, onExitImpersonation, apiBaseUrl = '' }) {
-  const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'users' | 'organizations' | 'servers' | 'subscriptions' | 'support' | 'plans' | 'audit-logs' | 'settings' | 'idempotency'
+export default function SuperAdminDashboardLayout({ currentUser, jwtToken, onLogout, onExitImpersonation, onSessionUpdate, apiBaseUrl = '' }) {
+  const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'users' | 'organizations' | 'servers' | 'subscriptions' | 'support' | 'plans' | 'audit-logs' | 'settings' | 'idempotency' | 'profile'
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [impersonatingOrg, setImpersonatingOrg] = useState(null)
@@ -47,6 +47,12 @@ export default function SuperAdminDashboardLayout({ currentUser, jwtToken, onLog
         { id: 'audit-logs', label: 'Audit Trail', icon: ShieldCheck },
         { id: 'settings', label: 'Platform Settings', icon: Settings },
         { id: 'idempotency', label: 'Idempotency System', icon: RefreshCw }
+      ]
+    },
+    {
+      title: 'ACCOUNT',
+      items: [
+        { id: 'profile', label: 'My Profile', icon: UserCircle }
       ]
     }
   ]
@@ -95,10 +101,12 @@ export default function SuperAdminDashboardLayout({ currentUser, jwtToken, onLog
             </a>
 
             <div className="flex items-center space-x-1.5 sm:space-x-2 bg-slate-900 border border-purple-500/30 rounded-xl px-2.5 py-1 text-xs shrink-0">
-              <div className="w-5 h-5 rounded-full bg-amber-400 text-slate-950 font-bold flex items-center justify-center text-[10px]">
-                {(currentUser?.fullName || currentUser?.name || currentUser?.email || 'A').charAt(0).toUpperCase()}
-              </div>
-              <span className="font-bold text-amber-300 hidden xs:inline max-w-[10rem] truncate">{currentUser?.fullName || currentUser?.name || 'Platform Admin'}</span>
+              <button onClick={() => setActiveTab('profile')} className="flex items-center space-x-1.5 sm:space-x-2 cursor-pointer" title="My profile">
+                <div className="w-5 h-5 rounded-full bg-amber-400 text-slate-950 font-bold flex items-center justify-center text-[10px]">
+                  {(currentUser?.fullName || currentUser?.name || currentUser?.email || 'A').charAt(0).toUpperCase()}
+                </div>
+                <span className="font-bold text-amber-300 hidden xs:inline max-w-[10rem] truncate">{currentUser?.fullName || currentUser?.name || 'Platform Admin'}</span>
+              </button>
               <button onClick={onLogout} className="text-slate-400 hover:text-rose-400 p-0.5 ml-1" title="Logout">
                 <LogOut className="w-3.5 h-3.5" />
               </button>
@@ -162,7 +170,7 @@ export default function SuperAdminDashboardLayout({ currentUser, jwtToken, onLog
           {activeTab === 'idempotency' ? (
             <AdminIdempotencyPanel jwtToken={jwtToken} apiBaseUrl={apiBaseUrl} />
           ) : (
-            <SuperAdminPortal activeTab={activeTab} apiBaseUrl={apiBaseUrl} currentUser={currentUser} onNavigate={setActiveTab} />
+            <SuperAdminPortal activeTab={activeTab} apiBaseUrl={apiBaseUrl} currentUser={currentUser} onNavigate={setActiveTab} onSessionUpdate={onSessionUpdate} />
           )}
         </main>
       </div>

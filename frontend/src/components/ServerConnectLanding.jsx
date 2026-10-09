@@ -1,15 +1,16 @@
 import React, { useState } from 'react'
 import TeamManager from './TeamManager'
 import SupportDesk from './SupportDesk'
+import ProfilePage from './ProfilePage'
 import {
   Server, Cpu, HardDrive, Zap, CheckCircle2, ShieldCheck, Plus, ArrowRight,
   Activity, Globe, Lock, RefreshCw, Key, Monitor, Terminal, Layers,
   CreditCard, Users, HelpCircle, UserPlus, Check, Sparkles, Receipt, Download,
-  MessageSquare, AlertCircle, FileText, ChevronRight, Mail, Phone, ExternalLink, Trash2, X
+  MessageSquare, AlertCircle, FileText, ChevronRight, Mail, Phone, ExternalLink, Trash2, X, UserCircle
 } from 'lucide-react'
 
-export default function ServerConnectLanding({ servers, loadingServers, onSelectServer, onConnectServer, connecting }) {
-  const [activeTab, setActiveTab] = useState('servers') // 'servers' | 'billing' | 'team' | 'support'
+export default function ServerConnectLanding({ currentUser, apiBaseUrl = '', onSessionUpdate, servers, loadingServers, onSelectServer, onConnectServer, connecting }) {
+  const [activeTab, setActiveTab] = useState('servers') // 'servers' | 'billing' | 'team' | 'support' | 'profile'
   const [showConnectModal, setShowConnectModal] = useState(false)
   const [billingCycle, setBillingCycle] = useState('monthly') // 'monthly' | 'annual'
   const [selectedPlanForBuy, setSelectedPlanForBuy] = useState(null)
@@ -113,6 +114,19 @@ export default function ServerConnectLanding({ servers, loadingServers, onSelect
             >
               <HelpCircle className="w-4 h-4 text-emerald-400 shrink-0" />
               <span>Help & Support</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('profile')}
+              className={`h-8.5 px-4 rounded-xl font-bold inline-flex items-center space-x-2 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                activeTab === 'profile'
+                  ? 'bg-gradient-to-r from-slate-600 via-slate-700 to-slate-800 text-white shadow-md ring-1 ring-slate-400/30'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+              title={currentUser?.email || 'My profile'}
+            >
+              <UserCircle className="w-4 h-4 shrink-0" />
+              <span>My Profile</span>
             </button>
           </nav>
         </div>
@@ -593,6 +607,17 @@ export default function ServerConnectLanding({ servers, loadingServers, onSelect
             </div>
 
             <SupportDesk />
+          </div>
+        )}
+
+        {/* TAB 5: MY PROFILE */}
+        {activeTab === 'profile' && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-black text-white tracking-tight">My profile</h2>
+              <p className="text-slate-400 text-sm mt-1">Your account details, sign-in email, password and firm details</p>
+            </div>
+            <ProfilePage apiBaseUrl={apiBaseUrl} onSessionUpdate={onSessionUpdate} />
           </div>
         )}
 

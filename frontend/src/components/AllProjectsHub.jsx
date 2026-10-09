@@ -194,14 +194,18 @@ export default function AllProjectsHub({
           </button>
 
           {/* User Profile Avatar Badge */}
-          <div className="flex items-center space-x-2 pl-1.5 border-l border-white/10 shrink-0">
+          <button
+            onClick={() => onTabChange && onTabChange('profile')}
+            title="My profile"
+            className="flex items-center space-x-2 pl-1.5 border-l border-white/10 shrink-0 cursor-pointer"
+          >
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center font-bold text-white text-[11px] shadow-md ring-2 ring-white/10 shrink-0">
-              {currentUser?.name ? currentUser.name.slice(0, 2).toUpperCase() : 'YD'}
+              {(currentUser?.name || currentUser?.fullName || currentUser?.email || 'U').slice(0, 2).toUpperCase()}
             </div>
             <span className="hidden xl:inline text-slate-200 font-semibold text-xs tracking-tight shrink-0">
-              {currentUser?.name || 'Yatindra Dhurwe'}
+              {currentUser?.name || currentUser?.fullName || currentUser?.email}
             </span>
-          </div>
+          </button>
 
           <button
             onClick={() => onTabChange && onTabChange('deployments')}

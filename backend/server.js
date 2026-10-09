@@ -10,11 +10,14 @@ import agentRoutes from './routes/agent.routes.js'
 import teamRoutes from './routes/team.routes.js'
 import adminRoutes from './routes/admin.routes.js'
 import supportRoutes from './routes/support.routes.js'
+import profileRoutes from './routes/profile.routes.js'
 import { authenticateToken, requireSystemAdmin } from './middleware/auth.middleware.js'
 import { initAutoUpdateService, executeProjectAutoUpdate } from './services/autoupdate.service.js'
 import { initMailService } from './services/mail.service.js'
 
 const app = express()
+// nginx on the same host terminates TLS; trust its X-Forwarded-For so req.ip is the real client (rate limits, audit)
+app.set('trust proxy', 'loopback')
 const PORT = process.env.PORT || 4040
 // Nginx proxies to 127.0.0.1:4040, so the API does not need to listen on public interfaces
 const HOST = process.env.HOST || '127.0.0.1'
@@ -101,6 +104,7 @@ app.use('/api/billing', requireIdempotency(), billingRoutes)
 app.use('/api/team', teamRoutes)
 app.use('/api/admin', adminRoutes)
 app.use('/api/support', supportRoutes)
+app.use('/api/profile', profileRoutes)
 
 // Protected Deployment & Studio Routes (Requires valid JWT Token & Tenant Context)
 app.use('/api/deploy', authenticateToken, requireTenant, requireIdempotency(), deployRoutes)

@@ -38,6 +38,7 @@ import {
   setOrganizationMemberRole
 } from '../services/admin.service.js'
 import { listTickets, getTicket, replyToTicket, updateTicket } from '../services/support.service.js'
+import { revokeUserSessions } from '../services/session.service.js'
 
 const router = express.Router()
 
@@ -213,6 +214,7 @@ router.post('/users/:id/reset-password', handle((req) => {
 router.post('/users/:id/revoke-sessions', handle((req) => {
   const user = requireUser(req.params.id)
   updateUser(user.id, { tokenVersion: (user.tokenVersion || 0) + 1 })
+  revokeUserSessions(user.id)
   audit(req, 'ADMIN_USER_SESSIONS_REVOKED', 'user', user.id, { email: user.email })
   return { success: true, message: `All sessions for ${user.email} were signed out.` }
 }))
@@ -225,7 +227,7 @@ router.post('/users/:id/impersonate', handle((req) => {
   const user = requireUser(req.params.id)
   if (getPlatformRole(user) === 'superadmin') throw httpError(400, 'Super admin accounts cannot be impersonated.')
   if (user.status === 'suspended') throw httpError(400, 'Reactivate this account before impersonating it.')
-  const token = signSessionToken(user, { expiresIn: '1h', impersonatedBy: req.user.id })
+  const token = signSessionToken(user, { expiresIn: '1h', impersonatedBy: req.user.id, req })
   audit(req, 'ADMIN_USER_IMPERSONATED', 'user', user.id, { email: user.email })
   return { success: true, token, user: { ...sanitizeUser(user), role: 'admin', impersonatedBy: req.user.id } }
 }))

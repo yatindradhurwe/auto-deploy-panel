@@ -177,6 +177,8 @@ function UserDetailModal({ userId, onClose, onChanged, currentUser, apiBaseUrl }
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-xs">
               {[
                 ['Email', user.email],
+                ['Phone', user.phone || '—'],
+                ['Job title', user.jobTitle || '—'],
                 ['User ID', <span className="font-mono">{user.id}</span>],
                 ['Joined', formatDate(user.createdAt, true)],
                 ['Last login', user.lastLoginAt ? `${timeAgo(user.lastLoginAt)}${user.lastLoginIp ? ` · ${user.lastLoginIp}` : ''}` : 'Never'],

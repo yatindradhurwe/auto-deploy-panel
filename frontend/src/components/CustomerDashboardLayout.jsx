@@ -4,7 +4,7 @@ import {
   XCircle, AlertTriangle, Play, RefreshCw, Copy, Check, Lock, HardDrive, Code,
   Github, Search, X, ChevronRight, ChevronLeft, ChevronDown, Sparkles, FolderGit2, Bot, LogOut, UserCheck,
   Layers, Database, FolderTree, LayoutDashboard, Key, Activity, Clock, Webhook, Save, Trash2, DownloadCloud, Mail,
-  CreditCard, Users, Crown, Plus, AlertCircle, Building, Sliders, Settings, HelpCircle, Menu
+  CreditCard, Users, Crown, Plus, AlertCircle, Building, Sliders, Settings, HelpCircle, Menu, UserCircle
 } from 'lucide-react'
 import ServerSelectorDropdown from './ServerSelectorDropdown'
 import ServerManager from './ServerManager'
@@ -26,12 +26,13 @@ import ProjectDedicatedStudio from './ProjectDedicatedStudio'
 import AllProjectsHub from './AllProjectsHub'
 import ServerConnectLanding from './ServerConnectLanding'
 import MarketplaceView from './MarketplaceView'
+import ProfilePage from './ProfilePage'
 
 import DeploymentWizard from './DeploymentWizard'
 import { getActiveServerId, setActiveServerId as rememberActiveServer } from '../utils/activeServer'
 
-export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogout, apiBaseUrl = '' }) {
-  const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'servers' | 'projects' | 'deployments' | 'databases' | 'code' | 'env' | 'domains' | 'logs' | 'email' | 'team' | 'billing' | 'settings'
+export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogout, onSessionUpdate, apiBaseUrl = '' }) {
+  const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'servers' | 'projects' | 'deployments' | 'databases' | 'code' | 'env' | 'domains' | 'logs' | 'email' | 'team' | 'billing' | 'settings' | 'profile'
   const [activeWorkspaceProject, setActiveWorkspaceProject] = useState(null)
   const [viewStep, setViewStep] = useState('servers') // Default home page after login: 'servers' ("Connect & Manage Your Server Infrastructure")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -211,7 +212,8 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
       items: [
         { id: 'team', label: 'Team & Roles', icon: Users },
         { id: 'billing', label: 'Billing & Quotas', icon: CreditCard },
-        { id: 'audit-logs', label: 'Audit Logs', icon: ShieldCheck }
+        { id: 'audit-logs', label: 'Audit Logs', icon: ShieldCheck },
+        { id: 'profile', label: 'My Profile', icon: UserCircle }
       ]
     }
   ]
@@ -230,6 +232,9 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
   if (viewStep === 'servers') {
     return (
       <ServerConnectLanding
+        currentUser={currentUser}
+        apiBaseUrl={apiBaseUrl}
+        onSessionUpdate={onSessionUpdate}
         servers={servers}
         loadingServers={loadingServers}
         onSelectServer={(srv) => {
@@ -350,6 +355,13 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
       )
     }
 
+    if (activeTab === 'profile') {
+      return renderHubSubView(
+        <ProfilePage apiBaseUrl={apiBaseUrl} onSessionUpdate={onSessionUpdate} />,
+        'My Profile'
+      )
+    }
+
     if (activeTab === 'audit-logs') {
       return renderHubSubView(
         <AuditLogViewer apiBaseUrl={apiBaseUrl} />,
@@ -449,10 +461,12 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
             )}
 
             <div className="flex items-center space-x-1.5 sm:space-x-2 bg-slate-900 border border-white/10 rounded-xl px-2.5 py-1 text-xs shrink-0">
-              <div className="w-5 h-5 rounded-full bg-cyan-500 text-slate-950 font-bold flex items-center justify-center text-[10px]">
-                {currentUser?.fullName?.charAt(0) || 'U'}
-              </div>
-              <span className="font-semibold text-white max-w-[80px] sm:max-w-[120px] truncate hidden xs:inline">{currentUser?.fullName || currentUser?.email}</span>
+              <button onClick={() => setActiveTab('profile')} className="flex items-center space-x-1.5 sm:space-x-2 cursor-pointer" title="My profile">
+                <div className="w-5 h-5 rounded-full bg-cyan-500 text-slate-950 font-bold flex items-center justify-center text-[10px]">
+                  {currentUser?.fullName?.charAt(0) || 'U'}
+                </div>
+                <span className="font-semibold text-white max-w-[80px] sm:max-w-[120px] truncate hidden xs:inline">{currentUser?.fullName || currentUser?.email}</span>
+              </button>
               <button onClick={onLogout} className="text-slate-400 hover:text-rose-400 p-0.5 ml-1" title="Logout">
                 <LogOut className="w-3.5 h-3.5" />
               </button>
@@ -656,6 +670,7 @@ export default function CustomerDashboardLayout({ currentUser, jwtToken, onLogou
           {activeTab === 'team' && <TeamManager apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'billing' && <BillingManager apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'audit-logs' && <AuditLogViewer apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'profile' && <ProfilePage apiBaseUrl={apiBaseUrl} onSessionUpdate={onSessionUpdate} />}
         </main>
       </div>
 

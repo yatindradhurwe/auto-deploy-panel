@@ -39,6 +39,8 @@ export function sanitizeUser(user) {
     id: user.id,
     fullName: user.fullName || user.name || '',
     email: user.email,
+    phone: user.phone || '',
+    jobTitle: user.jobTitle || '',
     organizationId: user.organizationId || null,
     platformRole: getPlatformRole(user),
     status: getUserStatus(user),

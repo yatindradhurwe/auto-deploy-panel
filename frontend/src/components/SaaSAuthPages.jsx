@@ -18,7 +18,7 @@ import {
   Cpu
 } from 'lucide-react'
 
-export default function SaaSAuthPages({ onAuthSuccess, apiBaseUrl = '', platformStatus = null }) {
+export default function SaaSAuthPages({ onAuthSuccess, apiBaseUrl = '', platformStatus = null, sessionNotice = '' }) {
   const signupsOpen = !platformStatus || platformStatus.allowSignups !== false
   const [view, setView] = useState('login') // 'login' | 'signup' | 'onboarding'
   const [formData, setFormData] = useState({
@@ -52,9 +52,6 @@ export default function SaaSAuthPages({ onAuthSuccess, apiBaseUrl = '', platform
 
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Login failed')
-
-      localStorage.setItem('autodeploy_token', data.token)
-      localStorage.setItem('autodeploy_user', JSON.stringify(data.user))
 
       if (onAuthSuccess) {
         onAuthSuccess(data.token, data.user)
@@ -203,6 +200,12 @@ export default function SaaSAuthPages({ onAuthSuccess, apiBaseUrl = '', platform
               <h2 className="text-2xl font-bold text-white mb-2">Welcome Back</h2>
               <p className="text-sm text-slate-400">Sign in to your AutoDeploy Organization Workspace</p>
             </div>
+
+            {sessionNotice && !error && (
+              <div className="mb-6 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm">
+                {sessionNotice}
+              </div>
+            )}
 
             {error && (
               <div className="mb-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-sm">
