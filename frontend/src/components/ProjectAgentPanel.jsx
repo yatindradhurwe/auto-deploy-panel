@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
   Bot, Send, Square, RefreshCw, Plus, History, FileCode, Terminal, Eye, ChevronRight, ChevronDown,
-  AlertTriangle, CheckCircle2, Undo2, Rocket, X, Key, Brain, Trash2, GitCommit, Settings
+  AlertTriangle, CheckCircle2, Undo2, Rocket, X, Key, Brain, Trash2, GitCommit, Coins
 } from 'lucide-react'
 import { useAuth } from '../store/AuthContext'
 import { useServers } from '../store/ServersContext'
@@ -12,6 +12,8 @@ import { useServers } from '../store/ServersContext'
  */
 
 const API = '/api/studio/ai/agent'
+
+const formatTokens = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n))
 
 const PROVIDER_STYLE = {
   claude: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
@@ -79,9 +81,6 @@ export default function ProjectAgentPanel({ projectPath, projectName, onFilesCha
   const { activeServer } = useServers()
   const [status, setStatus] = useState(null)
   const [provider, setProvider] = useState(null)
-  const [showSettings, setShowSettings] = useState(false)
-  const [drafts, setDrafts] = useState({})
-  const [savingProvider, setSavingProvider] = useState(null)
   const [sessions, setSessions] = useState([])
   const [showHistory, setShowHistory] = useState(false)
   const [session, setSession] = useState(null)
@@ -162,36 +161,6 @@ export default function ProjectAgentPanel({ projectPath, projectName, onFilesCha
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
   }, [transcript, liveText, liveThinking, activeTool])
 
-  const saveProvider = async (id, makeDefault = false) => {
-    const d = drafts[id] || {}
-    setSavingProvider(id)
-    setError(null)
-    try {
-      const body = { provider: id, makeDefault }
-      if (d.apiKey !== undefined && d.apiKey !== '') body.apiKey = d.apiKey
-      if (d.model !== undefined) body.model = d.model
-      const data = await api('/settings', body)
-      setStatus(data.status)
-      setDrafts(x => ({ ...x, [id]: {} }))
-      if (makeDefault || !provider || !data.status.providers.find(p => p.id === provider)?.configured) setProvider(data.status.defaultProvider)
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setSavingProvider(null)
-    }
-  }
-
-  const removeKey = async (id) => {
-    if (!window.confirm('Remove this API key from the server?')) return
-    try {
-      const data = await api('/settings', { provider: id, apiKey: '' })
-      setStatus(data.status)
-      if (provider === id) setProvider(data.status.defaultProvider)
-    } catch (err) {
-      setError(err.message)
-    }
-  }
-
   const newSession = async () => {
     const data = await api('/sessions', { projectPath, projectName, provider })
     setSession(data.session)
@@ -214,6 +183,7 @@ export default function ProjectAgentPanel({ projectPath, projectName, onFilesCha
         setTranscript(t => [...t, ev])
         if (ev.changed) onFilesChanged?.()
         break
+      case 'balance': setStatus(st => st && ({ ...st, balance: ev.balance })); break
       case 'done':
         setLiveText('')
         setLiveThinking('')
@@ -264,6 +234,7 @@ export default function ProjectAgentPanel({ projectPath, projectName, onFilesCha
       setError(`${e.message}. The agent keeps working on the server — reopen this session to see progress.`)
     } finally {
       liveStreamRef.current = false
+      api('/status').then(d => setStatus(d.status)).catch(() => {})
       setRunningState(false)
       setLiveText('')
       setLiveThinking('')
@@ -335,60 +306,20 @@ export default function ProjectAgentPanel({ projectPath, projectName, onFilesCha
   const changedCount = session?.changedFiles?.length || 0
 
   // ------------------------------------------------------------------ render
-  const providerSettings = () => (
-    <div className="space-y-3 w-full text-left">
-      {status?.providers.map(p => {
-        const d = drafts[p.id] || {}
-        return (
-          <div key={p.id} className="p-3 rounded-xl bg-slate-900 border border-slate-700 space-y-2">
-            <div className="flex items-center gap-2">
-              <span className={`px-1.5 py-0.5 rounded border text-[10px] font-bold ${PROVIDER_STYLE[p.id]}`}>{p.label}</span>
-              {p.configured
-                ? <span className="text-emerald-400 text-[11px]">connected · key {p.keyHint}{p.keySource === 'environment' ? ' (env)' : ''}</span>
-                : <span className="text-slate-500 text-[11px]">not connected</span>}
-              {status.defaultProvider === p.id && <span className="ml-auto text-[10px] text-cyan-300">default</span>}
-            </div>
-            <input
-              type="password"
-              value={d.apiKey || ''}
-              onChange={(e) => setDrafts(x => ({ ...x, [p.id]: { ...d, apiKey: e.target.value } }))}
-              placeholder={p.configured ? 'Paste a new key to replace' : `API key — ${p.keyHelp}`}
-              className="w-full p-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 focus:border-cyan-500 focus:outline-none"
-            />
-            <div className="flex items-center gap-2">
-              <span className="text-slate-500 text-[11px]">Model</span>
-              <input
-                value={d.model ?? p.model}
-                onChange={(e) => setDrafts(x => ({ ...x, [p.id]: { ...d, model: e.target.value } }))}
-                placeholder={p.defaultModel}
-                className="flex-1 p-1.5 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 focus:border-cyan-500 focus:outline-none"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => saveProvider(p.id)} disabled={savingProvider === p.id} className="px-2.5 py-1 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold cursor-pointer disabled:opacity-50">Save</button>
-              {p.configured && status.defaultProvider !== p.id && <button onClick={() => saveProvider(p.id, true)} className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer">Make default</button>}
-              {p.configured && p.keySource !== 'environment' && <button onClick={() => removeKey(p.id)} className="ml-auto text-slate-500 hover:text-rose-400 cursor-pointer">Remove key</button>}
-            </div>
-          </div>
-        )
-      })}
-      <p className="text-[10px] text-slate-500">Keys are stored on the server only and shared by every project's agent. Each conversation keeps the model it started with.</p>
-    </div>
-  )
-
-  if (status && !status.providers.some(p => p.configured)) {
+  if (status && !status.providers.length) {
     return (
-      <div className="flex-1 overflow-y-auto p-4 font-mono text-xs space-y-3">
-        <div className="flex flex-col items-center text-center gap-2 pt-2">
+      <div className="flex-1 overflow-y-auto p-4 font-mono text-xs">
+        <div className="flex flex-col items-center text-center gap-2 pt-6">
           <Key className="w-7 h-7 text-cyan-400" />
-          <div className="text-sm font-bold text-white">Connect an AI model</div>
-          <p className="text-slate-400">Add an API key for Claude, ChatGPT or Gemini — one is enough.</p>
+          <div className="text-sm font-bold text-white">AI agent not available yet</div>
+          <p className="text-slate-400 max-w-xs">The platform administrator hasn't connected an AI model (Claude, ChatGPT or Gemini). It's set up in the platform console under AI Models &amp; Tokens.</p>
         </div>
-        {providerSettings()}
-        {error && <div className="text-rose-300">{error}</div>}
+        {error && <div className="text-rose-300 mt-3">{error}</div>}
       </div>
     )
   }
+
+  const outOfTokens = status?.metered && status.balance <= 0
 
   const configuredProviders = status?.providers.filter(p => p.configured) || []
   const sessionProvider = session ? status?.providers.find(p => p.id === session.provider) : null
@@ -415,12 +346,17 @@ export default function ProjectAgentPanel({ projectPath, projectName, onFilesCha
         <span className="flex-1 truncate text-slate-300">{session?.title || 'New conversation'}</span>
         {session?.usage && (
           <span className="text-[10px] text-slate-500 shrink-0" title={`${session.usage.input + session.usage.cacheRead} input / ${session.usage.output} output tokens`}>
-            {session.usage.costUsd != null ? `$${session.usage.costUsd.toFixed(2)}` : `${Math.round((session.usage.input + session.usage.cacheRead + session.usage.output) / 1000)}k tok`}
+            {session.metered ? `${formatTokens(session.usage.tokensCharged || 0)} used` : session.usage.costUsd != null ? `$${session.usage.costUsd.toFixed(2)}` : `${Math.round((session.usage.input + session.usage.cacheRead + session.usage.output) / 1000)}k tok`}
           </span>
         )}
-        <button onClick={() => setShowSettings(true)} className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 cursor-pointer" title="AI models & keys">
-          <Settings className="w-4 h-4" />
-        </button>
+        {status?.metered && (
+          <span
+            className={`flex items-center gap-1 text-[10px] font-bold shrink-0 px-1.5 py-0.5 rounded border ${outOfTokens ? 'text-rose-300 border-rose-500/30 bg-rose-500/10' : 'text-amber-300 border-amber-500/30 bg-amber-500/10'}`}
+            title="Your organization's AI token balance. Buy more under Billing & Quotas."
+          >
+            <Coins className="w-3 h-3" /> {formatTokens(Math.max(status.balance, 0))}
+          </span>
+        )}
         <button onClick={() => { setSession(null); setTranscript([]); setShowHistory(false) }} disabled={runningState} className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 cursor-pointer disabled:opacity-40" title="New conversation">
           <Plus className="w-4 h-4" />
         </button>
@@ -525,13 +461,18 @@ export default function ProjectAgentPanel({ projectPath, projectName, onFilesCha
 
       {/* Prompt box */}
       <div className="p-3 border-t border-slate-800 bg-slate-950">
+        {outOfTokens && (
+          <div className="mb-2 px-3 py-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-200 text-[11px]">
+            Your organization has no AI tokens left. An owner or admin can buy a token pack under Billing &amp; Quotas.
+          </div>
+        )}
         <div className="relative">
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
             rows={3}
-            disabled={!status}
+            disabled={!status || outOfTokens}
             placeholder={runningState ? 'The agent is working… (you can stop it)' : 'Describe what to change… (Enter to send, Shift+Enter for a new line)'}
             className="w-full p-3 pr-11 bg-slate-900 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-500 focus:border-cyan-500 focus:outline-none resize-none"
           />
@@ -547,17 +488,6 @@ export default function ProjectAgentPanel({ projectPath, projectName, onFilesCha
         </div>
       </div>
 
-      {showSettings && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-          <div className="bg-slate-950 border border-white/10 rounded-2xl w-full max-w-md max-h-[88vh] flex flex-col">
-            <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
-              <span className="text-sm font-bold text-white flex items-center gap-2"><Settings className="w-4 h-4 text-cyan-400" /> AI models & keys</span>
-              <button onClick={() => setShowSettings(false)} className="text-slate-400 hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
-            </div>
-            <div className="p-4 overflow-y-auto">{providerSettings()}</div>
-          </div>
-        </div>
-      )}
 
       {/* Review changes */}
       {showChanges && (

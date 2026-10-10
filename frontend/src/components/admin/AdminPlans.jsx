@@ -52,7 +52,7 @@ function PlanModal({ plan, isNew, open, onClose, onSaved, apiBaseUrl }) {
           <TextInput value={form.id || ''} disabled={!isNew} onChange={(e) => setForm({ ...form, id: e.target.value.toUpperCase() })} placeholder="AGENCY" />
         </Field>
         <Field label="Display name"><TextInput value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Agency" /></Field>
-        <Field label="Price per month (USD)"><TextInput type="number" min={0} step="0.01" value={form.priceMonthly ?? ''} onChange={num('priceMonthly')} /></Field>
+        <Field label="Price per month" hint="In the payment currency set under Payments &amp; Messaging."><TextInput type="number" min={0} step="0.01" value={form.priceMonthly ?? ''} onChange={num('priceMonthly')} /></Field>
         {LIMITS.map(([key, label]) => (
           <Field key={key} label={label}><TextInput type="number" min={0} value={form[key] ?? ''} onChange={num(key)} /></Field>
         ))}

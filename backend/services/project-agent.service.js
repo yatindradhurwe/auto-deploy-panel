@@ -8,6 +8,7 @@ import { PROVIDERS, getProvider } from './agent-providers.js'
 import { readDb, getServerById } from './db.service.js'
 import { getHost, q } from './host.service.js'
 import { getStoredSettings } from './project-settings.service.js'
+import { getBalance, chargeUsage } from './ai-credits.service.js'
 
 /**
  * Coding agent for a project (Claude, ChatGPT or Gemini — see agent-providers.js).
@@ -56,6 +57,9 @@ function getModel(id) {
   return readSettings().models?.[id] || getProvider(id).defaultModel
 }
 
+const isEnabled = (settings, id) => !(settings.disabledProviders || []).includes(id)
+
+/** Full provider status for the super admin console (key hints, sources, disabled providers). */
 export function getAgentStatus() {
   const settings = readSettings()
   const providers = Object.values(PROVIDERS).map(p => {
@@ -64,6 +68,7 @@ export function getAgentStatus() {
       id: p.id,
       label: p.label,
       configured: !!key,
+      enabled: isEnabled(settings, p.id),
       keySource: process.env[p.envKey] ? 'environment' : (key ? 'panel settings' : null),
       keyHint: key ? `…${key.slice(-4)}` : null,
       keyHelp: p.keyHelp,
@@ -71,7 +76,7 @@ export function getAgentStatus() {
       defaultModel: p.defaultModel
     }
   })
-  const configured = providers.filter(p => p.configured)
+  const configured = providers.filter(p => p.configured && p.enabled)
   const preferred = settings.defaultProvider
   return {
     providers,
@@ -81,8 +86,23 @@ export function getAgentStatus() {
   }
 }
 
-/** Saves a provider's key and/or model. An empty key removes the stored key. */
-export function updateProviderSettings({ provider, apiKey, model, makeDefault }) {
+/**
+ * What organization users see: the providers they can pick, without any key details.
+ * `balance` is their organization's AI token balance (null = not metered).
+ */
+export function getPublicAgentStatus({ organizationId = null, metered = false } = {}) {
+  const full = getAgentStatus()
+  return {
+    providers: full.providers.filter(p => p.configured && p.enabled).map(p => ({ id: p.id, label: p.label, configured: true, model: p.model })),
+    defaultProvider: full.defaultProvider,
+    configured: full.configured,
+    metered,
+    balance: metered ? getBalance(organizationId) : null
+  }
+}
+
+/** Saves a provider's key, model, enabled flag and/or default. An empty key removes the stored key. */
+export function updateProviderSettings({ provider, apiKey, model, makeDefault, enabled }) {
   const p = getProvider(provider)
   if (apiKey !== undefined) {
     apiKey = String(apiKey || '').trim()
@@ -102,6 +122,12 @@ export function updateProviderSettings({ provider, apiKey, model, makeDefault })
     if (model && !/^[A-Za-z0-9._:\/-]{2,80}$/.test(model)) throw httpError(400, 'Invalid model name.')
     if (model && model !== p.defaultModel) settings.models[p.id] = model
     else delete settings.models[p.id]
+  }
+  if (enabled !== undefined) {
+    const disabled = new Set(settings.disabledProviders || [])
+    if (enabled) disabled.delete(p.id)
+    else disabled.add(p.id)
+    settings.disabledProviders = [...disabled]
   }
   if (makeDefault) settings.defaultProvider = p.id
   writeSettings(settings)
@@ -213,9 +239,15 @@ ${facts}
 7. Finish with a short summary for a non-specialist: what you changed (file by file), how you verified it, and anything the user must do next (for example, "Deploy to restart the backend").`
 }
 
-export async function createSession(projectPath, projectName, providerId, server = null) {
+/**
+ * `owner` = { organizationId, userId, metered }. Metered sessions are billed to the
+ * organization's AI token balance; super admin console sessions are not metered.
+ */
+export async function createSession(projectPath, projectName, providerId, server = null, owner = {}) {
   const provider = getProvider(providerId || getAgentStatus().defaultProvider || 'claude')
-  if (!getApiKey(provider.id)) throw httpError(400, `No ${provider.label} API key configured. Add one in the agent settings.`)
+  if (!getApiKey(provider.id)) throw httpError(400, `No ${provider.label} API key configured. The platform administrator manages AI keys.`)
+  if (owner.metered && !isEnabled(readSettings(), provider.id)) throw httpError(400, `${provider.label} is not available on this platform.`)
+  if (owner.metered && getBalance(owner.organizationId) <= 0) throw httpError(402, 'Your organization has no AI tokens left. Buy a token pack under Billing to use the AI agent.')
   const host = getHost(server)
   const root = await host.realpath(projectPath)
   const facts = await describeProject(host, root)
@@ -225,6 +257,9 @@ export async function createSession(projectPath, projectName, providerId, server
     id: `ses_${crypto.randomBytes(12).toString('hex')}`,
     serverId: host.isLocal ? null : server.id,
     serverName: host.label,
+    organizationId: owner.organizationId || null,
+    userId: owner.userId || null,
+    metered: !!owner.metered,
     provider: provider.id,
     model: getModel(provider.id),
     projectPath: root,
@@ -268,21 +303,29 @@ function publicSession(s) {
     status: running.has(s.id) ? 'running' : (s.status === 'running' ? 'interrupted' : s.status),
     transcript: s.transcript,
     changedFiles: Object.entries(s.changes).map(([file, c]) => ({ file, created: c.created })),
-    usage: { ...s.usage, costUsd: costOf(s) }
+    usage: { ...s.usage, costUsd: costOf(s), tokensCharged: s.tokensCharged || 0 },
+    metered: !!s.metered
   }
+}
+
+/** Ownership fields used by the route authorization (never sent to the browser as-is). */
+export function getSessionOwner(id) {
+  const s = loadSession(id)
+  return { organizationId: s.organizationId || null, serverId: s.serverId || null, projectPath: s.projectPath, metered: !!s.metered }
 }
 
 export function getSession(id) {
   return publicSession(loadSession(id))
 }
 
-export function listSessions(projectPath, serverId = null) {
+export function listSessions(projectPath, serverId = null, organizationId = undefined) {
   const root = path.posix.resolve(projectPath)
   let files = []
   try { files = fs.readdirSync(SESSIONS_DIR).filter(f => f.endsWith('.json')) } catch { return [] }
   return files
     .map(f => { try { return JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, f), 'utf8')) } catch { return null } })
     .filter(s => s && s.projectPath === root && (s.serverId || null) === (serverId || null))
+    .filter(s => organizationId === undefined || (s.organizationId || null) === organizationId)
     .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))
     .slice(0, 30)
     .map(s => ({ id: s.id, provider: s.provider || 'claude', providerLabel: providerOf(s).label, title: s.title || 'New session', updatedAt: s.updatedAt, changedFiles: Object.keys(s.changes).length, status: running.has(s.id) ? 'running' : s.status }))
@@ -584,8 +627,11 @@ export async function runPrompt(sessionId, prompt, emit = () => {}) {
   if (!prompt) throw httpError(400, 'Prompt is empty.')
   const provider = providerOf(session)
   const apiKey = getApiKey(provider.id)
-  if (!apiKey) throw httpError(400, `No ${provider.label} API key configured. Add one in the agent settings.`)
+  if (!apiKey) throw httpError(400, `No ${provider.label} API key configured. The platform administrator manages AI keys.`)
   const model = session.model || provider.defaultModel
+  if (session.metered && getBalance(session.organizationId) <= 0) {
+    throw httpError(402, 'Your organization has no AI tokens left. Buy a token pack under Billing to continue.')
+  }
 
   const host = hostOf(session)
   const controller = new AbortController()
@@ -614,6 +660,15 @@ export async function runPrompt(sessionId, prompt, emit = () => {}) {
       const turn = await provider.step({ apiKey, model, system: session.system, messages: session.messages, emit, signal: controller.signal })
 
       for (const k of ['input', 'output', 'cacheRead', 'cacheWrite']) session.usage[k] += turn.usage[k] || 0
+      let outOfTokens = false
+      if (session.metered) {
+        const { charged, balance } = chargeUsage(session.organizationId, turn.usage, {
+          providerId: provider.id, model, sessionId: session.id, userId: session.userId, projectName: session.projectName
+        })
+        session.tokensCharged = (session.tokensCharged || 0) + charged
+        emit({ type: 'balance', balance, charged })
+        outOfTokens = balance <= 0
+      }
       for (const t of turn.thoughts) push({ type: 'thinking', text: t })
       for (const t of turn.texts) push({ type: 'assistant', text: t })
 
@@ -662,6 +717,10 @@ export async function runPrompt(sessionId, prompt, emit = () => {}) {
       session.messages.push(...provider.toolResultsMessage(turn.toolCalls, results))
       saveSession(session)
       if (controller.signal.aborted) break
+      if (outOfTokens) {
+        push({ type: 'error', text: 'Your organization ran out of AI tokens. Buy a token pack under Billing, then send "continue".' })
+        break
+      }
     }
   } catch (err) {
     if (controller.signal.aborted || provider.isAbort(err)) push({ type: 'error', text: 'Stopped by user.' })
@@ -674,7 +733,7 @@ export async function runPrompt(sessionId, prompt, emit = () => {}) {
     }
     running.delete(sessionId)
     session.status = 'idle'
-    push({ type: 'done', usage: { ...session.usage, costUsd: costOf(session) }, changedFiles: Object.keys(session.changes) })
+    push({ type: 'done', usage: { ...session.usage, costUsd: costOf(session), tokensCharged: session.tokensCharged || 0 }, changedFiles: Object.keys(session.changes) })
     saveSession(session)
   }
 }

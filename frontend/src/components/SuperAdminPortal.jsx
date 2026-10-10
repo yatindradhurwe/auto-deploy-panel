@@ -8,6 +8,8 @@ import AdminSupport from './admin/AdminSupport'
 import { AdminServers, AdminSubscriptions, AdminAuditLog } from './admin/AdminRecords'
 import ProfilePage from './ProfilePage'
 import AdminTemplates from './admin/AdminTemplates'
+import AdminAI from './admin/AdminAI'
+import AdminIntegrations from './admin/AdminIntegrations'
 
 const PAGE_TITLES = {
   dashboard: ['Platform overview', 'Users, revenue and activity across every tenant'],
@@ -17,6 +19,8 @@ const PAGE_TITLES = {
   subscriptions: ['Subscriptions', 'Plan assignments and billing periods'],
   support: ['Support tickets', 'Questions and issues raised by admins from their panel'],
   plans: ['Plans & pricing', 'Limits and prices offered to customers'],
+  ai: ['AI models & tokens', 'Claude, ChatGPT and Gemini keys for the project agent, token packs and organization balances'],
+  integrations: ['Payments & messaging', 'Razorpay payments, email, SMS and WhatsApp for customer notifications'],
   marketplace: ['Marketplace templates', 'Upload and publish templates customers can deploy in one click'],
   'audit-logs': ['Audit trail', 'Every sign-in and administrative action'],
   settings: ['Platform settings', 'Registration, maintenance mode and announcements'],
@@ -40,6 +44,8 @@ export default function SuperAdminPortal({ activeTab = 'dashboard', apiBaseUrl =
       {activeTab === 'subscriptions' && <AdminSubscriptions {...props} />}
       {activeTab === 'support' && <AdminSupport {...props} />}
       {activeTab === 'plans' && <AdminPlans {...props} />}
+      {activeTab === 'ai' && <AdminAI {...props} />}
+      {activeTab === 'integrations' && <AdminIntegrations {...props} />}
       {activeTab === 'marketplace' && <AdminTemplates {...props} />}
       {activeTab === 'audit-logs' && <AdminAuditLog {...props} />}
       {activeTab === 'settings' && <AdminSettings {...props} />}

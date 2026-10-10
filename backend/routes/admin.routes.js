@@ -41,6 +41,11 @@ import { listTickets, getTicket, replyToTicket, updateTicket } from '../services
 import { revokeUserSessions } from '../services/session.service.js'
 import { listTemplates, getTemplate, createTemplate, updateTemplate, deleteTemplate, publicTemplate } from '../services/template.service.js'
 import { getUserSettings } from '../services/db.service.js'
+import * as projectAgent from '../services/project-agent.service.js'
+import { getPublicIntegrations, saveIntegrationSection, CURRENCIES, NOTIFICATION_EVENTS } from '../services/integrations.service.js'
+import { sendEmail, sendSms, sendWhatsApp, notifyUser } from '../services/notify.service.js'
+import { testRazorpay, listPayments } from '../services/payments.service.js'
+import { getAiBilling, saveAiBilling, getOrganizationTokenSummary, getLedger, adjustBalance } from '../services/ai-credits.service.js'
 
 const router = express.Router()
 
@@ -387,6 +392,43 @@ router.put('/settings', handle((req) => {
 }))
 
 // ============================================================================
+// AI models & token billing
+// ============================================================================
+
+router.get('/ai', handle(() => ({
+  success: true,
+  status: projectAgent.getAgentStatus(),
+  billing: getAiBilling(),
+  organizations: getOrganizationTokenSummary(),
+  ledger: getLedger({ limit: 200 })
+})))
+
+router.put('/ai/providers/:id', handle((req) => {
+  const { apiKey, model, makeDefault, enabled } = req.body || {}
+  const status = projectAgent.updateProviderSettings({ provider: req.params.id, apiKey, model, makeDefault, enabled })
+  // Never log the key itself
+  audit(req, 'ADMIN_AI_PROVIDER_UPDATED', 'ai-provider', req.params.id, {
+    keyChanged: apiKey !== undefined, keyRemoved: apiKey === '', model, makeDefault: !!makeDefault, enabled
+  })
+  return { success: true, status }
+}))
+
+router.put('/ai/billing', handle((req) => {
+  const billing = saveAiBilling(req.body || {})
+  audit(req, 'ADMIN_AI_BILLING_UPDATED', 'platform', 'ai-billing', { packs: billing.packs.length, multipliers: billing.multipliers, signupBonusTokens: billing.signupBonusTokens })
+  return { success: true, billing }
+}))
+
+router.post('/organizations/:id/ai-tokens', handle((req) => {
+  const org = getOrganizationById(req.params.id)
+  if (!org) throw httpError(404, 'Organization not found.')
+  const { tokens, note = '' } = req.body || {}
+  const balance = adjustBalance(org.id, tokens, { userId: req.user.id, note })
+  audit(req, 'ADMIN_AI_TOKENS_ADJUSTED', 'organization', org.id, { tokens: Number(tokens), note, balance }, org.id)
+  return { success: true, balance }
+}))
+
+// ============================================================================
 // Support desk
 // ============================================================================
 
@@ -400,6 +442,10 @@ router.get('/support/tickets/:id', handle((req) => ({ success: true, ticket: get
 router.post('/support/tickets/:id/replies', handle((req) => {
   const ticket = replyToTicket(req.params.id, { user: req.user, body: (req.body || {}).body, asStaff: true })
   audit(req, 'ADMIN_SUPPORT_REPLIED', 'support_ticket', ticket.id, { number: ticket.number }, ticket.organizationId)
+  notifyUser(ticket.createdBy, 'supportReply', {
+    subject: `Reply on support ticket #${ticket.number}`,
+    text: `Our support team replied to your ticket #${ticket.number} "${ticket.subject}". Sign in to your panel to read it and respond.`
+  })
   return { success: true, ticket }
 }))
 
@@ -470,5 +516,39 @@ router.get('/audit-logs', handle((req) => {
 router.get('/idempotency/stats', handle(() => ({ success: true, stats: getIdempotencyStats() })))
 
 router.get('/idempotency/records', handle(() => ({ success: true, records: getAllIdempotencyRecords() })))
+
+// ============================================================================
+// Integrations: payments (Razorpay), email, SMS, WhatsApp, notifications
+// ============================================================================
+
+router.get('/integrations', handle(() => ({
+  success: true,
+  integrations: getPublicIntegrations(),
+  currencies: CURRENCIES,
+  events: NOTIFICATION_EVENTS,
+  payments: listPayments({ limit: 100 }).map((p) => ({ ...p, amount: p.amount / 100 }))
+})))
+
+router.put('/integrations/:section', handle((req) => {
+  const integrations = saveIntegrationSection(req.params.section, req.body || {})
+  // Record which fields changed, never their values
+  audit(req, 'ADMIN_INTEGRATION_UPDATED', 'integration', req.params.section, { fields: Object.keys(req.body || {}) })
+  return { success: true, integrations }
+}))
+
+router.post('/integrations/:section/test', handleAsync(async (req) => {
+  const to = String((req.body || {}).to || '').trim()
+  const section = req.params.section
+  let result
+  if (section === 'razorpay') return { success: true, ...(await testRazorpay()) }
+  if (!to) throw httpError(400, section === 'email' ? 'Enter an email address to send the test to.' : 'Enter a phone number to send the test to.')
+  const text = 'This is a test message from your AutoDeploy platform. If you received it, this channel is set up correctly.'
+  if (section === 'email') result = await sendEmail({ to, subject: 'AutoDeploy test email', text })
+  else if (section === 'sms') result = await sendSms({ to, text })
+  else if (section === 'whatsapp') result = await sendWhatsApp({ to, text })
+  else throw httpError(404, 'Unknown integration.')
+  audit(req, 'ADMIN_INTEGRATION_TESTED', 'integration', section, { to })
+  return { success: true, message: `Test sent to ${to}.`, id: result?.id || null }
+}))
 
 export default router

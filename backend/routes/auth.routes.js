@@ -4,6 +4,8 @@ import crypto from 'crypto'
 import { authenticateToken, signSessionToken } from '../middleware/auth.middleware.js'
 import { getPlatformRole, getUserStatus, getPlatformSettings } from '../services/admin.service.js'
 import { revokeSession } from '../services/session.service.js'
+import { grantSignupBonus } from '../services/ai-credits.service.js'
+import { notifyUser } from '../services/notify.service.js'
 import { createRateLimiter, rejectIfLimited, clientIp } from '../middleware/rateLimit.middleware.js'
 import {
   getUserByEmail,
@@ -86,6 +88,11 @@ router.post('/signup', (req, res) => {
 
     // Update user primary organizationId
     updateUser(newUser.id, { organizationId: org.id })
+    grantSignupBonus(org.id)
+    notifyUser(newUser.id, 'welcome', {
+      subject: 'Welcome to AutoDeploy',
+      text: `Hi ${newUser.fullName}, your workspace "${org.name}" is ready. Connect a server to start deploying your projects.`
+    })
 
     const token = signSessionToken(newUser, { organizationId: org.id, req })
 

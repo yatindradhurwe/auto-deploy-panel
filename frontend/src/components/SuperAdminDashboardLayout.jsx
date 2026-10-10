@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import {
   Crown, Users, Building, Server, RefreshCw, Zap, ShieldAlert, BarChart3,
   LogOut, Layers, Key, Activity, Clock, ShieldCheck, CreditCard, ChevronRight,
-  Eye, AlertTriangle, ArrowLeft, Menu, X, Settings, Tags, LifeBuoy, UserCircle, ShoppingBag
+  Eye, AlertTriangle, ArrowLeft, Menu, X, Settings, Tags, LifeBuoy, UserCircle, ShoppingBag, Bot, Plug
 } from 'lucide-react'
 import SuperAdminPortal from './SuperAdminPortal'
 import { useAuth } from '../store/AuthContext'
@@ -41,6 +41,8 @@ export default function SuperAdminDashboardLayout({ apiBaseUrl = '' }) {
         { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard },
         { id: 'support', label: 'Support Tickets', icon: LifeBuoy },
         { id: 'plans', label: 'Plans & Pricing', icon: Tags },
+        { id: 'ai', label: 'AI Models & Tokens', icon: Bot },
+        { id: 'integrations', label: 'Payments & Messaging', icon: Plug },
         { id: 'marketplace', label: 'Marketplace', icon: ShoppingBag }
       ]
     },

@@ -8,6 +8,7 @@ import {
   normalizeProjectPath
 } from '../services/project-access.service.js'
 import { isLocalServer } from '../services/host.service.js'
+import { getSessionOwner } from '../services/project-agent.service.js'
 
 /**
  * Authorization for /api/studio (runs after authenticateToken + requireTenant).
@@ -17,6 +18,8 @@ import { isLocalServer } from '../services/host.service.js'
  *  - project:viewer  read-only project actions
  *  - project:manager project changes (deploy, restart, env, files, git)
  *  - org-admin       organization OWNER/ADMIN on their own servers
+ *  - agent-session   an AI agent session of the caller's organization, on a project they manage
+ * AI provider settings (/ai/agent/settings) are intentionally absent: super admin only.
  * Organization users never reach the panel's own host.
  */
 const POLICIES = [
@@ -26,6 +29,9 @@ const POLICIES = [
   [/^\/(git\/(pull|push|pull-and-update|rollback)|pm2\/control|env\/(get|save)|files\/(tree|read|save|create|delete|upload)|project-settings\/(get|save|pwa-check))$/, 'project:manager'],
   [/^\/servers\/(test|add|update|delete)$/, 'org-admin', { needsServer: false }],
   [/^\/(webhooks\/logs|email\/.+)$/, 'org-admin', { needsServer: false }],
+  [/^\/ai\/agent\/status$/, 'list', { needsServer: false }],
+  [/^\/ai\/agent\/sessions$/, 'project:manager'],
+  [/^\/ai\/agent\/sessions\/[^/]+(\/(delete|message|stop|changes|revert|deploy))?$/, 'agent-session'],
   [/^\/(servers\/scan|terminal\/exec|nginx\/config|ssl\/(issue|certificates)|cron\/(list|save)|databases(\/[a-z-]+)?|projects\/delete)$/, 'org-admin']
 ]
 
@@ -80,6 +86,18 @@ export function requireStudioAccess(req, res, next) {
   if (policy === 'org-admin') {
     if (!isOrgAdmin(req)) return deny(res, 403, 'Only organization owners and admins can do this.')
     req.studioAccess = { level: 'owner' }
+    return next()
+  }
+
+  if (policy === 'agent-session') {
+    let owner
+    try { owner = getSessionOwner(route.split('/')[4]) } catch { return deny(res, 404, 'Session not found.') }
+    if (!owner.metered || owner.organizationId !== req.tenant?.organizationId || owner.serverId !== (req.tenant?.server?.id || null)) {
+      return deny(res, 404, 'Session not found.')
+    }
+    const level = projectLevel(req, { projectPath: owner.projectPath })
+    if (!hasLevel(level, 'manager')) return deny(res, 403, level ? 'Your access to this project is read-only.' : 'You do not have access to this project.')
+    req.studioAccess = { level }
     return next()
   }
 

@@ -10,7 +10,7 @@ import { hostFor, getHost, publicServer, isLocalServer, forgetHost, testServerCo
 import { discoverProjects } from '../services/project-discovery.service.js'
 import { updateProject, deleteProject } from '../services/project-ops.service.js'
 import { validateResourceOwnership } from '../middleware/tenant.middleware.js'
-import { filterProjectsForUser, sharesForUser, projectLevel } from '../services/project-access.service.js'
+import { filterProjectsForUser, sharesForUser, projectLevel, isSuperSession } from '../services/project-access.service.js'
 import { loadSettings, saveSection, checkPwa } from '../services/project-settings.service.js'
 import {
   readDb,
@@ -1065,15 +1065,20 @@ const agentHandler = (fn) => async (req, res) => {
   }
 }
 
-router.get('/ai/agent/status', agentHandler(async () => ({ status: projectAgent.getAgentStatus() })))
+// AI keys and models are managed from the super admin console (/api/admin/ai); organization
+// sessions are metered against the organization's AI token balance.
+const agentOwner = (req) => (isSuperSession(req)
+  ? { organizationId: null, userId: req.user.id, metered: false }
+  : { organizationId: req.tenant.organizationId, userId: req.user.id, metered: true })
 
-router.post('/ai/agent/settings', agentHandler(async (req) => ({ status: projectAgent.updateProviderSettings(req.body) })))
+router.get('/ai/agent/status', agentHandler(async (req) => ({ status: projectAgent.getPublicAgentStatus(agentOwner(req)) })))
 
 router.get('/ai/agent/sessions', agentHandler(async (req) => {
   const host = hostFor(req)
   const dir = await resolveProjectDir(host, req.query.projectPath)
   if (!dir) throw Object.assign(new Error('Project directory not found.'), { status: 404 })
-  return { sessions: projectAgent.listSessions(dir, host.isLocal ? null : req.tenant.server.id) }
+  const owner = agentOwner(req)
+  return { sessions: projectAgent.listSessions(dir, host.isLocal ? null : req.tenant.server.id, owner.metered ? owner.organizationId : undefined) }
 }))
 
 router.post('/ai/agent/sessions', agentHandler(async (req) => {
@@ -1081,7 +1086,7 @@ router.post('/ai/agent/sessions', agentHandler(async (req) => {
   const dir = await resolveProjectDir(host, req.body.projectPath)
   if (!dir) throw Object.assign(new Error('Project directory not found.'), { status: 404 })
   if (isProtectedPath(dir)) throw Object.assign(new Error('The agent can only work inside a project directory.'), { status: 400 })
-  return { session: await projectAgent.createSession(dir, req.body.projectName, req.body.provider, host.isLocal ? null : req.tenant.server) }
+  return { session: await projectAgent.createSession(dir, req.body.projectName, req.body.provider, host.isLocal ? null : req.tenant.server, agentOwner(req)) }
 }))
 
 router.get('/ai/agent/sessions/:id', agentHandler(async (req) => ({ session: projectAgent.getSession(req.params.id) })))
