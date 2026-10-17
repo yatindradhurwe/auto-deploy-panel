@@ -105,7 +105,7 @@ export default function TeamManager({ apiBaseUrl = '' }) {
 
         <button
           onClick={() => setShowInviteModal(true)}
-          className="px-4 py-2.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-cyan-500/20 flex items-center space-x-2 transition"
+          className="px-4 py-2.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-onaccent font-bold text-xs rounded-xl shadow-lg shadow-cyan-500/20 flex items-center space-x-2 transition"
         >
           <UserPlus className="w-4 h-4" />
           <span>Invite Member</span>
@@ -159,7 +159,7 @@ export default function TeamManager({ apiBaseUrl = '' }) {
               members.map((m) => (
                 <tr key={m.id} className="hover:bg-slate-800/40 transition">
                   <td className="py-4 px-6 font-semibold flex items-center space-x-3">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center font-bold text-white text-xs shadow">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center font-bold text-onaccent text-xs shadow">
                       {m.fullName?.charAt(0) || 'U'}
                     </div>
                     <span>{m.fullName}</span>
@@ -245,7 +245,7 @@ export default function TeamManager({ apiBaseUrl = '' }) {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-cyan-500/20"
+                  className="flex-1 py-2.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-onaccent font-bold rounded-xl shadow-lg shadow-cyan-500/20"
                 >
                   Send Invitation
                 </button>

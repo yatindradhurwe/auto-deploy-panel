@@ -238,6 +238,25 @@ export function withGithubToken(url, token) {
 
 export const redactUrl = (text) => String(text).replace(/(https:\/\/)[^@\s/]+@/g, '$1***@')
 
+/** Lists a repository's branches (default first) with `git ls-remote`, without cloning. */
+export async function listGitBranches({ gitUrl, token }) {
+  const url = withGithubToken(validateGitUrl(gitUrl), token)
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: 'true' }
+  try {
+    const out = await run('git', ['-c', 'protocol.ext.allow=never', '-c', 'protocol.file.allow=never', 'ls-remote', '--symref', '--', url, 'HEAD', 'refs/heads/*'], { env, timeout: 60000 })
+    const def = (out.match(/^ref: refs\/heads\/(\S+)\s+HEAD$/m) || [])[1] || null
+    const branches = out.split('\n').map(l => (l.match(/\trefs\/heads\/(.+)$/) || [])[1]).filter(b => b && /^[A-Za-z0-9._\/-]{1,100}$/.test(b))
+    branches.sort((a, b) => (b === def) - (a === def) || a.localeCompare(b))
+    return { branches, defaultBranch: def || branches[0] || 'main' }
+  } catch (err) {
+    const msg = redactUrl(err.message)
+    if (/Authentication failed|could not read Username|Repository not found|403/i.test(msg)) {
+      throw httpError(400, 'Could not access this repository. If it is private, connect your GitHub token first.')
+    }
+    throw httpError(400, `Could not list branches: ${msg}`)
+  }
+}
+
 export async function analyzeGitRepo({ gitUrl, branch, token }) {
   const url = withGithubToken(validateGitUrl(gitUrl), token)
   if (branch && !/^[A-Za-z0-9._\/-]{1,100}$/.test(branch)) throw httpError(400, 'Invalid branch name.')

@@ -60,7 +60,7 @@ export function StatusBadge({ status }) {
 
 export function Button({ variant = 'secondary', size = 'md', loading = false, children, className = '', ...props }) {
   const variants = {
-    primary: 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white border-transparent shadow-lg shadow-purple-500/20',
+    primary: 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-onaccent border-transparent shadow-lg shadow-purple-500/20',
     secondary: 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700',
     danger: 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border-rose-500/30',
     success: 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
@@ -140,7 +140,7 @@ export function Toggle({ checked, onChange, label, description }) {
         {description && <span className="block text-xs text-slate-400 mt-0.5">{description}</span>}
       </span>
       <span className={`relative shrink-0 w-10 h-6 rounded-full transition ${checked ? 'bg-purple-600' : 'bg-slate-700'}`}>
-        <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${checked ? 'left-5' : 'left-1'}`} />
+        <span className={`absolute top-1 w-4 h-4 rounded-full bg-onaccent transition-all ${checked ? 'left-5' : 'left-1'}`} />
       </span>
     </button>
   )

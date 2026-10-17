@@ -8,6 +8,7 @@ import bcrypt from 'bcryptjs'
 import { simpleParser } from 'mailparser'
 import MailComposer from 'nodemailer/lib/mail-composer/index.js'
 import { readDb, writeDb } from './db.service.js'
+import { getConnection as getDnsConnection, applyEmailDns } from './dns-provider.service.js'
 
 /**
  * Real domain email: Postfix (SMTP) + Dovecot (IMAP/POP3/LMTP/SASL) + OpenDKIM.
@@ -85,6 +86,14 @@ async function getPublicIp() {
       .find(i => i && i.family === 'IPv4' && !i.internal)?.address || '127.0.0.1'
   }
   return publicIpCache
+}
+
+let publicIpv6Cache
+async function getPublicIpv6() {
+  if (publicIpv6Cache !== undefined) return publicIpv6Cache
+  publicIpv6Cache = Object.values(os.networkInterfaces()).flat()
+    .find(i => i && i.family === 'IPv6' && !i.internal && !/^fe80:/i.test(i.address))?.address || null
+  return publicIpv6Cache
 }
 
 async function serviceActive(name) {
@@ -238,6 +247,41 @@ function readDkimPublicKey(domain, selector = DKIM_SELECTOR) {
 // Domains
 // ---------------------------------------------------------------------------------------------
 
+/** Values the DNS provider integration writes for a mail domain. */
+export async function getEmailDnsPlan(domain, orgId) {
+  const record = listDomains(orgId).find(d => d.domain === domain)
+  if (!record) throw httpError(404, 'Domain not found.')
+  return {
+    mailHost: getMailHost(),
+    ipv4: await getPublicIp(),
+    ipv6: await getPublicIpv6(),
+    selector: record.dkimSelector || DKIM_SELECTOR,
+    dkim: readDkimPublicKey(domain, record.dkimSelector),
+    dmarc: `v=DMARC1; p=quarantine; rua=mailto:postmaster@${domain}; adkim=r; aspf=r`
+  }
+}
+
+/** Writes the domain's email DNS through the connected provider and remembers the outcome. */
+export async function autoConfigureDns(domain, orgId, opts = {}) {
+  let outcome
+  try {
+    outcome = { ...(await applyEmailDns(orgId, domain, await getEmailDnsPlan(domain, orgId), opts)), at: new Date().toISOString() }
+  } catch (e) {
+    outcome = { domain, error: e.message, at: new Date().toISOString() }
+  }
+  const db = readDb()
+  const rec = (db.emailDomains || []).find(d => d.domain === domain)
+  if (rec) { rec.autoDns = outcome; writeDb(db) }
+  if (outcome.error && !opts.quiet) throw httpError(400, outcome.error)
+  return outcome
+}
+
+export async function autoConfigureAllDns(orgId, opts = {}) {
+  const out = []
+  for (const { domain } of listDomains(orgId)) out.push(await autoConfigureDns(domain, orgId, { ...opts, quiet: true }))
+  return out
+}
+
 export function listDomains(orgId) {
   const db = readDb()
   const accounts = db.emailAccounts || []
@@ -255,6 +299,7 @@ export async function addDomain(domain, orgId) {
   db.emailDomains ||= []
   let record = db.emailDomains.find(d => d.domain === domain)
   if (record && !inOrg(record, orgId)) throw httpError(409, 'This domain is registered to another organization.')
+  const isNew = !record
   if (!record) {
     record = { domain, organizationId: orgId || 'org-default', dkimSelector: DKIM_SELECTOR, catchAll: null, createdAt: new Date().toISOString() }
     db.emailDomains.push(record)
@@ -262,6 +307,8 @@ export async function addDomain(domain, orgId) {
   }
   await ensureDkimKey(domain, record.dkimSelector)
   await syncMailConfig()
+  // DNS provider connected: publish the new domain's email records straight away
+  if (isNew && getDnsConnection(orgId)) record.autoDns = await autoConfigureDns(domain, orgId, { quiet: true })
   return record
 }
 
@@ -303,6 +350,7 @@ export async function getDnsRecords(domain, orgId) {
   if (!record) throw httpError(404, 'Domain not found.')
   const mailHost = getMailHost()
   const ip = await getPublicIp()
+  const ip6 = await getPublicIpv6()
   const dkim = readDkimPublicKey(domain, record.dkimSelector)
   const selector = record.dkimSelector || DKIM_SELECTOR
 
@@ -324,6 +372,7 @@ export async function getDnsRecords(domain, orgId) {
     domain,
     mailHost,
     publicIp: ip,
+    autoDns: record.autoDns || null,
     records: [
       {
         purpose: 'Mail server address',
@@ -339,10 +388,10 @@ export async function getDnsRecords(domain, orgId) {
       },
       {
         purpose: 'SPF — authorize this server to send',
-        type: 'TXT', host: domain, value: `v=spf1 mx a ip4:${ip} ~all`,
+        type: 'TXT', host: domain, value: `v=spf1 ip4:${ip}${ip6 ? ` ip6:${ip6}` : ''} ~all`,
         current: spf || null,
-        ok: !!spf && (spf.includes(ip) || /\bmx\b/.test(spf) || /\ba\b/.test(spf)),
-        note: spf && !spf.includes(ip) ? 'Merge ip4:' + ip + ' into your existing SPF record — a domain may only have one.' : undefined
+        ok: !!spf && spf.includes(`ip4:${ip}`) && (!ip6 || spf.includes(`ip6:${ip6}`)),
+        note: spf && !(spf.includes(`ip4:${ip}`) && (!ip6 || spf.includes(`ip6:${ip6}`))) ? `Add ip4:${ip}${ip6 ? ` ip6:${ip6}` : ''} to your existing SPF record — a domain may only have one.` : undefined
       },
       {
         purpose: 'DKIM — signature public key',
@@ -419,6 +468,34 @@ export async function createAccount({ username, domain, password, quotaMb }, org
   writeDb(db)
   await syncMailConfig()
   return publicAccount(account)
+}
+
+/**
+ * One-click sending address for an app: no-reply@<domain> on this server with a fresh random
+ * password, ready to drop into the app's SMTP settings. Re-running it rotates the password.
+ */
+export async function provisionAppMailbox(domain, orgId) {
+  domain = String(domain || '').trim().toLowerCase().replace(/^www\./, '')
+  if (!DOMAIN_REGEX.test(domain)) throw httpError(400, 'This project has no domain yet. Add a domain first.')
+  const email = `no-reply@${domain}`
+  const password = crypto.randomBytes(18).toString('base64url')
+  const db = readDb()
+  const existing = (db.emailAccounts || []).find(a => a.email === email)
+  if (existing && !inOrg(existing, orgId)) throw httpError(409, `${email} belongs to another organization.`)
+  if (existing && !existing.appMailbox) throw httpError(409, `${email} is a normal mailbox someone created. Delete it or set the app's email by hand.`)
+  if (existing) await updateAccount(existing.id, { password }, orgId)
+  else await createAccount({ username: 'no-reply', domain, password, quotaMb: 200 }, orgId)
+  const db2 = readDb()
+  const acc = db2.emailAccounts.find(a => a.email === email)
+  acc.appMailbox = true
+  writeDb(db2)
+  const record = listDomains(orgId).find(d => d.domain === domain)
+  return {
+    email,
+    smtp: { host: getMailHost(), port: 587, secure: false, user: email, pass: password },
+    autoDns: record?.autoDns || null,
+    dnsConnected: !!getDnsConnection(orgId)
+  }
 }
 
 function findAccount(db, idOrEmail, orgId) {

@@ -390,7 +390,7 @@ export default function ProjectAgentPanel({ projectPath, projectName, onFilesCha
 
         {transcript.map((ev, i) => {
           if (ev.type === 'user') {
-            return <div key={i} className="flex justify-end"><div className="max-w-[90%] p-2.5 rounded-2xl rounded-tr-none bg-gradient-to-r from-cyan-600 to-indigo-600 text-white whitespace-pre-wrap">{ev.text}</div></div>
+            return <div key={i} className="flex justify-end"><div className="max-w-[90%] p-2.5 rounded-2xl rounded-tr-none bg-gradient-to-r from-cyan-600 to-indigo-600 text-onaccent whitespace-pre-wrap">{ev.text}</div></div>
           }
           if (ev.type === 'assistant') {
             return <div key={i} className="text-slate-200 leading-relaxed break-words">{renderMarkdown(ev.text)}</div>
@@ -455,7 +455,7 @@ export default function ProjectAgentPanel({ projectPath, projectName, onFilesCha
           <FileCode className="w-4 h-4 text-emerald-400 shrink-0" />
           <span className="flex-1 text-slate-300">{changedCount} file{changedCount === 1 ? '' : 's'} changed</span>
           <button onClick={openChanges} className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer">Review</button>
-          <button onClick={() => { setDeployMessage(session?.title || ''); setShowDeploy(true) }} className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1 cursor-pointer"><Rocket className="w-3.5 h-3.5" /> Deploy</button>
+          <button onClick={() => { setDeployMessage(session?.title || ''); setShowDeploy(true) }} className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-onaccent font-bold flex items-center gap-1 cursor-pointer"><Rocket className="w-3.5 h-3.5" /> Deploy</button>
         </div>
       )}
 
@@ -477,7 +477,7 @@ export default function ProjectAgentPanel({ projectPath, projectName, onFilesCha
             className="w-full p-3 pr-11 bg-slate-900 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-500 focus:border-cyan-500 focus:outline-none resize-none"
           />
           {runningState ? (
-            <button onClick={stop} title="Stop" className="absolute right-2.5 bottom-3.5 p-2 bg-rose-500 hover:bg-rose-400 text-white rounded-lg cursor-pointer"><Square className="w-4 h-4" /></button>
+            <button onClick={stop} title="Stop" className="absolute right-2.5 bottom-3.5 p-2 bg-rose-500 hover:bg-rose-400 text-onaccent rounded-lg cursor-pointer"><Square className="w-4 h-4" /></button>
           ) : (
             <button onClick={send} disabled={!prompt.trim()} title="Send" className="absolute right-2.5 bottom-3.5 p-2 bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-slate-950 rounded-lg cursor-pointer"><Send className="w-4 h-4" /></button>
           )}
@@ -534,7 +534,7 @@ export default function ProjectAgentPanel({ projectPath, projectName, onFilesCha
             </div>
             <div className="px-4 py-3 border-t border-white/10 flex justify-end gap-2">
               <button onClick={() => setShowDeploy(false)} className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 cursor-pointer">Cancel</button>
-              <button onClick={deploy} disabled={deploying} className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50">
+              <button onClick={deploy} disabled={deploying} className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-onaccent font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50">
                 {deploying ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />} Deploy now
               </button>
             </div>

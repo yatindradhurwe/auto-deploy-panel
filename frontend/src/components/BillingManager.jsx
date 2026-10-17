@@ -75,7 +75,7 @@ function AiTokensSection({ apiBaseUrl, token }) {
               <button
                 disabled={buying === pack.id}
                 onClick={() => buy(pack)}
-                className="mt-auto w-full py-2.5 rounded-xl font-bold text-xs bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                className="mt-auto w-full py-2.5 rounded-xl font-bold text-xs bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-onaccent disabled:opacity-50 flex items-center justify-center gap-1.5"
               >
                 {buying === pack.id ? <Zap className="w-4 h-4 animate-spin" /> : <><Coins className="w-4 h-4" /><span>Buy tokens</span></>}
               </button>
@@ -279,7 +279,7 @@ export default function BillingManager({ apiBaseUrl = '' }) {
                   className={`w-full py-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center space-x-1.5 ${
                     isCurrent
                       ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
-                      : 'bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white shadow-lg shadow-cyan-500/20'
+                      : 'bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-onaccent shadow-lg shadow-cyan-500/20'
                   }`}
                 >
                   {upgrading === p.id ? (

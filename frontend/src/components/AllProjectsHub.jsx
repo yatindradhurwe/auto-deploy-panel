@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react'
 import {
   Layers, Search, Grid, List, ExternalLink, Globe, Play, Sparkles, Code,
   Server, RefreshCw, CheckCircle2, ChevronDown, Bell, User, Plus, FolderGit2,
-  Trash2, ShieldCheck, DownloadCloud, Activity, Zap, HardDrive, ShoppingBag, Users
+  Trash2, ShieldCheck, DownloadCloud, Activity, Zap, HardDrive, ShoppingBag, Users, LogOut
 } from 'lucide-react'
+import { useAuth } from '../store/AuthContext'
 import DeleteProjectModal from './DeleteProjectModal'
 import ShareProjectModal from './ShareProjectModal'
 import { useProjects, canShareProject, ACCESS_LABELS } from '../store/ProjectsContext'
+import ThemeToggle from './ThemeToggle'
 
 export default function AllProjectsHub({
   server,
@@ -18,6 +20,7 @@ export default function AllProjectsHub({
 }) {
   // Projects on the selected server, with the caller's access to each (projects store)
   const { projects, loading, error: projectsError, refresh: fetchProjects, sharedWithMe } = useProjects()
+  const { logout } = useAuth()
   const [searchQuery, setSearchQuery] = useState('')
   const [sortOrder, setSortOrder] = useState('custom')
   const [viewMode, setViewMode] = useState('grid') // 'grid' | 'list'
@@ -64,15 +67,15 @@ export default function AllProjectsHub({
   }
 
   return (
-    <div className="min-h-screen bg-[#07090E] text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-950 app-canvas text-slate-100 flex flex-col font-sans">
       
       {/* Top Navigation Header (Apple macOS Responsive & Clean Alignment) */}
-      <header className="min-h-[4rem] bg-[#0B0E17]/90 backdrop-blur-2xl border-b border-white/10 px-4 lg:px-6 py-2 flex flex-wrap lg:flex-nowrap items-center justify-between gap-3 z-30 shrink-0 sticky top-0 shadow-2xl">
+      <header className="min-h-[4rem] bg-slate-900/90 backdrop-blur-2xl border-b border-white/10 px-4 lg:px-6 py-2 flex flex-wrap lg:flex-nowrap items-center justify-between gap-3 z-30 shrink-0 sticky top-0 shadow-2xl">
         
         {/* Left: Logo & Top Header Nav Tabs */}
         <div className="flex items-center space-x-4 shrink-0">
           <div className="flex items-center space-x-2.5 cursor-pointer group shrink-0" onClick={onChangeServerNode}>
-            <div className="w-8.5 h-8.5 rounded-xl bg-gradient-to-tr from-cyan-500 via-indigo-600 to-purple-600 flex items-center justify-center font-black text-white shadow-lg shadow-cyan-500/20 group-hover:scale-105 transition-transform">
+            <div className="w-8.5 h-8.5 rounded-xl bg-gradient-to-tr from-cyan-500 via-indigo-600 to-purple-600 flex items-center justify-center font-black text-onaccent shadow-lg shadow-cyan-500/20 group-hover:scale-105 transition-transform">
               ⚡
             </div>
             <span className="font-extrabold text-white text-base tracking-tight group-hover:text-cyan-400 transition-colors">AutoDeploy</span>
@@ -148,7 +151,7 @@ export default function AllProjectsHub({
         {/* Right Controls: Search, Server Selector, User Avatar, Upgrade */}
         <div className="flex items-center space-x-2.5 font-mono text-xs shrink-0 justify-end ml-auto lg:ml-0">
           
-          <div className="relative hidden lg:block">
+          <div className="relative hidden 2xl:block">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3.5 top-2.5" />
             <input
               type="text"
@@ -170,25 +173,36 @@ export default function AllProjectsHub({
           </button>
 
           {/* User Profile Avatar Badge */}
+          <ThemeToggle compact />
+
           <button
             onClick={() => onTabChange && onTabChange('profile')}
             title="My profile"
             className="flex items-center space-x-2 pl-1.5 border-l border-white/10 shrink-0 cursor-pointer"
           >
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center font-bold text-white text-[11px] shadow-md ring-2 ring-white/10 shrink-0">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center font-bold text-onaccent text-[11px] shadow-md ring-2 ring-white/10 shrink-0">
               {(currentUser?.name || currentUser?.fullName || currentUser?.email || 'U').slice(0, 2).toUpperCase()}
             </div>
-            <span className="hidden xl:inline text-slate-200 font-semibold text-xs tracking-tight shrink-0">
+            <span className="hidden 2xl:inline text-slate-200 font-semibold text-xs tracking-tight shrink-0">
               {currentUser?.name || currentUser?.fullName || currentUser?.email}
             </span>
           </button>
 
           <button
             onClick={() => onTabChange && onTabChange('deployments')}
-            className="h-8.5 px-3.5 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-extrabold rounded-xl shadow-lg shadow-cyan-500/20 inline-flex items-center justify-center space-x-1.5 transition transform hover:scale-[1.02] cursor-pointer whitespace-nowrap shrink-0"
+            className="h-8.5 px-3.5 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-onaccent font-extrabold rounded-xl shadow-lg shadow-cyan-500/20 inline-flex items-center justify-center space-x-1.5 transition transform hover:scale-[1.02] cursor-pointer whitespace-nowrap shrink-0"
           >
             <Plus className="w-3.5 h-3.5 shrink-0" />
             <span>1-Click Deploy</span>
+          </button>
+
+          <button
+            onClick={logout}
+            title="Log out"
+            className="h-8.5 px-3 bg-slate-900/90 hover:bg-rose-500/10 text-slate-300 hover:text-rose-300 border border-white/10 hover:border-rose-500/40 rounded-xl text-xs font-bold inline-flex items-center space-x-1.5 transition cursor-pointer shrink-0"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Logout</span>
           </button>
         </div>
       </header>
@@ -223,7 +237,7 @@ export default function AllProjectsHub({
 
             <button
               onClick={() => onTabChange && onTabChange('deployments')}
-              className="px-4 py-2 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-extrabold text-xs rounded-2xl shadow-lg flex items-center space-x-2 shrink-0 transition cursor-pointer"
+              className="px-4 py-2 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-onaccent font-extrabold text-xs rounded-2xl shadow-lg flex items-center space-x-2 shrink-0 transition cursor-pointer"
             >
               <Zap className="w-4 h-4 text-amber-300" />
               <span>+ New Project / 1-Click Deploy</span>
@@ -338,9 +352,9 @@ export default function AllProjectsHub({
                   <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all duration-200 flex items-center justify-center p-4">
                     <button
                       onClick={() => onOpenProjectStudio(proj)}
-                      className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 text-white font-extrabold rounded-2xl font-mono text-xs shadow-xl flex items-center space-x-2 transition transform hover:scale-105 cursor-pointer"
+                      className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 text-onaccent font-extrabold rounded-2xl font-mono text-xs shadow-xl flex items-center space-x-2 transition transform hover:scale-105 cursor-pointer"
                     >
-                      <Sparkles className="w-4 h-4 text-white" />
+                      <Sparkles className="w-4 h-4 text-onaccent" />
                       <span>Open Project Studio</span>
                     </button>
                   </div>

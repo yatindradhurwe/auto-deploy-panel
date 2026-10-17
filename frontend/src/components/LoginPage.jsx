@@ -55,7 +55,7 @@ export default function LoginPage({ onLoginSuccess }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#07090E] text-slate-100 flex flex-col justify-center items-center p-4 relative overflow-hidden font-sans select-none">
+    <div className="min-h-screen bg-slate-950 app-canvas text-slate-100 flex flex-col justify-center items-center p-4 relative overflow-hidden font-sans select-none">
       {/* Background Decorative Ambient Glows */}
       <div className="absolute -top-40 -left-40 w-[500px] h-[500px] bg-cyan-500/15 rounded-full blur-[120px] pointer-events-none"></div>
       <div className="absolute -bottom-40 -right-40 w-[500px] h-[500px] bg-purple-600/15 rounded-full blur-[120px] pointer-events-none"></div>
@@ -87,7 +87,7 @@ export default function LoginPage({ onLoginSuccess }) {
             <button
               type="button"
               onClick={handleQuickFill}
-              className="px-3 py-1 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-[11px] rounded-xl transition-all cursor-pointer shadow-md shadow-cyan-950/40"
+              className="px-3 py-1 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-onaccent font-bold text-[11px] rounded-xl transition-all cursor-pointer shadow-md shadow-cyan-950/40"
             >
               Quick Fill
             </button>
@@ -161,7 +161,7 @@ export default function LoginPage({ onLoginSuccess }) {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3.5 px-4 bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white font-extrabold rounded-2xl shadow-xl shadow-cyan-500/25 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ring-1 ring-white/20"
+              className="w-full py-3.5 px-4 bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-onaccent font-extrabold rounded-2xl shadow-xl shadow-cyan-500/25 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ring-1 ring-white/20"
             >
               {loading ? (
                 <>

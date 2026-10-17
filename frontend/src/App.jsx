@@ -19,7 +19,7 @@ export default function App() {
 
   if (status === 'verifying') {
     return (
-      <div className="min-h-screen bg-[#07090E] flex flex-col items-center justify-center text-slate-100 font-sans">
+      <div className="min-h-screen bg-slate-950 app-canvas flex flex-col items-center justify-center text-slate-100 font-sans">
         <div className="flex flex-col items-center gap-3">
           <div className="w-9 h-9 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
           <p className="text-xs text-slate-400 font-mono tracking-wide">Verifying Session & Tenant Context...</p>
@@ -30,7 +30,7 @@ export default function App() {
 
   if (status === 'maintenance') {
     return (
-      <div className="min-h-screen bg-[#07090E] flex items-center justify-center p-6 text-slate-100 font-sans">
+      <div className="min-h-screen bg-slate-950 app-canvas flex items-center justify-center p-6 text-slate-100 font-sans">
         <div className="bg-slate-900 border border-amber-500/30 rounded-2xl p-8 max-w-md w-full text-center space-y-4 shadow-2xl">
           <div className="w-12 h-12 rounded-xl bg-amber-500/10 text-amber-300 flex items-center justify-center mx-auto">
             <Wrench className="w-6 h-6" />

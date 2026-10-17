@@ -292,7 +292,7 @@ export default function EnvManager({ project, initialProject }) {
             </table>
           </div>
         ) : (
-          <div className="p-4 bg-[#080B11]">
+          <div className="p-4 bg-slate-950">
             <textarea
               value={rawContent}
               onChange={(e) => setRawContent(e.target.value)}

@@ -548,7 +548,7 @@ router.post('/integrations/:section/test', handleAsync(async (req) => {
   else if (section === 'whatsapp') result = await sendWhatsApp({ to, text })
   else throw httpError(404, 'Unknown integration.')
   audit(req, 'ADMIN_INTEGRATION_TESTED', 'integration', section, { to })
-  return { success: true, message: `Test sent to ${to}.`, id: result?.id || null }
+  return { success: true, message: `Test sent to ${to}.${result?.fallback ? ` ${result.fallback} Switch the port to 587 with SSL off to skip the retry.` : ''}`, id: result?.id || null }
 }))
 
 export default router

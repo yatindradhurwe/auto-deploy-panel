@@ -438,7 +438,64 @@ export async function loadSettings(host, server, dir, domain) {
     const conf = await findSiteConfig(host, domain).catch(() => null)
     if (conf) site = { config: conf, domains: serverNames(await host.readFile(conf)) }
   }
-  return { stored, env: known, customVars: custom, envFile: env.file, site }
+  return { stored, env: known, customVars: custom, envFile: env.file, site, git: await readGit(host, dir) }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Git repository the project deploys from
+// ---------------------------------------------------------------------------------------------
+
+const GIT_URL_RE = /^(https:\/\/[A-Za-z0-9.-]+(:\d+)?\/[A-Za-z0-9._~\/-]+|git@[A-Za-z0-9.-]+:[A-Za-z0-9._~\/-]+)$/
+const GIT_BRANCH_RE = /^(?!-)(?!.*\.\.)[A-Za-z0-9._\/-]{1,100}$/
+const stripCreds = (url) => String(url || '').replace(/^(https:\/\/)[^@\/]+@/, '$1')
+
+async function readGit(host, dir) {
+  if (!await host.exists(`${dir}/.git`)) return { isRepo: false }
+  const out = async (args) => { const r = await host.run('git', args, { cwd: dir }); return r.code === 0 ? r.stdout.trim() : '' }
+  const [url, branch, last] = await Promise.all([
+    out(['remote', 'get-url', 'origin']),
+    out(['rev-parse', '--abbrev-ref', 'HEAD']),
+    out(['log', '-1', '--format=%h%x1f%s%x1f%cI'])
+  ])
+  const [hash, subject, date] = last.split('\x1f')
+  return { isRepo: true, remoteUrl: stripCreds(url), branch, lastCommit: hash ? { hash, subject, date } : null }
+}
+
+/** Points the project at another repository/branch. The code itself is pulled and deployed by Publish. */
+async function saveGit(host, server, dir, values) {
+  const repoUrl = String(values.repoUrl || '').trim().replace(/\/+$/, '')
+  const branch = String(values.branch || '').trim()
+  if (!GIT_URL_RE.test(repoUrl)) throw httpError(400, 'Repository URL must look like https://github.com/owner/repo.git')
+  if (stripCreds(repoUrl) !== repoUrl) throw httpError(400, 'Leave credentials out of the URL; the saved GitHub token is used automatically.')
+  if (!GIT_BRANCH_RE.test(branch)) throw httpError(400, 'Branch name is not valid.')
+  if (!await host.exists(`${dir}/.git`)) throw httpError(400, 'This project folder is not a Git repository yet. Deploy it from Git first.')
+
+  // Keep the credentials of the current remote when the new repo is on the same host (private repos keep working)
+  const cur = await host.run('git', ['remote', 'get-url', 'origin'], { cwd: dir })
+  const creds = cur.code === 0 ? (cur.stdout.trim().match(/^https:\/\/([^@\/]+)@([^\/]+)\//) || []) : []
+  const newHost = (repoUrl.match(/^https:\/\/([^\/]+)\//) || [])[1]
+  const authed = creds[1] && creds[2] === newHost ? repoUrl.replace(/^https:\/\//, `https://${creds[1]}@`) : repoUrl
+
+  const check = await host.run('git', ['ls-remote', '--heads', authed, branch], { cwd: dir, timeout: 60000 })
+  if (check.code !== 0) throw httpError(400, `Can't reach ${repoUrl}. Check the URL and that the panel's GitHub token can read it.`)
+  if (!check.stdout.trim()) throw httpError(400, `Branch "${branch}" doesn't exist in ${repoUrl}.`)
+
+  const set = cur.code === 0
+    ? await host.run('git', ['remote', 'set-url', 'origin', authed], { cwd: dir })
+    : await host.run('git', ['remote', 'add', 'origin', authed], { cwd: dir })
+  if (set.code !== 0) throw httpError(500, set.stderr || 'Could not update the Git remote.')
+  await host.run('git', ['fetch', 'origin', branch], { cwd: dir, timeout: 300000 })
+
+  // Keep the panel's records in step, so Publish and auto-update use the new repo and branch
+  const db = readDb()
+  const resolved = path.posix.resolve(dir)
+  for (const p of Object.values(db.projects || {})) {
+    if (p.path && path.posix.resolve(p.path) === resolved && (!server || !p.serverId || p.serverId === server.id)) Object.assign(p, { gitUrl: repoUrl, branch, updatedAt: new Date().toISOString() })
+  }
+  for (const c of Object.values(db.projectAutoUpdates || {})) {
+    if (c.projectPath && path.posix.resolve(c.projectPath) === resolved) Object.assign(c, { gitRepoUrl: repoUrl, branch })
+  }
+  writeDb(db)
 }
 
 /**
@@ -450,6 +507,13 @@ export async function saveSection(host, server, dir, { section, values = {}, dom
 
   if (SERVER_SECTIONS.includes(section) && !['super', 'owner'].includes(level)) {
     throw httpError(403, 'Only organization owners and admins can change nginx-level settings (domains, SEO, analytics, code injection, redirects).')
+  }
+
+  if (section === 'git') {
+    if (!['super', 'owner'].includes(level)) throw httpError(403, 'Only organization owners and admins can change the Git repository.')
+    await saveGit(host, server, dir, values)
+    result.applied.push(`Now connected to ${values.repoUrl} (${values.branch})`, 'Click Publish to pull this code and redeploy')
+    return result
   }
 
   if (section === 'general') {

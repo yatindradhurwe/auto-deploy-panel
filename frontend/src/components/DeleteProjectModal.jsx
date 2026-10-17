@@ -91,7 +91,7 @@ export default function DeleteProjectModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto selection:bg-rose-500/30 selection:text-rose-200 font-sans">
-      <div className="bg-[#0B0E17] border-2 border-rose-500/60 rounded-3xl max-w-xl w-full p-6 space-y-5 shadow-2xl shadow-rose-950/60 animate-in zoom-in-95 duration-200">
+      <div className="bg-slate-900 border-2 border-rose-500/60 rounded-3xl max-w-xl w-full p-6 space-y-5 shadow-2xl shadow-rose-950/60 animate-in zoom-in-95 duration-200">
         
         {/* Header Alert Bar */}
         <div className="flex items-start justify-between border-b border-rose-500/20 pb-4">
@@ -269,11 +269,11 @@ export default function DeleteProjectModal({
           <button
             onClick={handleExecuteDelete}
             disabled={!isConfirmed || deleting}
-            className="px-6 py-2.5 bg-gradient-to-r from-rose-600 via-red-600 to-amber-600 hover:from-rose-500 hover:to-red-500 text-white font-extrabold rounded-xl font-mono text-xs shadow-xl shadow-rose-950/50 flex items-center space-x-2 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-6 py-2.5 bg-gradient-to-r from-rose-600 via-red-600 to-amber-600 hover:from-rose-500 hover:to-red-500 text-onaccent font-extrabold rounded-xl font-mono text-xs shadow-xl shadow-rose-950/50 flex items-center space-x-2 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {deleting ? (
               <>
-                <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                <RefreshCw className="w-4 h-4 animate-spin text-onaccent" />
                 <span>Deleting Project & Resources...</span>
               </>
             ) : (

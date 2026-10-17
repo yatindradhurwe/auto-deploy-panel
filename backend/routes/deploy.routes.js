@@ -3,7 +3,7 @@ import https from 'https'
 import { testSshConnection, scanPortsAndServices } from '../services/ssh.service.js'
 import { runDeployPipeline, validateDeployConfig, STAGES } from '../services/deploy-pipeline.service.js'
 import { getHost } from '../services/host.service.js'
-import { initUpload, appendChunk, completeUpload, analyzeGitRepo } from '../services/upload.service.js'
+import { initUpload, appendChunk, completeUpload, analyzeGitRepo, listGitBranches } from '../services/upload.service.js'
 import { diagnoseDeploymentError, executeSshPatch } from '../services/ai.service.js'
 import { recordTemplateDeploy } from '../services/template.service.js'
 import { isSuperSession } from '../services/project-access.service.js'
@@ -22,6 +22,18 @@ router.post('/analyze-git', async (req, res) => {
     const token = (getUserSettings(req.user?.id)?.githubToken || '').trim() || null
     const result = await analyzeGitRepo({ gitUrl: req.body.gitUrl, branch: req.body.branch, token })
     res.json({ success: true, ...result })
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, error: err.message })
+  }
+})
+
+/**
+ * POST /api/deploy/git-branches { gitUrl } → { branches, defaultBranch }
+ */
+router.post('/git-branches', async (req, res) => {
+  try {
+    const token = (getUserSettings(req.user?.id)?.githubToken || '').trim() || null
+    res.json({ success: true, ...(await listGitBranches({ gitUrl: req.body.gitUrl, token })) })
   } catch (err) {
     res.status(err.status || 500).json({ success: false, error: err.message })
   }

@@ -1,3 +1,5 @@
+import fs from 'fs'
+import os from 'os'
 import path from 'path'
 import crypto from 'crypto'
 import { q } from './host.service.js'
@@ -249,11 +251,45 @@ async function pgJson(entry, sql) {
   return JSON.parse(out.trim() || '[]')
 }
 
-function mysqlCli(entry, sql, database = entry.database) {
-  const args = ['--batch', '-h', entry.host, '-P', String(entry.port), '-u', entry.user, '--connect-timeout=5']
+const mysqlAdminCache = new Map() // host id -> { at, cmd }
+
+/** The server's own MySQL admin login (socket auth, ~/.my.cnf, sudo or debian.cnf), or null. */
+async function serverMysqlAdmin(host) {
+  const hit = mysqlAdminCache.get(host.id)
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.cmd
+  const admin = await findMysqlAdmin(async (s) => { const r = await host.exec(s, { timeout: 15000 }); return `${r.stdout}${r.stderr}` })
+    .catch(() => ({ cmd: null }))
+  mysqlAdminCache.set(host.id, { at: Date.now(), cmd: admin.cmd })
+  return admin.cmd
+}
+
+/** Swaps the mysql client in an admin command for another MySQL tool (e.g. mysqldump). */
+const withMysqlBin = (cmd, bin) => cmd.replace(/(^|\s)mysql(?=\s|$)/, `$1${bin}`)
+
+/** Shell prefix running a MySQL tool as this entry: the app's own login, or the server's admin login when that is rejected. */
+function mysqlShell(entry, bin = 'mysql') {
+  if (entry.useAdmin) return withMysqlBin(entry.adminCmd, bin)
+  return `MYSQL_PWD=${q(entry.password || '')} ${bin} --no-defaults -h ${q(entry.host)} -P ${q(entry.port)} -u ${q(entry.user)}`
+}
+
+async function mysqlCli(entry, sql, database = entry.database) {
+  const args = ['--batch', '--connect-timeout=5']
   if (database) args.push('-D', database)
   args.push('-e', sql)
-  return run(entry._exec, 'mysql', args, { env: { MYSQL_PWD: entry.password || '' }, secrets: [entry.password] })
+  if (!entry.useAdmin) {
+    try {
+      // --no-defaults: option files (e.g. ~/.my.cnf) would override the project's own user/password
+      return await run(entry._exec, 'mysql', ['--no-defaults', '-h', entry.host, '-P', String(entry.port), '-u', entry.user, ...args], { env: { MYSQL_PWD: entry.password || '' }, secrets: [entry.password] })
+    } catch (e) {
+      // The app's login is rejected (e.g. root without a password): browse through the server's admin login
+      if (!entry.adminCmd || !/ERROR (1045|1698)/.test(e.message)) throw e
+      entry.useAdmin = true
+      entry.credsError = e.message
+    }
+  }
+  const r = await entry._exec.exec(`${entry.adminCmd} ${args.map(q).join(' ')}`, { timeout: EXEC_TIMEOUT_MS })
+  if (r.code !== 0) throw new Error(((r.stderr || '').trim() || `mysql exited with code ${r.code}`).split('\n').slice(0, 6).join('\n'))
+  return r.stdout
 }
 
 function unescapeMysql(s) {
@@ -308,9 +344,22 @@ function sqliteJson(entry, sql) {
 // Discovery
 // ---------------------------------------------------------------------------------------------
 
-async function listServerDatabases(exec, ports, mysqlCreds, mongoBases, redisBases) {
+async function listServerDatabases(exec, ports, mysqlCreds, mongoBases, redisBases, mysqlAdmin) {
   const found = []
   const errors = []
+  const badMysqlCreds = new Map() // host|port|user -> error
+
+  if (mysqlAdmin) {
+    try {
+      const admin = { _exec: exec, engine: 'mysql', host: '127.0.0.1', port: 3306, user: null, adminCmd: mysqlAdmin, useAdmin: true }
+      const rows = await mysqlRows(admin,
+        'SELECT s.schema_name AS name, COALESCE(SUM(t.data_length + t.index_length), 0) AS bytes FROM information_schema.schemata s LEFT JOIN information_schema.tables t ON t.table_schema = s.schema_name GROUP BY s.schema_name', '')
+      for (const r of rows) found.push({ ...admin, database: r.name, bytes: Number(r.bytes) })
+    } catch (e) {
+      mysqlAdmin = null
+      errors.push({ engine: 'mysql', error: e.message })
+    }
+  }
 
   if (ports.has(5432)) {
     try {
@@ -328,9 +377,11 @@ async function listServerDatabases(exec, ports, mysqlCreds, mongoBases, redisBas
     try {
       const rows = await mysqlRows(cred,
         'SELECT s.schema_name AS name, COALESCE(SUM(t.data_length + t.index_length), 0) AS bytes FROM information_schema.schemata s LEFT JOIN information_schema.tables t ON t.table_schema = s.schema_name GROUP BY s.schema_name', '')
-      for (const r of rows) found.push({ ...cred, database: r.name, bytes: Number(r.bytes) })
+      if (!mysqlAdmin) for (const r of rows) found.push({ ...cred, database: r.name, bytes: Number(r.bytes) })
     } catch (e) {
-      errors.push({ engine: 'mysql', error: e.message })
+      badMysqlCreds.set(`${normHost(cred.host)}|${cred.port}|${cred.user}`, e.message)
+      // With the admin login every database is still listed; the broken login is flagged on its database
+      if (!mysqlAdmin) errors.push({ engine: 'mysql', error: e.message })
     }
   }
 
@@ -355,7 +406,7 @@ async function listServerDatabases(exec, ports, mysqlCreds, mongoBases, redisBas
     }
   }
 
-  return { found, errors }
+  return { found, errors, badMysqlCreds }
 }
 
 /**
@@ -378,7 +429,7 @@ export async function discoverDatabases(host, { force = false, registered = [] }
       entries.set(key, entry)
     }
     if (project && !entry.projects.some(p => p.path === project.path)) {
-      entry.projects.push({ name: project.name, path: project.path, source: spec.source })
+      entry.projects.push({ name: project.name, path: project.path, source: spec.source, pm2: (project.pm2Processes || []).map(x => x.name) })
     }
     return entry
   }
@@ -406,19 +457,30 @@ export async function discoverDatabases(host, { force = false, registered = [] }
     ...(ports.has(6379) ? [{ _exec: host, engine: 'redis', host: '127.0.0.1', port: 6379 }] : [])
   ], s => `${normHost(s.host)}|${s.port}`)
 
-  const { found, errors } = await listServerDatabases(host, ports, mysqlCreds, mongoBases, redisBases)
+  const mysqlAdmin = ports.has(3306) ? await serverMysqlAdmin(host) : null
+  const { found, errors, badMysqlCreds } = await listServerDatabases(host, ports, mysqlCreds, mongoBases, redisBases, mysqlAdmin)
   for (const spec of found) {
     if ((SYSTEM_DATABASES[spec.engine] || []).includes(spec.database)) continue
     const key = entryKey(spec)
     const existing = entries.get(key)
     if (existing) {
       // Local PostgreSQL: prefer peer auth over app credentials (works even with limited grants)
-      if (spec.peer) Object.assign(existing, { peer: true, user: 'postgres', password: '' })
+      if (spec.peer) Object.assign(existing, { peer: true, appUser: existing.appUser ?? existing.user, appPassword: existing.appPassword ?? existing.password, user: 'postgres', password: '' })
+      if (spec.adminCmd) existing.adminCmd = spec.adminCmd
       if (spec.bytes !== undefined) existing.bytes = spec.bytes
       if (spec.keys !== undefined) existing.keys = spec.keys
     } else {
       addEntry(spec, null)
     }
+  }
+
+  // Project logins MySQL rejects: browse through the admin login and flag the database
+  for (const entry of entries.values()) {
+    if (entry.engine !== 'mysql' || !entry.user) continue
+    const err = badMysqlCreds.get(`${normHost(entry.host)}|${entry.port}|${entry.user}`)
+    if (!err) continue
+    entry.credsError = err
+    if (entry.adminCmd) entry.useAdmin = true
   }
 
   // 3. Map unlinked databases to projects by name (tip_crm_db -> tip-crm)
@@ -428,7 +490,7 @@ export async function discoverDatabases(host, { force = false, registered = [] }
     for (const p of projects) {
       const candidates = [normName(p.name), normName(path.basename(p.path))].filter(n => n.length >= 4)
       if (candidates.some(n => dbNorm.startsWith(n) || n.startsWith(dbNorm) && dbNorm.length >= 4)) {
-        entry.projects.push({ name: p.name, path: p.path, source: 'matched by name' })
+        entry.projects.push({ name: p.name, path: p.path, source: 'matched by name', pm2: (p.pm2Processes || []).map(x => x.name) })
       }
     }
   }
@@ -439,7 +501,9 @@ export async function discoverDatabases(host, { force = false, registered = [] }
     database: e.engine === 'redis' ? `db${e.database}` : e.database,
     host: e.engine === 'sqlite' ? e.file : `${e.host}:${e.port}`,
     user: e.engine === 'sqlite' ? null : (e.user || null),
-    auth: e.peer ? 'peer (postgres)' : (e.password ? 'password' : 'none'),
+    appUser: e.engine === 'sqlite' ? null : (e.appUser || e.user || null),
+    auth: e.peer ? 'peer (postgres)' : e.useAdmin ? 'server admin login' : (e.password ? 'password' : 'none'),
+    credsError: e.credsError || null,
     bytes: e.bytes ?? null,
     keys: e.keys ?? null,
     projects: e.projects.map(p => ({ name: p.name, source: p.source }))
@@ -859,4 +923,442 @@ export async function dropTable(host, connectionId, { schema, table }) {
   else if (entry.engine === 'mongodb') await mongoEval(entry, 'return db.getCollection(P.table).drop()', { table })
   else throw Object.assign(new Error(`Dropping is not supported for ${entry.engine}.`), { status: 400 })
   return { message: `'${table}' dropped.` }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Export / import / credentials
+// ---------------------------------------------------------------------------------------------
+
+const httpErr = (status, message) => Object.assign(new Error(message), { status })
+const b64 = (s) => Buffer.from(String(s), 'utf8').toString('base64')
+const rand = () => crypto.randomBytes(6).toString('hex')
+const BACKUP_DIR = '/var/backups/autodeploy-db'
+
+export const RESERVED_DB_USERS = new Set(['root', 'mysql', 'mysql.sys', 'mysql.session', 'mysql.infoschema', 'debian-sys-maint', 'postgres', 'admin'])
+export const DB_USER_RE = /^[A-Za-z0-9_]{1,32}$/
+
+/** Throws a 400 unless the password is safe to embed in SQL, shell and .env (8–128 printable, no quotes/\/`/$). */
+export function checkDbPassword(password) {
+  if (!/^[\x21-\x7e]{8,128}$/.test(password)) throw httpErr(400, 'Database password: 8–128 characters, no spaces.')
+  if (/['"\\`$]/.test(password)) throw httpErr(400, 'Database password cannot contain quotes, backslashes, backticks or $.')
+}
+
+/**
+ * Finds a working MySQL admin login on a server. `execText(script)` runs bash and resolves to its
+ * output. Entered credentials go in an option file, with HOME pointed away so ~/.my.cnf cannot
+ * override them, and are tried over both the socket (localhost) and TCP (127.0.0.1), since root
+ * often exists for only one of those hosts. Then the server's own logins are tried.
+ * Resolves to { cmd, label, entered, enteredError } or { cmd: null, enteredError }.
+ */
+export async function findMysqlAdmin(execText, { adminUser, adminPassword } = {}) {
+  const cnf = (host) => `--defaults-extra-file=<(echo ${b64(`[client]\nuser=${adminUser}\npassword="${String(adminPassword || '').replace(/\\/g, '\\\\')}"\nhost=${host}\n`)} | base64 -d)`
+  const candidates = [
+    ...(adminUser ? ['localhost', '127.0.0.1'].map(h => ({ cmd: `HOME=/nonexistent mysql ${cnf(h)}`, label: `${adminUser}@${h}`, entered: true })) : []),
+    { cmd: 'mysql', label: 'the server\'s default MySQL login' },
+    { cmd: 'sudo -n mysql', label: 'sudo mysql' },
+    { cmd: 'mysql --defaults-file=/etc/mysql/debian.cnf', label: 'debian-sys-maint' }
+  ]
+  let enteredError = ''
+  for (const c of candidates) {
+    const out = String(await execText(`${c.cmd} -N -e 'SELECT 1' 2>&1`) || '')
+    if (out.trim().split('\n').pop().trim() === '1') return { ...c, enteredError }
+    if (c.entered && !enteredError) enteredError = (out.split('\n').filter(l => /ERROR/.test(l)).pop() || out.trim().split('\n').pop() || '').trim()
+  }
+  return { cmd: null, enteredError }
+}
+
+/** Runs SQL through a MySQL admin command. The SQL goes in on stdin, so passwords never reach argv. */
+async function mysqlAdminSql(host, cmd, sql, secrets = []) {
+  const r = await host.exec(`echo ${b64(sql)} | base64 -d | ${cmd} -N`, { timeout: 30000 })
+  if (r.code !== 0) {
+    const msg = secrets.filter(Boolean).reduce((t, sec) => t.split(sec).join('***'), String(r.stderr || ''))
+    throw httpErr(400, `MySQL: ${msg.trim().split('\n').pop()}`)
+  }
+  return r.stdout
+}
+
+const sqlHosts = (out) => out.split('\n').map(h => h.trim()).filter(h => /^[A-Za-z0-9.%_:-]+$/.test(h))
+
+/** Shell command that writes a plain SQL dump of the database to stdout. */
+function dumpCommand(entry) {
+  if (entry.engine === 'mysql') {
+    return `${mysqlShell(entry, 'mysqldump')} $(mysqldump --help 2>/dev/null | grep -q set-gtid-purged && echo --set-gtid-purged=OFF) --single-transaction --quick --routines --triggers --no-tablespaces ${q(entry.database)}`
+  }
+  if (entry.engine === 'postgresql') {
+    if (entry.peer) return `runuser -u postgres -- pg_dump --no-owner --no-privileges -d ${q(entry.database)}`
+    return `PGPASSWORD=${q(entry.password || '')} pg_dump --no-owner --no-privileges -h ${q(entry.host)} -p ${q(entry.port)} -U ${q(entry.user)} -d ${q(entry.database)}`
+  }
+  if (entry.engine === 'sqlite') return `sqlite3 ${q(entry.file)} .dump`
+  throw httpErr(400, `Export is not supported for ${entry.engine} yet.`)
+}
+
+const scrubbed = (entry, text) => [entry.password, entry.appPassword].filter(Boolean).reduce((t, sec) => t.split(sec).join('***'), String(text || ''))
+
+async function dumpTo(host, entry, remote) {
+  const r = await host.exec(`set -o pipefail; umask 077; ${dumpCommand(entry)} | gzip > ${q(remote)}`, { timeout: 30 * 60 * 1000 })
+  if (r.code !== 0) {
+    await host.exec(`rm -f ${q(remote)}`).catch(() => {})
+    throw httpErr(500, `Export failed: ${scrubbed(entry, r.stderr || r.stdout).trim().split('\n').slice(-4).join('\n')}`)
+  }
+}
+
+/** Ids of the projects a connection belongs to, for access checks. */
+export async function connectionProjectPaths(host, connectionId) {
+  return (await getEntry(host, connectionId)).projects.map(p => p.path)
+}
+
+/**
+ * Dumps the database to a gzipped .sql file and returns a local path to send to the browser.
+ * The caller removes `cleanup` paths after sending.
+ */
+export async function exportDatabase(host, connectionId) {
+  const entry = await getEntry(host, connectionId)
+  const remote = `/tmp/autodeploy-export-${rand()}.sql.gz`
+  await dumpTo(host, entry, remote)
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')
+  const fileName = `${String(entry.database).replace(/[^\w.-]/g, '_')}-${stamp}.sql.gz`
+  if (host.isLocal) return { localPath: remote, fileName, cleanup: async () => fs.promises.rm(remote, { force: true }) }
+  const localPath = path.join(os.tmpdir(), path.basename(remote))
+  try { await host.fetchFile(remote, localPath) } finally { await host.exec(`rm -f ${q(remote)}`).catch(() => {}) }
+  return { localPath, fileName, cleanup: async () => fs.promises.rm(localPath, { force: true }) }
+}
+
+/**
+ * Imports an uploaded .sql / .sql.gz / pg .dump into the database. A gzipped backup of the
+ * current contents is written to /var/backups/autodeploy-db on the server first.
+ */
+export async function importDatabase(host, connectionId, upload) {
+  const entry = await getEntry(host, connectionId)
+  if (!['mysql', 'postgresql', 'sqlite'].includes(entry.engine)) throw httpErr(400, `Import is not supported for ${entry.engine} yet.`)
+  const fmt = upload.database || {}
+  if (fmt.engine && fmt.engine !== entry.engine) throw httpErr(400, `This is a ${fmt.engine} dump, but ${entry.database} is a ${entry.engine} database.`)
+  if (fmt.format === 'sqlite') throw httpErr(400, 'Upload an SQL dump (.sql / .sql.gz), not a raw .sqlite file.')
+  if (fmt.format === 'pg_custom' && entry.engine !== 'postgresql') throw httpErr(400, 'A .dump file can only be imported into PostgreSQL.')
+
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)
+  const backup = `${BACKUP_DIR}/${String(entry.database).replace(/[^\w.-]/g, '_')}-${stamp}-before-import.sql.gz`
+  await host.exec(`mkdir -p ${BACKUP_DIR} && chmod 700 ${BACKUP_DIR}`)
+  await dumpTo(host, entry, backup)
+
+  const remote = `/tmp/autodeploy-import-${rand()}${upload.ext}`
+  await host.putFile(upload.file, remote)
+  const cat = upload.ext === '.sql.gz' ? `gunzip -c ${q(remote)}` : `cat ${q(remote)}`
+  let cmd
+  if (entry.engine === 'mysql') {
+    cmd = `${cat} | ${mysqlShell(entry)} ${q(entry.database)}`
+  } else if (entry.engine === 'sqlite') {
+    cmd = `${cat} | sqlite3 -bail ${q(entry.file)}`
+  } else {
+    // Objects must end up owned by the app's role, not by postgres
+    const own = entry.peer && entry.appPassword
+      ? { ...entry, peer: false, user: entry.appUser, password: entry.appPassword } : entry
+    const role = entry.peer && !entry.appPassword && entry.appUser ? entry.appUser : null
+    const conn = own.peer
+      ? `runuser -u postgres -- `
+      : `PGPASSWORD=${q(own.password || '')} `
+    const target = own.peer ? `-d ${q(entry.database)}` : `-h ${q(own.host)} -p ${q(own.port)} -U ${q(own.user)} -d ${q(entry.database)}`
+    cmd = fmt.format === 'pg_custom'
+      ? `${conn}pg_restore --no-owner --no-privileges --clean --if-exists ${role ? `--role=${q(role)} ` : ''}${target} ${q(remote)}`
+      : `{ ${role ? `echo ${q(`SET ROLE "${role}";`)}; ` : ''}${cat}; } | ${conn}psql -X -q -v ON_ERROR_STOP=1 ${target}`
+  }
+  const r = await host.exec(`set -o pipefail; ${cmd}`, { timeout: 60 * 60 * 1000 })
+  await host.exec(`rm -f ${q(remote)}`).catch(() => {})
+  discoveryCache.delete(host.id)
+  if (r.code !== 0) {
+    const tail = scrubbed(entry, r.stderr || r.stdout).trim().split('\n').slice(-6).join('\n')
+    throw httpErr(400, `Import stopped with an error (the database may be partly imported). A backup taken just before is at ${backup}.\n${tail}`)
+  }
+  return { message: `Imported ${upload.name} into ${entry.database}.`, backup }
+}
+
+const USER_KEYS = new Set(['DB_USER', 'DB_USERNAME', 'MYSQL_USER', 'PGUSER', 'POSTGRES_USER', 'DATABASE_USER'])
+const PASS_KEYS = new Set(['DB_PASSWORD', 'DB_PASS', 'MYSQL_PASSWORD', 'MYSQL_PASS', 'PGPASSWORD', 'POSTGRES_PASSWORD', 'DATABASE_PASSWORD'])
+const PASS_FOR_USER = { DB_USER: 'DB_PASSWORD', DB_USERNAME: 'DB_PASSWORD', MYSQL_USER: 'MYSQL_PASSWORD', PGUSER: 'PGPASSWORD', POSTGRES_USER: 'POSTGRES_PASSWORD', DATABASE_USER: 'DATABASE_PASSWORD' }
+
+/** Rewrites the user/password of this connection in one .env text. Returns the new text or null. */
+function rewriteEnv(text, dir, entry, { oldUser, oldPassword, newUser, newPassword }) {
+  const sameDb = (s) => s.engine === entry.engine && s.database === entry.database && normHost(s.host) === normHost(entry.host) && Number(s.port) === Number(entry.port)
+  if (!connectionsFromEnv(parseEnvText(text), dir).some(sameDb)) return null
+  let changed = false
+  let userAt = null
+  let passDone = false
+  let urlDone = false
+  const lines = text.split('\n').map((line, index) => {
+    const m = line.match(/^(\s*(?:export\s+)?)([A-Za-z_][A-Za-z0-9_]*)(\s*=\s*)(.*?)(\r?)$/)
+    if (!m) return line
+    const [, pre, key, eq, raw, cr] = m
+    const quote = /^(["'])(.*)\1$/.exec(raw)
+    const val = quote ? quote[2] : raw
+    let next = val
+    if (newUser && USER_KEYS.has(key) && val === oldUser) { next = newUser; userAt = { index, key, pre } }
+    else if (newPassword && PASS_KEYS.has(key) && (!oldPassword || val === oldPassword)) { next = newPassword; passDone = true }
+    else if (/^[a-z+]+:\/\//i.test(val) && engineFromScheme(val.split(':')[0]) === entry.engine) {
+      try {
+        const u = new URL(val)
+        if (decodeURIComponent(u.username) === oldUser && decodeURIComponent(u.pathname.replace(/^\//, '').split('/')[0]) === entry.database) {
+          if (newUser) u.username = encodeURIComponent(newUser)
+          if (newPassword) u.password = encodeURIComponent(newPassword)
+          next = u.toString()
+          urlDone = true
+        }
+      } catch { /* not a URL */ }
+    }
+    if (next === val) return line
+    changed = true
+    const q2 = quote ? quote[1] : (/[#\s]/.test(next) ? '"' : '')
+    return `${pre}${key}${eq}${q2}${next}${q2}${cr}`
+  })
+  // A passwordless login usually has no password line (and may rely on a default user): add the keys
+  const envLine = (key, val) => `${key}=${/[#\s]/.test(val) ? `"${val}"` : val}`
+  if (!urlDone) {
+    const fam = /^\s*MYSQL_/m.test(text) ? 'MYSQL_' : /^\s*PG[A-Z]/m.test(text) ? 'PG' : 'DB_'
+    const keys = text.split('\n').map(l => (l.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/) || [])[1])
+    if (newUser && !userAt && !keys.some(k => USER_KEYS.has(k))) {
+      const at = lines[lines.length - 1] === '' ? lines.length - 1 : lines.length // before the trailing newline
+      lines.splice(at, 0, envLine(`${fam}USER`, newUser))
+      userAt = { index: at, key: `${fam}USER`, pre: '' }
+      changed = true
+    }
+    const hasPassKey = keys.some(k => PASS_KEYS.has(k))
+    if (newPassword && !passDone && !hasPassKey && userAt) {
+      lines.splice(userAt.index + 1, 0, userAt.pre + envLine(PASS_FOR_USER[userAt.key] || `${fam}PASSWORD`, newPassword))
+      changed = true
+    }
+  }
+  return changed ? lines.join('\n') : null
+}
+
+/**
+ * Changes the database user's name and/or password, updates every linked project's .env that
+ * uses this connection, and optionally restarts the projects' PM2 processes. A MySQL database
+ * reached through a system account (root) or no app user gets a new dedicated user instead.
+ */
+export async function changeCredentials(host, connectionId, { newUser, newPassword, adminUser, adminPassword, restart = true }) {
+  const entry = await getEntry(host, connectionId)
+  if (!['mysql', 'postgresql'].includes(entry.engine)) throw httpErr(400, 'Changing credentials is supported for MySQL and PostgreSQL.')
+  const oldUser = entry.appUser || entry.user
+  const oldPassword = entry.appPassword ?? entry.password
+  newUser = String(newUser || '').trim()
+  newPassword = String(newPassword || '')
+  if (newUser === oldUser) newUser = ''
+  if (!newUser && !newPassword) throw httpErr(400, 'Enter a new username and/or a new password.')
+  if (newUser && !DB_USER_RE.test(newUser)) throw httpErr(400, 'Username: up to 32 letters, numbers and underscores.')
+  if (newUser && RESERVED_DB_USERS.has(newUser.toLowerCase())) throw httpErr(400, `"${newUser}" is a system account — choose another username.`)
+  if (newPassword) checkDbPassword(newPassword)
+  const assign = !oldUser || RESERVED_DB_USERS.has(oldUser.toLowerCase())
+  if (assign && entry.engine !== 'mysql') throw httpErr(400, `This project connects as "${oldUser || 'unknown'}", a system account. Create a dedicated database user for the app instead.`)
+  if (assign && (!newUser || !newPassword)) throw httpErr(400, `${oldUser ? `This database is used through the system account "${oldUser}"` : 'No app user is known for this database'}. Enter a new username and password to give it a dedicated MySQL user.`)
+
+  const text = async (script) => { const r = await host.exec(script, { timeout: 30000 }); return `${r.stdout}${r.stderr}` }
+  const finalUser = newUser || oldUser
+
+  if (entry.engine === 'mysql') {
+    if (adminUser && !/^[A-Za-z0-9_.-]{1,32}$/.test(adminUser)) throw httpErr(400, 'Invalid MySQL admin user.')
+    const admin = await findMysqlAdmin(text, { adminUser, adminPassword })
+    if (admin.cmd) {
+      const adminSql = (sql) => mysqlAdminSql(host, admin.cmd, sql, [newPassword, adminPassword])
+      if (newUser && Number((await adminSql(`SELECT COUNT(*) FROM mysql.user WHERE user = '${newUser}'`)).trim()) > 0) throw httpErr(400, `MySQL user "${newUser}" already exists.`)
+      const hosts = assign ? ['localhost', '127.0.0.1'] : sqlHosts(await adminSql(`SELECT host FROM mysql.user WHERE user = '${oldUser}'`))
+      if (!hosts.length) throw httpErr(404, `MySQL user "${oldUser}" was not found.`)
+      const sql = assign ? hosts.map(h => `CREATE USER '${newUser}'@'${h}' IDENTIFIED BY '${newPassword}';\nGRANT ALL PRIVILEGES ON ${myIdent(entry.database)}.* TO '${newUser}'@'${h}';`).join('\n') + '\nFLUSH PRIVILEGES;' : hosts.map(h => [
+        newUser ? `RENAME USER '${oldUser}'@'${h}' TO '${newUser}'@'${h}';` : '',
+        newPassword ? `ALTER USER '${finalUser}'@'${h}' IDENTIFIED BY '${newPassword}';` : ''
+      ].join('\n')).join('\n') + '\nFLUSH PRIVILEGES;'
+      await adminSql(sql)
+    } else {
+      if (newUser) throw httpErr(400, `${assign ? 'Creating' : 'Renaming'} a MySQL user needs an admin login${admin.enteredError ? ` (${admin.enteredError})` : ''}. Enter a MySQL admin user (e.g. root) and its password.`)
+      await mysqlCli({ ...entry, user: oldUser, password: oldPassword }, `ALTER USER CURRENT_USER() IDENTIFIED BY '${newPassword}'`, '')
+    }
+  } else {
+    const local = isLocalHost(entry.host) && !!(await text('command -v runuser && id postgres >/dev/null 2>&1 && echo ok')).includes('ok')
+    if (newUser && !newPassword && !oldPassword) throw httpErr(400, 'Renaming a PostgreSQL role clears its password — also enter a new password.')
+    const pw = newPassword || (newUser ? oldPassword : '')
+    const stmts = [
+      newUser ? `ALTER ROLE "${oldUser}" RENAME TO "${newUser}";` : '',
+      pw ? `ALTER ROLE "${finalUser}" WITH PASSWORD '${pw}';` : ''
+    ].filter(Boolean).join(' ')
+    if (local) {
+      if (newUser && (await psql({ _exec: host, peer: true, database: 'postgres' }, `SELECT 1 FROM pg_roles WHERE rolname = '${newUser}'`)).trim() === '1') throw httpErr(400, `PostgreSQL role "${newUser}" already exists.`)
+      await psql({ _exec: host, peer: true, database: 'postgres' }, stmts)
+    } else {
+      if (newUser) throw httpErr(400, 'Renaming a PostgreSQL role needs superuser access on the database server.')
+      await psql({ ...entry, peer: false, user: oldUser, password: oldPassword }, `ALTER ROLE CURRENT_USER WITH PASSWORD '${newPassword}'`)
+    }
+  }
+
+  // Point the apps at the new credentials
+  const updatedFiles = []
+  const restarted = []
+  const pm2Names = new Set()
+  for (const p of entry.projects) {
+    for (const n of p.pm2 || []) pm2Names.add(n)
+    for (const sd of ENV_SUBDIRS) {
+      const dir = sd ? `${p.path}/${sd}` : p.path
+      for (const f of ENV_FILES) {
+        const file = `${dir}/${f}`
+        if (!await host.exists(file)) continue
+        const before = await host.readFile(file)
+        const after = rewriteEnv(before, dir, entry, { oldUser, oldPassword, newUser, newPassword })
+        if (after === null) continue
+        await host.writeFile(`${file}.bak`, before, { mode: 0o600 })
+        await host.writeFile(file, after, { mode: 0o600 })
+        updatedFiles.push(file)
+      }
+    }
+  }
+  if (restart && updatedFiles.length) {
+    for (const n of pm2Names) {
+      const r = await host.run('pm2', ['restart', n, '--update-env'], { timeout: 60000 })
+      if (r.code === 0) restarted.push(n)
+    }
+  }
+  discoveryCache.delete(host.id)
+  const what = assign ? `to a dedicated user ${newUser}` : [newUser && `username → ${newUser}`, newPassword && 'password'].filter(Boolean).join(' and ')
+  return {
+    message: `${assign ? 'Switched' : 'Changed'} ${what} for ${entry.database}.${updatedFiles.length ? ` Updated ${updatedFiles.length} .env file(s)${restarted.length ? ` and restarted ${restarted.join(', ')}` : ''}.` : ' No .env file referenced this database — update your app\'s config yourself.'}`,
+    user: finalUser,
+    updatedFiles,
+    restarted
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Create / delete databases
+// ---------------------------------------------------------------------------------------------
+
+const DB_NAME_RE = /^[A-Za-z0-9_]{1,64}$/
+const ENGINE_LABEL = { mysql: 'MySQL', postgresql: 'PostgreSQL' }
+
+const hasPgPeer = async (host) => (await host.exec('command -v runuser >/dev/null && id postgres >/dev/null 2>&1 && echo ok', { timeout: 15000 })).stdout.includes('ok')
+
+/**
+ * Creates a MySQL or PostgreSQL database on the server, optionally with a user that owns it.
+ * An existing user is only given access (leave the password empty); a new one needs a password.
+ */
+export async function createDatabase(host, { engine = 'mysql', name, user, password, adminUser, adminPassword }) {
+  name = String(name || '').trim()
+  user = String(user || '').trim()
+  password = String(password || '')
+  if (!ENGINE_LABEL[engine]) throw httpErr(400, 'New databases can be MySQL or PostgreSQL.')
+  if (!DB_NAME_RE.test(name)) throw httpErr(400, 'Database name: up to 64 letters, numbers and underscores.')
+  if ((SYSTEM_DATABASES[engine] || []).includes(name.toLowerCase())) throw httpErr(400, `"${name}" is a system database.`)
+  if (user && !DB_USER_RE.test(user)) throw httpErr(400, 'Username: up to 32 letters, numbers and underscores.')
+  if (user && RESERVED_DB_USERS.has(user.toLowerCase())) throw httpErr(400, `"${user}" is a system account — choose another username.`)
+  if (password && !user) throw httpErr(400, 'Enter the username the password belongs to.')
+  if (password) checkDbPassword(password)
+  const checkUser = (exists) => {
+    if (!exists && !password) throw httpErr(400, `Enter a password for the new user "${user}".`)
+    if (exists && password) throw httpErr(400, `User "${user}" already exists — leave the password empty to give it access, or change its password under Credentials.`)
+  }
+  let userCreated = false
+
+  if (engine === 'mysql') {
+    if (adminUser && !/^[A-Za-z0-9_.-]{1,32}$/.test(adminUser)) throw httpErr(400, 'Invalid MySQL admin user.')
+    const admin = await findMysqlAdmin(async (s) => { const r = await host.exec(s, { timeout: 30000 }); return `${r.stdout}${r.stderr}` }, { adminUser, adminPassword })
+    if (!admin.cmd) throw httpErr(400, `Creating a database needs a MySQL admin login${admin.enteredError ? ` (${admin.enteredError})` : ''}. Enter a MySQL admin user (e.g. root) and its password.`)
+    const adminSql = (sql) => mysqlAdminSql(host, admin.cmd, sql, [password, adminPassword])
+    if (Number((await adminSql(`SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = '${name}'`)).trim()) > 0) throw httpErr(400, `Database "${name}" already exists.`)
+    const stmts = [`CREATE DATABASE ${myIdent(name)} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`]
+    if (user) {
+      const existing = sqlHosts(await adminSql(`SELECT host FROM mysql.user WHERE user = '${user}'`))
+      checkUser(existing.length > 0)
+      userCreated = !existing.length
+      for (const h of existing.length ? existing : ['localhost', '127.0.0.1']) {
+        if (userCreated) stmts.push(`CREATE USER '${user}'@'${h}' IDENTIFIED BY '${password}';`)
+        stmts.push(`GRANT ALL PRIVILEGES ON ${myIdent(name)}.* TO '${user}'@'${h}';`)
+      }
+      stmts.push('FLUSH PRIVILEGES;')
+    }
+    await adminSql(stmts.join('\n'))
+  } else {
+    if (!await hasPgPeer(host)) throw httpErr(400, 'Creating a PostgreSQL database needs PostgreSQL installed on this server.')
+    const peer = { _exec: host, peer: true, database: 'postgres' }
+    if ((await psql(peer, `SELECT 1 FROM pg_database WHERE datname = ${pgLit(name)}`)).trim() === '1') throw httpErr(400, `Database "${name}" already exists.`)
+    if (user) {
+      const exists = (await psql(peer, `SELECT 1 FROM pg_roles WHERE rolname = ${pgLit(user)}`)).trim() === '1'
+      checkUser(exists)
+      userCreated = !exists
+      if (userCreated) await psql(peer, `CREATE ROLE ${pgIdent(user)} WITH LOGIN PASSWORD ${pgLit(password)}`)
+    }
+    // CREATE DATABASE cannot share a statement batch (it refuses to run inside a transaction)
+    await psql(peer, `CREATE DATABASE ${pgIdent(name)}${user ? ` OWNER ${pgIdent(user)}` : ''}`)
+  }
+
+  discoveryCache.delete(host.id)
+  const port = DEFAULT_PORTS[engine]
+  return {
+    message: `Created ${ENGINE_LABEL[engine]} database ${name}${user ? ` ${userCreated ? 'with new user' : 'for user'} ${user}` : ''}.`,
+    connection: {
+      engine,
+      host: '127.0.0.1',
+      port,
+      database: name,
+      user: user || null,
+      url: user ? `${engine}://${user}:${userCreated ? encodeURIComponent(password) : '<password>'}@127.0.0.1:${port}/${name}` : null
+    }
+  }
+}
+
+/**
+ * Drops a MySQL or PostgreSQL database after writing a gzipped backup to /var/backups/autodeploy-db.
+ * `confirm` must repeat the database name. With `dropUser`, the app's user is removed too unless it
+ * still has access to other databases.
+ */
+export async function dropDatabase(host, connectionId, { confirm, dropUser = false, adminUser, adminPassword }) {
+  const entry = await getEntry(host, connectionId)
+  if (!ENGINE_LABEL[entry.engine]) throw httpErr(400, 'Deleting is supported for MySQL and PostgreSQL databases.')
+  if (String(confirm || '') !== entry.database) throw httpErr(400, `Type the database name (${entry.database}) to confirm.`)
+  if ((SYSTEM_DATABASES[entry.engine] || []).includes(entry.database)) throw httpErr(400, `"${entry.database}" is a system database.`)
+  if (entry.engine === 'postgresql' && !entry.peer) throw httpErr(400, 'Deleting a PostgreSQL database needs superuser access on its server.')
+
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)
+  const backup = `${BACKUP_DIR}/${String(entry.database).replace(/[^\w.-]/g, '_')}-${stamp}-before-delete.sql.gz`
+  await host.exec(`mkdir -p ${BACKUP_DIR} && chmod 700 ${BACKUP_DIR}`)
+  await dumpTo(host, entry, backup)
+
+  const appUser = entry.appUser || entry.user
+  const removable = dropUser && appUser && !RESERVED_DB_USERS.has(appUser.toLowerCase())
+  const notes = []
+
+  if (entry.engine === 'mysql') {
+    if (adminUser && !/^[A-Za-z0-9_.-]{1,32}$/.test(adminUser)) throw httpErr(400, 'Invalid MySQL admin user.')
+    const admin = entry.adminCmd && !adminUser
+      ? { cmd: entry.adminCmd }
+      : await findMysqlAdmin(async (s) => { const r = await host.exec(s, { timeout: 30000 }); return `${r.stdout}${r.stderr}` }, { adminUser, adminPassword })
+    if (admin.cmd) {
+      const adminSql = (sql) => mysqlAdminSql(host, admin.cmd, sql, [adminPassword])
+      await adminSql(`DROP DATABASE ${myIdent(entry.database)};`)
+      if (removable) {
+        // Grants on other databases (mysql.db stores `_` escaped as `\_`) mean the user is still in use
+        const others = Number((await adminSql(`SELECT COUNT(*) FROM mysql.db WHERE user = ${myLit(appUser)} AND db NOT IN (${myLit(entry.database)}, ${myLit(entry.database.replace(/_/g, '\\_'))})`)).trim())
+        if (others > 0) notes.push(`kept user ${appUser} (it can still access other databases)`)
+        else {
+          const hosts = sqlHosts(await adminSql(`SELECT host FROM mysql.user WHERE user = ${myLit(appUser)}`))
+          if (hosts.length) await adminSql(hosts.map(h => `DROP USER '${appUser}'@'${h}';`).join('\n'))
+          notes.push(`removed user ${appUser}`)
+        }
+      }
+    } else {
+      // Without an admin login, the app's own user needs the DROP privilege
+      await mysqlCli(entry, `DROP DATABASE ${myIdent(entry.database)}`, '')
+      if (removable) notes.push(`kept user ${appUser} (removing it needs a MySQL admin login)`)
+    }
+  } else {
+    const peer = { _exec: host, peer: true, database: 'postgres' }
+    // WITH (FORCE) (PostgreSQL 13+) disconnects the app's open sessions first
+    await psql(peer, `DROP DATABASE ${pgIdent(entry.database)} WITH (FORCE)`).catch(e => {
+      if (!/syntax error/i.test(e.message)) throw e
+      return psql(peer, `DROP DATABASE ${pgIdent(entry.database)}`)
+    })
+    if (removable) {
+      const owns = Number((await psql(peer, `SELECT count(*) FROM pg_database d JOIN pg_roles r ON r.oid = d.datdba WHERE r.rolname = ${pgLit(appUser)}`)).trim())
+      if (owns > 0) notes.push(`kept role ${appUser} (it owns other databases)`)
+      else await psql(peer, `DROP ROLE ${pgIdent(appUser)}`)
+        .then(() => notes.push(`removed role ${appUser}`))
+        .catch(e => notes.push(`kept role ${appUser} (${e.message.split('\n')[0]})`))
+    }
+  }
+
+  discoveryCache.delete(host.id)
+  return { message: `Deleted ${entry.database}${notes.length ? `; ${notes.join('; ')}` : ''}. A backup is at ${backup}.`, backup }
 }

@@ -7,6 +7,7 @@ import {
 import SuperAdminPortal from './SuperAdminPortal'
 import { useAuth } from '../store/AuthContext'
 import { AdminIdempotencyPanel } from './AdminIdempotencyPanel'
+import ThemeToggle from './ThemeToggle'
 
 export default function SuperAdminDashboardLayout({ apiBaseUrl = '' }) {
   const { user: currentUser, token: jwtToken, logout: onLogout } = useAuth()
@@ -63,7 +64,7 @@ export default function SuperAdminDashboardLayout({ apiBaseUrl = '' }) {
   ]
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-purple-500/30 selection:text-purple-200">
+    <div className="min-h-screen bg-slate-950 app-canvas text-slate-100 flex flex-col font-sans selection:bg-purple-500/30 selection:text-purple-200">
       {/* Super Admin Top Header */}
       <header className="border-b border-purple-500/30 bg-slate-950/90 backdrop-blur-2xl sticky top-0 z-40 shadow-2xl">
         <div className="px-3 sm:px-6 h-14 flex items-center justify-between gap-2 sm:gap-4">
@@ -96,6 +97,8 @@ export default function SuperAdminDashboardLayout({ apiBaseUrl = '' }) {
                 <span className="font-bold text-purple-300">{buildInfo.lastCodeUpdateFormatted}</span>
               </div>
             )}
+
+            <ThemeToggle compact />
 
             <a
               href="/app/dashboard"
@@ -154,7 +157,7 @@ export default function SuperAdminDashboardLayout({ apiBaseUrl = '' }) {
                       }}
                       className={`w-full flex items-center ${sidebarCollapsed && !mobileMenuOpen ? 'justify-center px-2 py-2.5' : 'justify-between px-3 py-2'} rounded-xl text-xs transition-all cursor-pointer ${
                         isActive
-                          ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold shadow-lg shadow-purple-500/20'
+                          ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-onaccent font-bold shadow-lg shadow-purple-500/20'
                           : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900'
                       }`}
                     >

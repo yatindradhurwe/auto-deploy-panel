@@ -131,7 +131,8 @@ export async function discoverProjects(host, registered = [], { panelRoot = null
       path: dir,
       domain: domain ? domain.replace(/^www\./, '') : null,
       gitUrl: m.gitUrl || reg?.gitUrl || '',
-      branch: m.branch && m.branch !== 'HEAD' ? m.branch : (reg?.branch || 'main'),
+      // The registered branch wins (when only one record owns this folder) so a stray checkout can't steer the next publish.
+      branch: (reg?.branch && registered.filter(r => r.path === dir).length <= 1 ? reg.branch : null) || (m.branch && m.branch !== 'HEAD' ? m.branch : (reg?.branch || 'main')),
       port: port ? String(port) : null,
       framework: reg?.framework || null,
       pm2Processes: procs.map(p => ({ name: p.name, status: p.status, memory: p.memory, cpu: p.cpu, restarts: p.restarts })),

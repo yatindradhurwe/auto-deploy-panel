@@ -320,7 +320,7 @@ export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio })
         <div className="flex items-center space-x-2">
           <button
             onClick={() => setShowDeployWizard(true)}
-            className="px-4 py-2 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-extrabold border border-cyan-400/40 rounded-2xl transition cursor-pointer flex items-center gap-2 text-xs shadow-lg shadow-cyan-500/20"
+            className="px-4 py-2 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-indigo-500 text-onaccent font-extrabold border border-cyan-400/40 rounded-2xl transition cursor-pointer flex items-center gap-2 text-xs shadow-lg shadow-cyan-500/20"
             title="Open 1-Click Automated Deployment Wizard to deploy any GitHub project onto VPS"
           >
             <Zap className="w-3.5 h-3.5 text-yellow-300" />
@@ -393,7 +393,7 @@ export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio })
                       <p className="text-xs font-bold text-slate-300">No active PM2 application services detected yet on host node.</p>
                       <button
                         onClick={() => setShowDeployWizard(true)}
-                        className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-indigo-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-cyan-500/20 flex items-center space-x-1.5 cursor-pointer"
+                        className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-indigo-600 text-onaccent font-bold text-xs rounded-xl shadow-lg shadow-cyan-500/20 flex items-center space-x-1.5 cursor-pointer"
                       >
                         <Zap className="w-4 h-4 text-yellow-300" />
                         <span>Start 1-Click Deployment</span>
@@ -458,7 +458,7 @@ export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio })
                       <button
                         onClick={() => handlePullAndUpdate(proc.name, proc.cwd)}
                         disabled={updatingAppName === proc.name}
-                        className="px-3 py-1.5 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white border border-purple-400/40 rounded-xl text-[11px] transition cursor-pointer font-bold inline-flex items-center gap-1.5 shadow-md shadow-purple-950/40 disabled:opacity-50"
+                        className="px-3 py-1.5 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-onaccent border border-purple-400/40 rounded-xl text-[11px] transition cursor-pointer font-bold inline-flex items-center gap-1.5 shadow-md shadow-purple-950/40 disabled:opacity-50"
                         title="Pull latest code changes from GitHub, rebuild assets, and reload live server service"
                       >
                         <DownloadCloud className={`w-3.5 h-3.5 text-purple-200 ${updatingAppName === proc.name ? 'animate-bounce' : ''}`} />
@@ -467,7 +467,7 @@ export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio })
 
                       <button
                         onClick={() => onOpenInStudio && onOpenInStudio(proc.name)}
-                        className="px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white border border-cyan-400/30 rounded-xl text-[11px] transition cursor-pointer font-bold inline-flex items-center gap-1.5 shadow-md shadow-cyan-950/40"
+                        className="px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-onaccent border border-cyan-400/30 rounded-xl text-[11px] transition cursor-pointer font-bold inline-flex items-center gap-1.5 shadow-md shadow-cyan-950/40"
                       >
                         <Code className="w-3.5 h-3.5" />
                         <span>Open in Studio</span>
@@ -706,7 +706,7 @@ export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio })
               <button
                 onClick={handleConfirmDeleteProject}
                 disabled={deleteModal.deleting}
-                className="px-5 py-2 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition shadow-lg shadow-rose-950/40 disabled:opacity-50"
+                className="px-5 py-2 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-onaccent font-bold rounded-xl text-xs flex items-center gap-1.5 transition shadow-lg shadow-rose-950/40 disabled:opacity-50"
               >
                 {deleteModal.deleting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                 <span>{deleteModal.deleting ? 'Deleting...' : 'Confirm Permanent Deletion'}</span>
@@ -769,7 +769,7 @@ export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio })
                   onChange={(e) => setAutoUpdateModal({ ...autoUpdateModal, enabled: e.target.checked })}
                   className="sr-only peer"
                 />
-                <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-500"></div>
+                <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-onaccent after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-500"></div>
               </label>
             </div>
 
@@ -864,7 +864,7 @@ export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio })
               <button
                 onClick={handleTriggerAutoSyncNow}
                 disabled={triggeringAutoSync}
-                className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md disabled:opacity-50 cursor-pointer"
+                className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-onaccent rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md disabled:opacity-50 cursor-pointer"
               >
                 <Zap className={`w-3.5 h-3.5 ${triggeringAutoSync ? 'animate-spin' : ''}`} />
                 <span>{triggeringAutoSync ? 'Syncing Now...' : 'Trigger Sync Now'}</span>

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeft, Search, Sliders, Globe, Palette, Languages, Code, Braces, Building, CreditCard, Truck,
   Mail, ShieldCheck, TrendingUp, BarChart3, X, Save, Plus, Trash2, Lock, Power, RefreshCw, Link2,
-  CheckCircle2, AlertCircle, Loader2, Smartphone
+  CheckCircle2, AlertCircle, Loader2, Smartphone, GitBranch
 } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
 import PwaSettings from './PwaSettings'
@@ -43,11 +43,11 @@ const ENV_FIELDS = {
     ['SHIPROCKET_PASSWORD', 'Shiprocket password', '', true]
   ],
   email: [
-    ['SMTP_HOST', 'SMTP host', 'smtp.example.com'],
-    ['SMTP_PORT', 'SMTP port', '587'],
-    ['SMTP_SECURE', 'Use TLS from the start (true for port 465)', 'false'],
-    ['SMTP_USER', 'SMTP username', ''],
-    ['SMTP_PASS', 'SMTP password', '', true],
+    ['SMTP_HOST', 'SMTP host', 'smtp.hostinger.com'],
+    ['SMTP_PORT', 'SMTP port', '465'],
+    ['SMTP_SECURE', 'Use TLS from the start (true for port 465, false for 587)', 'true'],
+    ['SMTP_USER', 'SMTP username (full email address)', 'no-reply@yourdomain.com'],
+    ['SMTP_PASS', 'SMTP password (mailbox password)', '', true],
     ['MAIL_FROM', 'From address', 'App <noreply@example.com>'],
     ['RESEND_API_KEY', 'Resend API key (instead of SMTP)', 're_…', true]
   ],
@@ -89,6 +89,7 @@ const NAV = [
       { id: 'analytics', label: 'Analytics', icon: BarChart3, desc: 'Google Analytics 4 and PostHog', server: true }
     ]
   },
+  { category: 'SOURCE CODE', items: [{ id: 'git', label: 'Git Repository', icon: GitBranch, desc: 'The repository and branch this project pulls from when you publish', server: true }] },
   { category: 'MOBILE APP', items: [{ id: 'pwa', label: 'App (PWA) · Android & iOS', icon: Smartphone, desc: 'Turn this website into an installable app for Android, iPhone and desktop', server: true }] },
   { category: 'DOMAINS', items: [{ id: 'domains', label: 'Domains', icon: Link2, desc: 'Domains that serve this site', server: true }] }
 ]
@@ -139,6 +140,8 @@ export default function ProjectSettingsModal({ isOpen, project, onClose }) {
         seoNoindex: !!s.seo?.noindex,
         injectAnalytics: s.analytics ? !!(s.analytics.gaId || s.analytics.posthogKey) || !(d.env.GA_MEASUREMENT_ID || d.env.POSTHOG_KEY) : true,
         redirects: s.redirects?.length ? s.redirects : [],
+        gitUrl: d.git?.remoteUrl || project?.gitUrl || '',
+        gitBranch: d.git?.branch && d.git.branch !== 'HEAD' ? d.git.branch : (project?.branch || 'main'),
         domains: d.site?.domains?.length ? d.site.domains : (project?.domain ? [project.domain] : [])
       })
     } catch (err) {
@@ -188,6 +191,7 @@ export default function ProjectSettingsModal({ isOpen, project, onClose }) {
       case 'analytics': return save('analytics', { GA_MEASUREMENT_ID: form.GA_MEASUREMENT_ID, POSTHOG_KEY: form.POSTHOG_KEY, POSTHOG_HOST: form.POSTHOG_HOST, inject: form.injectAnalytics }, { withRestart: true })
       case 'redirects': return save('redirects', { redirects: form.redirects })
       case 'domains': return save('domains', { domains: form.domains })
+      case 'git': return save('git', { repoUrl: form.gitUrl.trim(), branch: form.gitBranch.trim() })
       default:
         if (ENV_FIELDS[activeTab]) return save(activeTab, envValues(ENV_FIELDS[activeTab].map((f) => f[0])), { withRestart: true })
     }
@@ -228,7 +232,7 @@ export default function ProjectSettingsModal({ isOpen, project, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-2xl flex flex-col font-sans text-slate-100 overflow-hidden animate-in fade-in duration-200">
-      <header className="h-14 bg-[#0B0E17]/90 border-b border-white/10 px-4 sm:px-6 flex items-center justify-between shrink-0 z-20 shadow-md">
+      <header className="h-14 bg-slate-900/90 border-b border-white/10 px-4 sm:px-6 flex items-center justify-between shrink-0 z-20 shadow-md">
         <button onClick={onClose} className="flex items-center space-x-2 text-slate-400 hover:text-white font-mono text-xs font-bold transition cursor-pointer">
           <ArrowLeft className="w-4 h-4 text-cyan-400" />
           <span>Back to project</span>
@@ -238,7 +242,7 @@ export default function ProjectSettingsModal({ isOpen, project, onClose }) {
       </header>
 
       <div className="flex-1 flex overflow-hidden">
-        <aside className="w-64 hidden md:flex bg-[#080B12] border-r border-white/10 flex-col shrink-0 overflow-y-auto p-4 space-y-6">
+        <aside className="w-64 hidden md:flex bg-slate-950 border-r border-white/10 flex-col shrink-0 overflow-y-auto p-4 space-y-6">
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3" />
             <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search settings..." className="w-full pl-9 pr-3 py-2 bg-slate-950/80 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-mono" />
@@ -293,6 +297,7 @@ export default function ProjectSettingsModal({ isOpen, project, onClose }) {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                   {[
                     ['Project folder', project?.path],
+                    ['Git repository', data.git?.isRepo ? `${data.git.remoteUrl || 'No remote'} · ${data.git.branch}` : 'Not a Git repository'],
                     ['Domains', (data.site?.domains || [project?.domain]).filter(Boolean).join(', ') || 'None'],
                     ['nginx site', data.site?.config || 'Not found'],
                     ['Environment file', data.envFile],
@@ -351,6 +356,45 @@ export default function ProjectSettingsModal({ isOpen, project, onClose }) {
                 </div>
               )}
 
+              {activeTab === 'email' && (
+                <div className="bg-cyan-500/5 border border-cyan-500/30 rounded-2xl p-4 space-y-2 text-xs">
+                  <div className="font-bold text-sm flex items-center gap-2"><Mail className="w-4 h-4 text-cyan-400" />Set up email automatically</div>
+                  <p className="text-slate-400">
+                    Creates <span className="font-mono text-slate-200">no-reply@{project?.domain || 'your-domain'}</span> on this server's mail service, writes the SMTP settings below into the app's .env and restarts the app. With a DNS provider connected (Email → Domains & DNS) the domain's email DNS is added too.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={busy || !canEditServer || !project?.domain}
+                    onClick={async () => {
+                      setBusy(true)
+                      setResult(null)
+                      try {
+                        const r = await api('/api/studio/project-settings/email-auto', { method: 'POST', body: base })
+                        setResult({ tone: 'success', text: r.message })
+                        await load()
+                      } catch (err) {
+                        setResult({ tone: 'error', text: err.message })
+                      } finally {
+                        setBusy(false)
+                      }
+                    }}
+                    className="px-4 py-2 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 text-onaccent font-extrabold rounded-xl flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                  >
+                    {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}Set up app email
+                  </button>
+                  {!project?.domain && <p className="text-amber-300">Add a domain to this project first.</p>}
+                  {project?.domain && !canEditServer && <p className="text-slate-500">Only organization owners and admins can create mailboxes.</p>}
+                </div>
+              )}
+              {activeTab === 'email' && (
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="text-slate-500">Quick fill:</span>
+                  {[['Hostinger · 465 SSL', '465', 'true'], ['Hostinger · 587 STARTTLS', '587', 'false']].map(([label, port, secure]) => (
+                    <button key={port} type="button" onClick={() => setForm((f) => ({ ...f, SMTP_HOST: 'smtp.hostinger.com', SMTP_PORT: port, SMTP_SECURE: secure }))} className="px-3 py-1.5 rounded-xl bg-slate-800 border border-white/10 text-slate-200 hover:border-cyan-500/40 font-bold cursor-pointer">{label}</button>
+                  ))}
+                  <span className="text-slate-500 basis-full">Use 465 with SSL; if that port doesn't work for your app, use 587 with STARTTLS. Username is the full email address.</span>
+                </div>
+              )}
               {ENV_FIELDS[activeTab] && envForm(activeTab)}
 
               {activeTab === 'global-vars' && (
@@ -431,6 +475,36 @@ export default function ProjectSettingsModal({ isOpen, project, onClose }) {
                 />
               )}
 
+              {activeTab === 'git' && (
+                <div className="space-y-5">
+                  {!data.git?.isRepo ? (
+                    <p className="text-xs text-amber-300">This project folder is not a Git repository, so there is no repository to change. Deploy it from Git first.</p>
+                  ) : (
+                    <>
+                      <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-4 space-y-2 text-xs">
+                        <div className="font-bold text-sm flex items-center gap-2"><GitBranch className="w-4 h-4 text-cyan-400" />Connected now</div>
+                        <div className="text-slate-300 break-all">
+                          {data.git.remoteUrl
+                            ? <a href={data.git.remoteUrl.replace(/\.git$/, '')} target="_blank" rel="noreferrer" className="text-cyan-300 hover:underline font-mono">{data.git.remoteUrl}</a>
+                            : <span className="text-slate-500">No remote set</span>}
+                          <span className="text-slate-500"> · branch </span><span className="font-mono text-white">{data.git.branch}</span>
+                        </div>
+                        {data.git.lastCommit && (
+                          <div className="text-slate-400"><span className="font-mono text-slate-300">{data.git.lastCommit.hash}</span> — {data.git.lastCommit.subject} <span className="text-slate-500">({new Date(data.git.lastCommit.date).toLocaleString()})</span></div>
+                        )}
+                      </div>
+                      <Field label="Repository URL" hint="HTTPS URL, e.g. https://github.com/owner/repo.git. Private GitHub repos use the panel's saved GitHub token.">
+                        <input disabled={locked} value={form.gitUrl || ''} onChange={(e) => set('gitUrl', e.target.value)} placeholder="https://github.com/owner/repo.git" className={`${inputCls} font-mono`} />
+                      </Field>
+                      <Field label="Branch" hint="Publish and auto-update pull this branch.">
+                        <input disabled={locked} value={form.gitBranch || ''} onChange={(e) => set('gitBranch', e.target.value)} placeholder="main" className={`${inputCls} font-mono`} />
+                      </Field>
+                      <p className="text-[11px] text-slate-500">Saving checks that the repository and branch exist, then connects this project to them. The live site doesn't change until you click Publish, which pulls the new code and redeploys.</p>
+                    </>
+                  )}
+                </div>
+              )}
+
               {activeTab === 'domains' && (
                 <div className="space-y-3">
                   {!data.site && <p className="text-xs text-amber-300">No nginx site was found for this project's domain, so domains can't be edited here.</p>}
@@ -462,7 +536,7 @@ export default function ProjectSettingsModal({ isOpen, project, onClose }) {
                     </label>
                   )}
                   <button onClick={load} disabled={busy} className="px-3 py-2 text-xs text-slate-300 bg-slate-800 rounded-xl flex items-center gap-1.5 cursor-pointer"><RefreshCw className="w-3.5 h-3.5" />Reload</button>
-                  <button onClick={saveCurrent} disabled={busy || locked} className="px-4 py-2 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 text-white font-extrabold rounded-xl text-xs flex items-center gap-1.5 disabled:opacity-50 cursor-pointer">
+                  <button onClick={saveCurrent} disabled={busy || locked} className="px-4 py-2 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 text-onaccent font-extrabold rounded-xl text-xs flex items-center gap-1.5 disabled:opacity-50 cursor-pointer">
                     {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}Save {activeItem?.label}
                   </button>
                 </div>

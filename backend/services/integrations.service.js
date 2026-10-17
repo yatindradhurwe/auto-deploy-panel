@@ -24,7 +24,7 @@ export const NOTIFICATION_EVENTS = {
 
 const DEFAULTS = {
   razorpay: { enabled: false, keyId: '', keySecret: '', webhookSecret: '', currency: 'INR', businessName: 'AutoDeploy' },
-  email: { enabled: false, host: '', port: 587, secure: false, user: '', pass: '', fromName: 'AutoDeploy', fromEmail: '' },
+  email: { enabled: false, host: 'smtp.hostinger.com', port: 465, secure: true, user: '', pass: '', fromName: 'AutoDeploy', fromEmail: '' },
   sms: {
     enabled: false,
     provider: 'twilio',

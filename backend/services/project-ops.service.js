@@ -20,14 +20,18 @@ function checkDir(dir) {
 /**
  * Pull the latest code, install/build, reload PM2.  onLog(text, isError)
  */
-export async function updateProject(host, { projectPath, appName, branch = 'main', gitRepoUrl = '', githubToken = '' }, onLog = () => {}) {
+export async function updateProject(host, { projectPath, appName, branch, gitRepoUrl = '', githubToken = '' }, onLog = () => {}) {
   const dir = checkDir(projectPath || (appName ? `/var/www/${appName}` : ''))
+  // No branch given → stay on the branch the folder already tracks; never switch a project onto 'main' by default.
+  if (!branch && await host.exists(`${dir}/.git`)) branch = (await host.exec('git rev-parse --abbrev-ref HEAD', { cwd: dir })).stdout?.trim()
+  if (!branch || branch === 'HEAD') branch = 'main'
   if (!BRANCH_RE.test(branch)) throw httpError(400, 'Invalid branch name.')
   const app = appName && APP_RE.test(appName) ? appName : dir.split('/').pop()
   const step = (t) => onLog(`\n=== ${t} ===\n`)
   const run = async (script) => {
-    const r = await host.exec(script, { cwd: dir, timeout: 20 * 60 * 1000, onData: (d, isErr) => onLog(d.replace(/(https:\/\/)[^@\s/]+@/g, '$1***@'), isErr) })
-    if (r.code !== 0) throw new Error(`Command failed (exit ${r.code})`)
+    let tail = ''
+    const r = await host.exec(script, { cwd: dir, timeout: 20 * 60 * 1000, onData: (d, isErr) => { const t = d.replace(/(https:\/\/)[^@\s/]+@/g, '$1***@'); tail = (tail + t).slice(-600); onLog(t, isErr) } })
+    if (r.code !== 0) throw new Error(`Command failed (exit ${r.code}): ${tail.replace(/\x1b\[[0-9;]*m/g, '').trim().split('\n').slice(-4).join(' | ')}`)
   }
 
   step(`Pulling ${branch} from Git`)

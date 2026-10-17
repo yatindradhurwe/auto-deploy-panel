@@ -4,6 +4,7 @@ import crypto from 'crypto'
 import { analyzeProject, manifestPaths } from './detector.service.js'
 import { getReadyUpload, validateGitUrl, withGithubToken, redactUrl } from './upload.service.js'
 import { templateDeploySource } from './template.service.js'
+import { findMysqlAdmin, checkDbPassword, RESERVED_DB_USERS } from './database.service.js'
 
 /**
  * 1-click deployment pipeline (GitHub or uploaded source, optional database) on the selected
@@ -115,9 +116,23 @@ export function validateDeployConfig(body, userId, server = null) {
       if (engine === 'mongodb') throw httpError(400, 'Importing into MongoDB is not supported yet — choose "Create empty database" and restore with mongorestore.')
     }
     if (engine === 'mysql' && dbIn.adminUser) {
-      if (!/^[A-Za-z0-9_.-]{1,32}$/.test(dbIn.adminUser)) throw httpError(400, 'Invalid MySQL admin user.')
-      database.adminUser = dbIn.adminUser
+      const adminUser = String(dbIn.adminUser).trim()
+      if (!/^[A-Za-z0-9_.-]{1,32}$/.test(adminUser)) throw httpError(400, 'Invalid MySQL admin user.')
+      database.adminUser = adminUser
       database.adminPassword = String(dbIn.adminPassword || '')
+    }
+    // Optional name/user/password for the new database (generated when left empty)
+    if (engine === 'mysql' || engine === 'postgresql') {
+      const name = String(dbIn.name || '').trim()
+      const user = String(dbIn.user || '').trim()
+      const password = String(dbIn.password || '')
+      if (name && !/^[A-Za-z0-9_]{1,64}$/.test(name)) throw httpError(400, 'Database name: up to 64 letters, numbers and underscores.')
+      if (user && !/^[A-Za-z0-9_]{1,32}$/.test(user)) throw httpError(400, 'Database user: up to 32 letters, numbers and underscores.')
+      if (user && (RESERVED_DB_USERS.has(user.toLowerCase()) || user === database.adminUser)) throw httpError(400, `"${user}" is a system/admin account — choose a separate user for the app.`)
+      if (password) checkDbPassword(password)
+      if (name) database.name = name
+      if (user) database.user = user
+      if (password) database.password = password
     }
   }
 
@@ -184,7 +199,7 @@ export async function runDeployPipeline(cfg, emit, { host }) {
     progress()
   }
   const log = (text, isError = false) => emit({ kind: 'log', stage: current, text: redactUrl(text), isError })
-  const secrets = [cfg.server?.password, cfg.database.adminPassword].filter(Boolean)
+  const secrets = [cfg.server?.password, cfg.database.adminPassword, cfg.database.password].filter(Boolean)
   const scrub = (t) => secrets.reduce((acc, s) => acc.split(s).join('***'), t)
 
   let lines = 0
@@ -223,6 +238,14 @@ export async function runDeployPipeline(cfg, emit, { host }) {
     const osInfo = await query('. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME"; uname -m')
     log(`Connected. ${osInfo.replace(/\n/g, ' · ')}\n`)
     stage('connect', 'done', osInfo.split('\n')[0] || null)
+
+    // An app name owns one folder, PM2 process and database. If it already serves another
+    // domain, deploying here would overwrite that site — refuse before touching anything.
+    const owners = (await query(`grep -lx ${q(`# autodeploy:${cfg.appName}`)} /etc/nginx/sites-available/*.conf 2>/dev/null`))
+      .split('\n').filter(Boolean).map(f => path.basename(f, '.conf')).filter(d => d !== cfg.domain)
+    if (owners.length) {
+      throw new Error(`The app name "${cfg.appName}" is already used by ${owners.join(', ')}. Deploying ${cfg.domain} with the same name would overwrite that site — go back and choose a different app name (e.g. "${cfg.domain.split('.')[0].replace(/[^a-z0-9-]/g, '')}").`)
+    }
 
     // ------------------------------------------------------------------ source
     stage('source', 'running', cfg.source.type === 'git' ? `${redactUrl(cfg.source.gitUrl)} (${cfg.source.branch})` : cfg.source.name)
@@ -348,7 +371,7 @@ echo "Extracted $(find ${q(dir)} -type f | wc -l) files into ${dir}"
       stage('database', 'running', cfg.database.engine)
       const engine = cfg.database.engine
       const base = cfg.appName.replace(/-/g, '_').slice(0, 40)
-      const db = { engine, name: base, user: `${base.slice(0, 26)}_app`, password: randomPassword() }
+      const db = { engine, name: cfg.database.name || base, user: cfg.database.user || `${base.slice(0, 26)}_app`, password: cfg.database.password || randomPassword() }
       secrets.push(db.password)
       let remoteDump = null
       if (cfg.database.mode === 'import' && engine !== 'sqlite') {
@@ -376,11 +399,17 @@ ${exists ? `echo "Database ${db.name} already exists — keeping its data"` : `r
         db.url = `postgresql://${db.user}:${db.password}@127.0.0.1:5432/${db.name}`
       } else if (engine === 'mysql') {
         if (!await query('command -v mysql')) throw new Error('MySQL/MariaDB is not installed on the server (apt install mysql-server).')
-        const admin = cfg.database.adminUser
-          ? `MYSQL_PWD=${q(cfg.database.adminPassword)} mysql -u ${q(cfg.database.adminUser)}`
-          : 'mysql'
-        const ok = await query(`${admin} -N -e 'SELECT 1' 2>&1`)
-        if (ok.trim() !== '1') throw new Error('Could not log in to MySQL as an administrator. Enter a MySQL admin user and password in the Database step (Advanced).')
+        const { adminUser } = cfg.database
+        const found = await findMysqlAdmin(query, cfg.database)
+        const enteredError = scrub(found.enteredError)
+        if (!found.cmd) {
+          throw new Error(adminUser
+            ? `Could not log in to MySQL as "${adminUser}"${enteredError ? ` (${enteredError})` : ''}. The admin login must be an existing MySQL administrator such as root — not the new database's user.`
+            : 'Could not log in to MySQL as an administrator. Enter a MySQL admin user (e.g. root) and its password under "MySQL admin login" in the Database step.')
+        }
+        if (adminUser && !found.entered) log(`The MySQL admin login "${adminUser}" did not work${enteredError ? ` (${enteredError})` : ''}; using ${found.label} instead.\n`, true)
+        else log(`Logged in to MySQL as ${found.label}.\n`)
+        const admin = found.cmd
         const exists = (await query(`${admin} -N -e ${q(`SHOW DATABASES LIKE '${db.name}'`)}`)).trim() === db.name
         const sql = `CREATE DATABASE IF NOT EXISTS \`${db.name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '${db.user}'@'localhost' IDENTIFIED BY '${db.password}';

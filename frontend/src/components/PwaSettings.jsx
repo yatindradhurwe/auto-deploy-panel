@@ -146,7 +146,7 @@ export default function PwaSettings({ project, stored, locked, busy, onSave, api
           role="switch"
           aria-checked={form.enabled}
         >
-          <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${form.enabled ? 'left-6' : 'left-1'}`} />
+          <span className={`absolute top-1 w-4 h-4 rounded-full bg-onaccent transition-all ${form.enabled ? 'left-6' : 'left-1'}`} />
         </button>
       </div>
 
@@ -213,7 +213,7 @@ export default function PwaSettings({ project, stored, locked, busy, onSave, api
       )}
 
       <div className="flex justify-end">
-        <button onClick={save} disabled={busy || locked} className="px-4 py-2 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 text-white font-extrabold rounded-xl text-xs flex items-center gap-1.5 disabled:opacity-50 cursor-pointer">
+        <button onClick={save} disabled={busy || locked} className="px-4 py-2 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 text-onaccent font-extrabold rounded-xl text-xs flex items-center gap-1.5 disabled:opacity-50 cursor-pointer">
           {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}{form.enabled ? 'Publish app' : stored?.enabled ? 'Turn off app' : 'Save'}
         </button>
       </div>

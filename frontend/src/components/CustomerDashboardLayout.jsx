@@ -31,9 +31,10 @@ import { useAuth } from '../store/AuthContext'
 
 import DeploymentWizard from './DeploymentWizard'
 import { useServers } from '../store/ServersContext'
+import ThemeToggle from './ThemeToggle'
 
 export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
-  const { user: currentUser, token: jwtToken, logout: onLogout } = useAuth()
+  const { user: currentUser, token: jwtToken, logout } = useAuth()
   const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'servers' | 'projects' | 'deployments' | 'databases' | 'code' | 'env' | 'domains' | 'logs' | 'email' | 'team' | 'billing' | 'settings' | 'profile'
   const [activeWorkspaceProject, setActiveWorkspaceProject] = useState(null)
   const [viewStep, setViewStep] = useState('servers') // Default home page after login: 'servers' ("Connect & Manage Your Server Infrastructure")
@@ -220,8 +221,8 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
   }
 
   const renderHubSubView = (component, title) => (
-    <div className="min-h-screen bg-[#07090E] text-slate-100 flex flex-col font-sans">
-      <header className="h-16 bg-[#0B0E17]/90 backdrop-blur-xl border-b border-white/10 px-6 flex items-center justify-between z-30 shrink-0">
+    <div className="min-h-screen bg-slate-950 app-canvas text-slate-100 flex flex-col font-sans">
+      <header className="h-16 bg-slate-900/90 backdrop-blur-xl border-b border-white/10 px-6 flex items-center justify-between z-30 shrink-0">
         <div className="flex items-center space-x-4">
           <button
             onClick={() => setActiveTab('projects')}
@@ -239,6 +240,7 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
         </div>
 
         <div className="flex items-center space-x-3 text-xs font-mono">
+          <ThemeToggle compact />
           <ServerSelectorDropdown
             activeServerId={activeServerId}
             onServerSelect={(id) => setActiveServerId(id)}
@@ -246,10 +248,18 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
           />
           <button
             onClick={() => setActiveTab('deployments')}
-            className="px-3.5 py-1.5 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-extrabold rounded-xl shadow-lg flex items-center space-x-1.5 transition cursor-pointer"
+            className="px-3.5 py-1.5 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-onaccent font-extrabold rounded-xl shadow-lg flex items-center space-x-1.5 transition cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>1-Click Deploy</span>
+          </button>
+          <button
+            onClick={logout}
+            title="Log out"
+            className="h-8.5 px-3 bg-slate-900/90 hover:bg-rose-500/10 text-slate-300 hover:text-rose-300 border border-white/10 hover:border-rose-500/40 rounded-xl text-xs font-bold inline-flex items-center space-x-1.5 transition cursor-pointer shrink-0"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Logout</span>
           </button>
         </div>
       </header>
@@ -332,7 +342,7 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#07090E] text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
+    <div className="min-h-screen bg-slate-950 app-canvas text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
       {/* Customer Header */}
       <header className="border-b border-white/10 bg-slate-950/90 backdrop-blur-2xl sticky top-0 z-40 shadow-xl">
         <div className="px-3 sm:px-6 h-14 flex items-center justify-between gap-2 sm:gap-4">
@@ -355,7 +365,7 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
             </button>
 
             <div className="flex items-center space-x-1.5 sm:space-x-2">
-              <span className="font-extrabold text-xs sm:text-sm tracking-tight text-white bg-gradient-to-r from-cyan-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">AutoDeploy</span>
+              <span className="font-extrabold text-xs sm:text-sm tracking-tight text-onaccent bg-gradient-to-r from-cyan-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">AutoDeploy</span>
               <span className="text-[9px] sm:text-[10px] bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 px-1.5 sm:px-2 py-0.5 rounded-full font-mono font-bold hidden xs:inline-block">WORKSPACES</span>
             </div>
           </div>
@@ -409,7 +419,7 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
                 </div>
                 <span className="font-semibold text-white max-w-[80px] sm:max-w-[120px] truncate hidden xs:inline">{currentUser?.fullName || currentUser?.email}</span>
               </button>
-              <button onClick={onLogout} className="text-slate-400 hover:text-rose-400 p-0.5 ml-1" title="Logout">
+              <button onClick={logout} className="text-slate-400 hover:text-rose-400 p-0.5 ml-1" title="Logout">
                 <LogOut className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -451,7 +461,7 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
                       }}
                       className={`w-full flex items-center ${sidebarCollapsed && !mobileMenuOpen ? 'justify-center px-2 py-2.5' : 'justify-between px-3 py-2'} rounded-xl text-xs transition-all cursor-pointer ${
                         isActive
-                          ? 'bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 text-white font-bold shadow-lg shadow-cyan-500/20'
+                          ? 'bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 text-onaccent font-bold shadow-lg shadow-cyan-500/20'
                           : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900'
                       }`}
                     >
@@ -517,7 +527,7 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
                     </button>
                     <button
                       onClick={() => setActiveTab('deployments')}
-                      className="px-4 py-2.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-cyan-500/20 flex items-center space-x-2"
+                      className="px-4 py-2.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-onaccent font-bold text-xs rounded-xl shadow-lg shadow-cyan-500/20 flex items-center space-x-2"
                     >
                       <Zap className="w-4 h-4" />
                       <span>Deploy New Project</span>
@@ -554,7 +564,7 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
                   <div className="pt-2">
                     <button
                       onClick={() => setActiveTab('servers')}
-                      className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-indigo-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-cyan-500/20"
+                      className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-indigo-600 text-onaccent font-bold text-xs rounded-xl shadow-lg shadow-cyan-500/20"
                     >
                       Enter SSH Server Credentials Manually
                     </button>

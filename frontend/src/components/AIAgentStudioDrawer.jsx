@@ -31,7 +31,7 @@ export default function AIAgentStudioDrawer({ isOpen, onClose, projectPath, sele
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <aside className="relative w-full max-w-xl h-full bg-[#07090E] border-l border-white/10 flex flex-col shadow-2xl">
+      <aside className="relative w-full max-w-xl h-full bg-slate-950 border-l border-white/10 flex flex-col shadow-2xl">
         <div className="p-3.5 border-b border-slate-800 bg-slate-950 flex items-center gap-2 font-mono text-xs">
           <div className="p-1.5 rounded-lg bg-gradient-to-tr from-cyan-500 to-purple-600 text-slate-950"><Bot className="w-4 h-4" /></div>
           <span className="font-extrabold text-white">AI Project Agent</span>

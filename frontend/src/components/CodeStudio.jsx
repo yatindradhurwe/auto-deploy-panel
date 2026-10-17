@@ -192,7 +192,7 @@ export default function CodeStudio({ initialProject }) {
           host: activeServer ? activeServer.host : '187.127.165.128',
           appName: selectedProject.repoName || selectedProject.name,
           projectPath: selectedProject.path,
-          branch: gitStatus.branch || 'main'
+          branch: gitStatus.branch || selectedProject.branch || undefined
         })
       })
       const data = await res.json()
@@ -808,7 +808,7 @@ export default function CodeStudio({ initialProject }) {
           <button
             onClick={handlePullAndUpdateLiveServer}
             disabled={updatingLive}
-            className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white font-bold px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-[11px] sm:text-xs flex items-center space-x-1.5 transition shadow-lg shadow-purple-950/40 cursor-pointer shrink-0"
+            className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-onaccent font-bold px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-[11px] sm:text-xs flex items-center space-x-1.5 transition shadow-lg shadow-purple-950/40 cursor-pointer shrink-0"
             title="Pull latest GitHub code and redeploy PM2 app on live server"
           >
             <DownloadCloud className={`h-3.5 w-3.5 text-purple-200 shrink-0 ${updatingLive ? 'animate-bounce' : ''}`} />
@@ -841,13 +841,13 @@ export default function CodeStudio({ initialProject }) {
       <div className="flex lg:hidden bg-slate-900 border border-white/10 p-1 rounded-2xl font-mono text-xs">
         <button
           onClick={() => setMobileTab('tree')}
-          className={`flex-1 py-2 text-center rounded-xl font-bold transition ${mobileTab === 'tree' ? 'bg-cyan-600 text-white' : 'text-slate-400'}`}
+          className={`flex-1 py-2 text-center rounded-xl font-bold transition ${mobileTab === 'tree' ? 'bg-cyan-600 text-onaccent' : 'text-slate-400'}`}
         >
           📁 File Explorer Tree
         </button>
         <button
           onClick={() => setMobileTab('editor')}
-          className={`flex-1 py-2 text-center rounded-xl font-bold transition ${mobileTab === 'editor' ? 'bg-cyan-600 text-white' : 'text-slate-400'}`}
+          className={`flex-1 py-2 text-center rounded-xl font-bold transition ${mobileTab === 'editor' ? 'bg-cyan-600 text-onaccent' : 'text-slate-400'}`}
         >
           ⚡ Code Editor {activeFile ? `(${activeFile.name})` : ''}
         </button>
@@ -1080,7 +1080,7 @@ export default function CodeStudio({ initialProject }) {
                 }}
                 placeholder="// Code Editor..."
                 spellCheck={false}
-                className="w-full h-full bg-[#07090E] text-slate-100 font-mono text-[11px] sm:text-xs lg:text-sm p-3 sm:p-4 focus:outline-none resize-none leading-relaxed selection:bg-cyan-500/30 selection:text-cyan-200"
+                className="w-full h-full bg-slate-950 text-slate-100 font-mono text-[11px] sm:text-xs lg:text-sm p-3 sm:p-4 focus:outline-none resize-none leading-relaxed selection:bg-cyan-500/30 selection:text-cyan-200"
               />
             )}
           </div>
@@ -1385,7 +1385,7 @@ export default function CodeStudio({ initialProject }) {
                 <button
                   type="submit"
                   disabled={pushingGit || !commitMsg.trim()}
-                  className="px-5 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition shadow-lg shadow-purple-950/40 disabled:opacity-50"
+                  className="px-5 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-onaccent font-bold rounded-xl text-xs flex items-center gap-1.5 transition shadow-lg shadow-purple-950/40 disabled:opacity-50"
                 >
                   {pushingGit ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <GitBranch className="w-3.5 h-3.5" />}
                   <span>{pushingGit ? 'Pushing...' : 'Commit & Push'}</span>
@@ -1429,7 +1429,7 @@ export default function CodeStudio({ initialProject }) {
                     setGitLogModal(null)
                     handlePullAndUpdateLiveServer()
                   }}
-                  className="px-5 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition shadow-lg shadow-purple-950/40 cursor-pointer"
+                  className="px-5 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-onaccent font-bold rounded-xl text-xs flex items-center gap-1.5 transition shadow-lg shadow-purple-950/40 cursor-pointer"
                 >
                   <DownloadCloud className="w-4 h-4 text-purple-200" />
                   <span>Update Live Server Now</span>

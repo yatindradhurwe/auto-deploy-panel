@@ -219,7 +219,7 @@ export default function DomainSSLManager() {
             <button
               type="submit"
               disabled={issuing || !newDomain}
-              className="w-full bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white font-bold py-2.5 rounded-xl shadow-lg transition flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
+              className="w-full bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-onaccent font-bold py-2.5 rounded-xl shadow-lg transition flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
             >
               <ShieldCheck className="w-4 h-4" />
               <span>{issuing ? 'Executing Certbot...' : 'Issue Free SSL Certificate'}</span>
@@ -272,7 +272,7 @@ export default function DomainSSLManager() {
             <button
               type="submit"
               disabled={savingNginx || !configDomain || !proxyPort}
-              className="w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white font-bold py-2.5 rounded-xl shadow-lg transition flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
+              className="w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-onaccent font-bold py-2.5 rounded-xl shadow-lg transition flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
             >
               <Zap className="w-4 h-4" />
               <span>{savingNginx ? 'Reloading Nginx...' : 'Generate & Activate Nginx Rule'}</span>

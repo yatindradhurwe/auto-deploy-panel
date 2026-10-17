@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
@@ -8,8 +8,19 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <meta name="theme-color" content="#090b12" />
+    <script>
+      // Apply the saved theme before first paint (no flash). 'system' follows the OS setting.
+      (function () {
+        try {
+          var pref = localStorage.getItem('autodeploy_theme') || 'dark'
+          var mode = pref === 'system' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : pref
+          document.documentElement.setAttribute('data-theme', mode === 'light' ? 'light' : 'dark')
+        } catch (e) {}
+      })()
+    </script>
   </head>
-  <body class="bg-slate-950 text-slate-100 antialiased selection:bg-cyan-500 selection:text-slate-950 font-[Inter]">
+  <body class="bg-slate-950 text-slate-100 antialiased">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

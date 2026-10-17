@@ -215,7 +215,7 @@ export default function CronManager() {
             <button
               type="submit"
               disabled={saving || !schedule || !command}
-              className="w-full bg-gradient-to-r from-amber-600 via-orange-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white font-bold py-2.5 rounded-xl shadow-lg transition flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
+              className="w-full bg-gradient-to-r from-amber-600 via-orange-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-onaccent font-bold py-2.5 rounded-xl shadow-lg transition flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
             >
               <Zap className="w-4 h-4" />
               <span>{saving ? 'Updating Crontab...' : 'Add Scheduled Task'}</span>

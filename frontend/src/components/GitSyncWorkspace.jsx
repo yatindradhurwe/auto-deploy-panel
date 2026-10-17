@@ -287,7 +287,7 @@ export default function GitSyncWorkspace({ project }) {
           <button
             onClick={handleGitPush}
             disabled={pushing}
-            className="w-full py-3 bg-gradient-to-r from-rose-600 via-indigo-600 to-cyan-500 hover:from-rose-500 hover:to-cyan-400 text-white font-extrabold rounded-2xl text-xs font-mono shadow-lg flex items-center justify-center space-x-2 transition cursor-pointer disabled:opacity-50"
+            className="w-full py-3 bg-gradient-to-r from-rose-600 via-indigo-600 to-cyan-500 hover:from-rose-500 hover:to-cyan-400 text-onaccent font-extrabold rounded-2xl text-xs font-mono shadow-lg flex items-center justify-center space-x-2 transition cursor-pointer disabled:opacity-50"
           >
             <Upload className={`w-4 h-4 ${pushing ? 'animate-spin' : ''}`} />
             <span>{pushing ? 'Pushing to Remote...' : 'Commit & Git Push to GitHub'}</span>

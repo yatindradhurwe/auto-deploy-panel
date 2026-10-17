@@ -27,14 +27,18 @@ const SECTIONS = {
   email: {
     title: 'Email (SMTP)',
     icon: Mail,
-    intro: 'Used for receipts, welcome emails and support replies. Works with any SMTP service (Gmail/Google Workspace, Zoho, Amazon SES, SendGrid, Brevo, your own mail server).',
+    intro: 'Used for receipts, welcome emails and support replies. Hostinger Email is the default; any SMTP service works. If port 465 (SSL) is unreachable, sending retries automatically on 587 (STARTTLS).',
     test: { label: 'Send test email', to: 'Recipient email', placeholder: 'you@example.com' },
+    presets: [
+      { label: 'Hostinger · 465 SSL', values: { host: 'smtp.hostinger.com', port: 465, secure: true } },
+      { label: 'Hostinger · 587 STARTTLS', values: { host: 'smtp.hostinger.com', port: 587, secure: false } }
+    ],
     fields: [
-      { key: 'host', label: 'SMTP host', placeholder: 'smtp.gmail.com' },
-      { key: 'port', label: 'Port', type: 'number', placeholder: '587' },
-      { key: 'secure', label: 'Use SSL/TLS (usually port 465; leave off for STARTTLS on 587)', type: 'checkbox' },
-      { key: 'user', label: 'Username' },
-      { key: 'pass', label: 'Password / app password', type: 'secret' },
+      { key: 'host', label: 'SMTP host', placeholder: 'smtp.hostinger.com' },
+      { key: 'port', label: 'Port', type: 'number', placeholder: '465' },
+      { key: 'secure', label: 'Use SSL/TLS (on for port 465; off for STARTTLS on 587)', type: 'checkbox' },
+      { key: 'user', label: 'Username', placeholder: 'no-reply@yourdomain.com', hint: 'For Hostinger, the full email address.' },
+      { key: 'pass', label: 'Password', type: 'secret', hint: 'For Hostinger, the mailbox password.' },
       { key: 'fromName', label: 'From name' },
       { key: 'fromEmail', label: 'From email', placeholder: 'no-reply@yourdomain.com' }
     ]
@@ -162,6 +166,14 @@ function SectionCard({ id, config, currencies, apiBaseUrl, onSaved, extra }) {
     <Card title={spec.title} icon={spec.icon} actions={<Badge tone={config.enabled ? 'green' : 'slate'}>{config.enabled ? 'Enabled' : 'Off'}</Badge>}>
       <p className="text-xs text-slate-400">{spec.intro}</p>
       <Toggle checked={!!form.enabled} onChange={(v) => setForm({ ...form, enabled: v })} label={`Enable ${spec.title}`} />
+      {spec.presets && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] text-slate-500">Quick fill:</span>
+          {spec.presets.map((p) => (
+            <Button key={p.label} onClick={() => setForm({ ...form, ...p.values })}>{p.label}</Button>
+          ))}
+        </div>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{visible.map(renderField)}</div>
       {extra}
       {msg && <Alert tone={msg.tone}>{msg.text}</Alert>}

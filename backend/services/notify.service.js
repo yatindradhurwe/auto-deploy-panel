@@ -49,23 +49,34 @@ async function postJson(url, { headers = {}, body, form, auth } = {}) {
 export async function sendEmail({ to, subject, text, html }, cfg = getIntegrations()) {
   const e = cfg.email
   if (!e.host || !e.fromEmail) throw httpError(400, 'Email (SMTP) is not configured.')
-  const transport = nodemailer.createTransport({
+  const port = Number(e.port) || 587
+  const transportFor = (port, secure) => nodemailer.createTransport({
     host: e.host,
-    port: Number(e.port) || 587,
-    secure: !!e.secure,
+    port,
+    secure,
+    requireTLS: !secure && port === 587,
     auth: e.user ? { user: e.user, pass: e.pass } : undefined,
     connectionTimeout: TIMEOUT,
     greetingTimeout: TIMEOUT,
     socketTimeout: TIMEOUT
   })
-  const info = await transport.sendMail({
+  const message = {
     from: e.fromName ? `"${e.fromName.replace(/"/g, '')}" <${e.fromEmail}>` : e.fromEmail,
     to,
     subject,
     text,
     html
-  })
-  return { id: info.messageId }
+  }
+  try {
+    const info = await transportFor(port, !!e.secure).sendMail(message)
+    return { id: info.messageId }
+  } catch (err) {
+    // SSL on 465 can't connect (blocked port or TLS issue): retry with STARTTLS on 587, as Hostinger and most providers allow
+    const connectionProblem = ['ECONNECTION', 'ETIMEDOUT', 'ESOCKET', 'ECONNREFUSED', 'EDNS'].includes(err.code) || /timeout|ECONNRESET|ECONNREFUSED/i.test(err.message)
+    if (port !== 465 || !connectionProblem) throw err
+    const info = await transportFor(587, false).sendMail(message)
+    return { id: info.messageId, fallback: 'Sent through port 587 (STARTTLS) because port 465 was unreachable.' }
+  }
 }
 
 // --- SMS ---------------------------------------------------------------------------------------

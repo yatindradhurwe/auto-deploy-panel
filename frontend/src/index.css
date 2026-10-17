@@ -2,42 +2,122 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  margin: 0;
-  background-color: #030712;
-  color: #f3f4f6;
-  font-family: 'Inter', sans-serif;
-  -webkit-tap-highlight-color: transparent;
-  -webkit-font-smoothing: antialiased;
+/* Theme colours come from CSS variables (see tailwind.config.js); <html data-theme> picks the set. */
+
+:root {
+  color-scheme: dark;
+}
+[data-theme='light'] {
+  color-scheme: light;
 }
 
-code, pre {
-  font-family: 'JetBrains Mono', monospace;
+html,
+body {
+  background-color: rgb(var(--c-slate-950));
+  color: rgb(var(--c-slate-100));
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3 {
+  letter-spacing: -0.02em;
+}
+
+code, pre, kbd {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+::selection {
+  background: rgb(var(--c-cyan-500) / 0.35);
+}
+
+/* Smooth theme switching, without animating layout or every hover */
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
+  transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease, fill 200ms ease !important;
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--c-cyan-500) / 0.7);
+  outline-offset: 2px;
+}
+
+/* Full-page backgrounds get a soft ambient glow */
+.app-canvas {
+  background-image:
+    radial-gradient(900px 520px at 0% -10%, rgb(var(--c-cyan-500) / 0.09), transparent 60%),
+    radial-gradient(800px 520px at 100% 0%, rgb(var(--c-purple-500) / 0.08), transparent 60%),
+    radial-gradient(700px 500px at 50% 120%, rgb(var(--c-indigo-500) / 0.05), transparent 60%);
+  background-attachment: fixed;
+}
+[data-theme='light'] .app-canvas {
+  background-image:
+    radial-gradient(900px 520px at 0% -10%, rgb(var(--c-cyan-500) / 0.08), transparent 60%),
+    radial-gradient(800px 520px at 100% 0%, rgb(var(--c-purple-500) / 0.06), transparent 60%);
+}
+
+/* Light theme: surfaces are white cards on a soft grey canvas, so give them gentle elevation */
+/* (matches the base bg class only, not hover:/focus: variants) */
+[data-theme='light'] [class*='rounded-']:is([class^='bg-slate-900'], [class*=' bg-slate-900'], [class^='bg-slate-950/'], [class*=' bg-slate-950/']) {
+  box-shadow: 0 1px 2px rgb(16 24 40 / 0.04), 0 1px 3px rgb(16 24 40 / 0.06);
+}
+[data-theme='light'] [class*='shadow-2xl'] {
+  box-shadow: 0 24px 48px -12px rgb(16 24 40 / 0.18);
+}
+[data-theme='light'] [class*='backdrop-blur'] {
+  backdrop-filter: blur(16px) saturate(1.4);
+}
+/* Modal scrims stay dark but lighter in light mode */
+[data-theme='light'] [class*='bg-black/'][class*='fixed'] {
+  background-color: rgb(16 24 40 / 0.45);
+}
+[data-theme='light'] input::placeholder,
+[data-theme='light'] textarea::placeholder {
+  color: rgb(var(--c-slate-600));
+}
+[data-theme='light'] input[type='date'],
+[data-theme='light'] input[type='color'] {
+  color-scheme: light;
 }
 
 /* Hide scrollbar for Chrome, Safari and Opera */
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
-
 /* Hide scrollbar for IE, Edge and Firefox */
 .no-scrollbar {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
-/* Custom scrollbar for dark terminal */
+/* Thin themed scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--c-slate-700)) transparent;
+}
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #090d16;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 4px;
+  background: rgb(var(--c-slate-700));
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: rgb(var(--c-slate-600));
+  background-clip: content-box;
 }

@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react'
-import { UserCircle, Mail, KeyRound, Building, ShieldCheck, Check, X, MonitorSmartphone } from 'lucide-react'
+import { UserCircle, Mail, KeyRound, Building, ShieldCheck, Check, X, MonitorSmartphone, Palette } from 'lucide-react'
 import { getAuthToken, formatDate, timeAgo } from './admin/adminApi'
 import { Card, Badge, Button, Field, TextInput, Alert, Loading } from './admin/AdminUI'
+import ThemeToggle from './ThemeToggle'
 import { useAuth } from '../store/AuthContext'
 
 async function profileApi(path, { method = 'GET', body, apiBaseUrl = '' } = {}) {
@@ -246,6 +247,13 @@ export default function ProfilePage({ apiBaseUrl = '' }) {
           </div>
         </Card>
       </div>
+
+      <Card title="Appearance" icon={Palette}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-slate-400">Choose a light or dark look, or follow your device's setting. Saved on this browser.</p>
+          <ThemeToggle />
+        </div>
+      </Card>
 
       <Card
         title="Signed-in devices"

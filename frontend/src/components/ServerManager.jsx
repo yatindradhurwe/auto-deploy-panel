@@ -228,7 +228,7 @@ export default function ServerManager({ onSelectServer }) {
 
           <button
             onClick={() => setShowAddModal(true)}
-            className="px-4 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-semibold rounded-xl shadow-lg shadow-cyan-950/30 flex items-center gap-2 transition cursor-pointer text-xs"
+            className="px-4 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-onaccent font-semibold rounded-xl shadow-lg shadow-cyan-950/30 flex items-center gap-2 transition cursor-pointer text-xs"
           >
             <Plus className="w-4 h-4" />
             <span>Connect Server Node</span>
@@ -546,7 +546,7 @@ export default function ServerManager({ onSelectServer }) {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-5 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-bold rounded-xl hover:from-cyan-500 hover:to-blue-500 shadow-lg shadow-cyan-950/40"
+                  className="px-5 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-onaccent font-bold rounded-xl hover:from-cyan-500 hover:to-blue-500 shadow-lg shadow-cyan-950/40"
                 >
                   {saving ? 'Connecting...' : 'Connect Server'}
                 </button>

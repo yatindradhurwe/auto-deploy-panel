@@ -10,7 +10,7 @@ import { hostFor, getHost, publicServer, isLocalServer, forgetHost, testServerCo
 import { discoverProjects } from '../services/project-discovery.service.js'
 import { updateProject, deleteProject } from '../services/project-ops.service.js'
 import { validateResourceOwnership } from '../middleware/tenant.middleware.js'
-import { filterProjectsForUser, sharesForUser, projectLevel, isSuperSession } from '../services/project-access.service.js'
+import { filterProjectsForUser, sharesForUser, projectLevel, hasLevel, isSuperSession } from '../services/project-access.service.js'
 import { loadSettings, saveSection, checkPwa } from '../services/project-settings.service.js'
 import {
   readDb,
@@ -29,6 +29,7 @@ import {
 } from '../services/db.service.js'
 import { executeProjectAutoUpdate } from '../services/autoupdate.service.js'
 import * as mail from '../services/mail.service.js'
+import * as dnsProvider from '../services/dns-provider.service.js'
 import * as projectAgent from '../services/project-agent.service.js'
 import {
   getRealHostMetrics,
@@ -44,8 +45,15 @@ import {
   insertRow,
   deleteRow,
   createTable,
-  dropTable
+  dropTable,
+  connectionProjectPaths,
+  exportDatabase,
+  importDatabase,
+  changeCredentials,
+  createDatabase,
+  dropDatabase
 } from '../services/database.service.js'
+import { initUpload, appendChunk, completeUpload, getReadyUpload } from '../services/upload.service.js'
 
 const router = express.Router()
 
@@ -487,10 +495,10 @@ router.post('/git/status', withHost(async (req, res, host) => {
  * POST /api/studio/git/pull
  */
 router.post('/git/pull', withHost(async (req, res, host) => {
-  const { branch = 'main' } = req.body
   const dir = await requireProjectDir(host, req.body.projectPath)
+  const branch = req.body.branch || (await host.exec('git rev-parse --abbrev-ref HEAD', { cwd: dir })).stdout?.trim() || 'main'
   if (!BRANCH_REGEX.test(branch)) return res.status(400).json({ success: false, error: 'Invalid branch name' })
-  const r = await host.run('git', ['pull', 'origin', branch], { cwd: dir, timeout: 300000 })
+  const r = await host.run('git', ['pull', '--ff-only', 'origin', branch], { cwd: dir, timeout: 300000 })
   if (r.code !== 0) return res.status(500).json({ success: false, error: r.stderr || r.stdout })
   res.json({ success: true, message: 'Git Pull completed successfully', output: r.stdout })
 }))
@@ -515,7 +523,7 @@ router.post('/git/push', withHost(async (req, res, host) => {
  * POST /api/studio/git/pull-and-update — pull, install/build and reload the app on the selected server
  */
 router.post('/git/pull-and-update', withHost(async (req, res, host) => {
-  const { projectPath, appName, branch = 'main' } = req.body
+  const { projectPath, appName, branch } = req.body
   const logs = []
   const onLog = (text, isError = false) => logs.push({ text, isError, timestamp: new Date().toISOString() })
   try {
@@ -561,6 +569,54 @@ router.post('/databases/delete-row', dbHandler((body, req, host) => deleteRow(ho
 router.post('/databases/create-table', dbHandler((body, req, host) => createTable(host, body.connectionId, body)))
 router.post('/databases/drop-table', dbHandler((body, req, host) => dropTable(host, body.connectionId, body)))
 
+/** Export, import and credential changes need owner rights, or manager rights on a project using the database. */
+async function requireDbManager(req, host, connectionId) {
+  if (['super', 'owner'].includes(req.studioAccess?.level)) return
+  const paths = await connectionProjectPaths(host, connectionId)
+  if (!paths.some(p => hasLevel(projectLevel(req, { projectPath: p }), 'manager'))) {
+    throw Object.assign(new Error('You need manager access to this project to export, import or change database credentials.'), { status: 403 })
+  }
+}
+
+/** POST /api/studio/databases/export { connectionId } → .sql.gz download */
+router.post('/databases/export', withHost(async (req, res, host) => {
+  await requireDbManager(req, host, req.body.connectionId)
+  const dump = await exportDatabase(host, req.body.connectionId)
+  res.download(dump.localPath, dump.fileName, () => { dump.cleanup().catch(() => {}) })
+}))
+
+// Chunked dump upload for import: /databases/uploads → /:id/chunk?offset=N → /:id/complete
+router.post('/databases/uploads', dbHandler((body, req) => initUpload({ kind: 'database', name: body.name, size: body.size }, req.user?.id)))
+router.post('/databases/uploads/:id/chunk', async (req, res) => {
+  try {
+    res.json({ success: true, ...(await appendChunk(req.params.id, req.query.offset, req, req.user?.id)) })
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, error: err.message, expectedOffset: err.expectedOffset })
+  }
+})
+router.post('/databases/uploads/:id/complete', dbHandler((body, req) => completeUpload(req.params.id, req.user?.id)))
+
+/** POST /api/studio/databases/import { connectionId, uploadId } */
+router.post('/databases/import', dbHandler(async (body, req, host) => {
+  await requireDbManager(req, host, body.connectionId)
+  return importDatabase(host, body.connectionId, getReadyUpload(body.uploadId, req.user?.id, 'database'))
+}))
+
+/** POST /api/studio/databases/credentials { connectionId, newUser?, newPassword?, adminUser?, adminPassword?, restart } */
+router.post('/databases/credentials', dbHandler(async (body, req, host) => {
+  await requireDbManager(req, host, body.connectionId)
+  return changeCredentials(host, body.connectionId, body)
+}))
+
+/** POST /api/studio/databases/create { engine, name, user?, password?, adminUser?, adminPassword? } */
+router.post('/databases/create', dbHandler((body, req, host) => createDatabase(host, body)))
+
+/** POST /api/studio/databases/delete { connectionId, confirm, dropUser?, adminUser?, adminPassword? } — backs up, then drops */
+router.post('/databases/delete', dbHandler(async (body, req, host) => {
+  await requireDbManager(req, host, body.connectionId)
+  return dropDatabase(host, body.connectionId, body)
+}))
+
 const TREE_SKIP = ['node_modules', '.git', 'dist', '.user_uploaded', 'chunks']
 const MAX_EDIT_BYTES = 10 * 1024 * 1024
 
@@ -595,6 +651,27 @@ router.post('/project-settings/get', withHost(async (req, res, host) => {
 router.post('/project-settings/pwa-check', withHost(async (req, res, host) => {
   await requireProjectDir(host, req.body.projectPath)
   res.json({ success: true, ...(await checkPwa(host, String(req.body.domain || '').trim().toLowerCase())) })
+}))
+
+/** One click: create no-reply@<project domain> on this panel's mail server and write the app's SMTP settings. */
+router.post('/project-settings/email-auto', withHost(async (req, res, host) => {
+  if (!['super', 'owner'].includes(req.studioAccess?.level)) return res.status(403).json({ success: false, error: 'Only organization owners and admins can create mailboxes.' })
+  const dir = await requireProjectDir(host, req.body.projectPath)
+  const domain = String(req.body.domain || '').trim().toLowerCase()
+  const box = await mail.provisionAppMailbox(domain, req.tenant?.organizationId)
+  const { smtp } = box
+  await saveSection(host, req.tenant?.server || null, dir, {
+    section: 'email',
+    values: { SMTP_HOST: smtp.host, SMTP_PORT: String(smtp.port), SMTP_SECURE: 'false', SMTP_USER: smtp.user, SMTP_PASS: smtp.pass, MAIL_FROM: smtp.user },
+    domain, userId: req.user.id, level: req.studioAccess?.level
+  })
+  const names = allowedAppNames(req, req.body.appNames)
+  for (const n of names) await host.run('pm2', ['restart', n, '--update-env'], { timeout: 60000 })
+  const dns = box.autoDns
+  const dnsNote = !box.dnsConnected
+    ? 'Connect your DNS provider in Email → Domains & DNS so this domain\'s email records are added automatically.'
+    : dns?.error ? `DNS: ${dns.error}` : 'Email DNS records are published.'
+  res.json({ success: true, email: box.email, message: `App email ready: sends as ${box.email} through ${smtp.host}:587. SMTP settings written to .env${names.length ? ` and ${names.join(', ')} restarted` : ''}. ${dnsNote}` })
 }))
 
 router.post('/project-settings/save', withHost(async (req, res, host) => {
@@ -1014,6 +1091,25 @@ router.post('/email/domains/update', mailHandler(async (req, orgId) =>
 router.post('/email/domains/delete', mailHandler((req, orgId) => mail.removeDomain(req.body.domain, orgId)))
 
 router.get('/email/domains/dns', mailHandler((req, orgId) => mail.getDnsRecords(req.query.domain, orgId)))
+
+// Connect a DNS provider once; the panel then publishes every mail domain's records itself
+router.get('/email/dns-provider', mailHandler(async (req, orgId) => ({ connection: dnsProvider.publicConnection(orgId) })))
+
+router.post('/email/dns-provider/connect', mailHandler(async (req, orgId) => {
+  const connection = await dnsProvider.connect(orgId, req.body || {}, req.user?.id)
+  const domains = await mail.autoConfigureAllDns(orgId)
+  return { connection, domains, message: `${connection.label} connected. Email DNS set up for ${domains.filter(d => !d.error).length} of ${domains.length} domain(s).` }
+}))
+
+router.post('/email/dns-provider/disconnect', mailHandler(async (req, orgId) => ({ connection: dnsProvider.disconnect(orgId), message: 'DNS provider disconnected. Existing DNS records were not changed.' })))
+
+router.post('/email/domains/auto-dns', mailHandler(async (req, orgId) =>
+  ({ result: await mail.autoConfigureDns(String(req.body.domain || ''), orgId, { takeOverMx: !!req.body.takeOverMx }) })))
+
+router.post('/email/domains/auto-dns-all', mailHandler(async (req, orgId) => {
+  const domains = await mail.autoConfigureAllDns(orgId)
+  return { domains, message: `Email DNS checked for ${domains.length} domain(s); ${domains.filter(d => d.error).length} need attention.` }
+}))
 
 router.get('/email/accounts', mailHandler(async (req, orgId) => ({ accounts: await mail.listAccounts(orgId) })))
 

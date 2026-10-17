@@ -4,6 +4,7 @@ import {
   RefreshCw, AlertCircle, Rocket, Layers
 } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
+import ThemeToggle from './ThemeToggle'
 
 const CATEGORY_LABELS = {
   all: 'All templates', saas: 'SaaS & panels', web: 'Websites', landing: 'Landing pages',
@@ -66,8 +67,8 @@ export default function MarketplaceView({ onDeployTemplate, onBackToHub }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#07090E] text-slate-100 font-sans flex flex-col">
-      <header className="min-h-16 bg-[#0B0E17]/90 backdrop-blur-xl border-b border-white/10 px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3 z-30 shrink-0">
+    <div className="min-h-screen bg-slate-950 app-canvas text-slate-100 font-sans flex flex-col">
+      <header className="min-h-16 bg-slate-900/90 backdrop-blur-xl border-b border-white/10 px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3 z-30 shrink-0">
         <div className="flex items-center gap-3">
           {onBackToHub && (
             <button onClick={onBackToHub} className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 rounded-xl text-xs font-mono font-bold transition cursor-pointer">
@@ -79,9 +80,12 @@ export default function MarketplaceView({ onDeployTemplate, onBackToHub }) {
             <h1 className="font-extrabold text-white text-base tracking-tight">Template Marketplace</h1>
           </div>
         </div>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <ThemeToggle compact />
         <div className="relative w-full sm:w-64">
           <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
           <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search templates or tech…" className="w-full pl-8 pr-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 font-mono" />
+        </div>
         </div>
       </header>
 
@@ -164,7 +168,7 @@ export default function MarketplaceView({ onDeployTemplate, onBackToHub }) {
 
       {selected && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xl flex items-center justify-center p-4" onClick={() => setSelected(null)}>
-          <div className="bg-[#0B0E17] border border-white/15 rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-slate-900 border border-white/15 rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className={`h-44 bg-gradient-to-br ${ACCENT_GRADIENTS[selected.accent] || ACCENT_GRADIENTS.cyan} relative rounded-t-3xl overflow-hidden`}>
               {selected.thumbnailUrl && <img src={selected.thumbnailUrl} alt="" className="w-full h-full object-cover" />}
               <button onClick={() => setSelected(null)} className="absolute top-3 right-3 p-1.5 bg-slate-950/70 rounded-lg text-slate-300 hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>

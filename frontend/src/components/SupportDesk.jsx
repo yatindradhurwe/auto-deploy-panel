@@ -119,7 +119,7 @@ export default function SupportDesk() {
     })
   }
 
-  const card = 'bg-[#0B0F19]/90 border border-white/10 rounded-3xl p-6 space-y-5 backdrop-blur-xl shadow-2xl font-mono'
+  const card = 'bg-slate-900/90 border border-white/10 rounded-3xl p-6 space-y-5 backdrop-blur-xl shadow-2xl font-mono'
 
   if (active) {
     return (
@@ -160,7 +160,7 @@ export default function SupportDesk() {
               >
                 Close ticket
               </button>
-              <button type="submit" disabled={busy || !reply.trim()} className="px-5 py-2 bg-gradient-to-r from-cyan-500 to-indigo-600 text-white font-bold rounded-xl cursor-pointer disabled:opacity-50 flex items-center gap-2">
+              <button type="submit" disabled={busy || !reply.trim()} className="px-5 py-2 bg-gradient-to-r from-cyan-500 to-indigo-600 text-onaccent font-bold rounded-xl cursor-pointer disabled:opacity-50 flex items-center gap-2">
                 {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}Send reply
               </button>
             </div>
@@ -207,7 +207,7 @@ export default function SupportDesk() {
             <button
               type="submit"
               disabled={submitting}
-              className="px-6 py-2.5 bg-gradient-to-r from-emerald-500 via-teal-600 to-emerald-700 hover:from-emerald-400 hover:to-teal-500 text-white font-extrabold rounded-xl shadow-lg shadow-emerald-500/20 transition cursor-pointer flex items-center space-x-2 disabled:opacity-50"
+              className="px-6 py-2.5 bg-gradient-to-r from-emerald-500 via-teal-600 to-emerald-700 hover:from-emerald-400 hover:to-teal-500 text-onaccent font-extrabold rounded-xl shadow-lg shadow-emerald-500/20 transition cursor-pointer flex items-center space-x-2 disabled:opacity-50"
             >
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageSquare className="w-4 h-4" />}
               <span>Submit Support Ticket</span>

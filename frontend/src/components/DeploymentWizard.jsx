@@ -74,6 +74,8 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
   const [loadingRepos, setLoadingRepos] = useState(false)
   const [gitUrl, setGitUrl] = useState('')
   const [branch, setBranch] = useState('main')
+  const [branches, setBranches] = useState([])
+  const [loadingBranches, setLoadingBranches] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [upload, setUpload] = useState(null) // { name, size, progress, uploadId, status }
   const [analysis, setAnalysis] = useState(null)
@@ -91,6 +93,7 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
   const [dbEngine, setDbEngine] = useState('postgresql')
   const [dbUpload, setDbUpload] = useState(null)
   const [dbAdmin, setDbAdmin] = useState({ user: '', password: '' })
+  const [dbCreds, setDbCreds] = useState({ name: '', user: '', password: '' })
 
   // --- server / launch
   const [ssl, setSsl] = useState(true)
@@ -174,10 +177,31 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
     }
   }
 
+  const loadBranches = async (url = gitUrl) => {
+    setBranches([])
+    if (!url) return
+    setLoadingBranches(true)
+    try {
+      const data = await api('/git-branches', { method: 'POST', body: { gitUrl: url } })
+      setBranches(data.branches || [])
+    } catch { /* branch list is optional; the text field still works */ } finally {
+      setLoadingBranches(false)
+    }
+  }
+
   const pickRepo = (r) => {
     setGitUrl(r.clone_url)
     setBranch(r.default_branch || 'main')
+    loadBranches(r.clone_url)
     analyzeGit(r.clone_url, r.default_branch || 'main', r.name)
+  }
+
+  const pickBranch = (b) => {
+    setBranch(b)
+    // A non-default branch is usually a separate site: give it its own app name (folder, PM2 process)
+    const repo = slug(gitUrl.split('/').pop().replace(/\.git$/, ''))
+    if (!appName || appName === repo || appName.startsWith(`${repo}-`)) setAppName(b === branches[0] ? repo : slug(`${repo}-${b}`))
+    analyzeGit(gitUrl, b)
   }
 
   /** Chunked upload with real byte progress. */
@@ -250,7 +274,8 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
       overrides: { ...overrides, type: overrides.type },
       database: dbMode === 'none' ? { mode: 'none' } : {
         mode: dbMode, engine: dbEngine, uploadId: dbUpload?.uploadId,
-        ...(dbEngine === 'mysql' && dbAdmin.user ? { adminUser: dbAdmin.user, adminPassword: dbAdmin.password } : {})
+        ...(dbEngine === 'mysql' && dbAdmin.user ? { adminUser: dbAdmin.user, adminPassword: dbAdmin.password } : {}),
+        ...(['mysql', 'postgresql'].includes(dbEngine) ? { name: dbCreds.name.trim(), user: dbCreds.user.trim(), password: dbCreds.password } : {})
       },
       ssl, sslEmail, replaceDomain
     }
@@ -361,7 +386,7 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
       <div className="max-w-2xl mx-auto py-6 space-y-6 font-sans">
         <div className={`${card} p-8 sm:p-10 text-center`}>
           <div className={`mx-auto w-20 h-20 rounded-[1.4rem] flex items-center justify-center shadow-xl ${r?.status === 'success' ? 'bg-gradient-to-br from-emerald-400 to-green-600' : r?.status === 'failed' ? 'bg-gradient-to-br from-rose-400 to-red-600' : 'bg-gradient-to-br from-cyan-400 to-blue-600'}`}>
-            {r?.status === 'success' ? <Check className="w-10 h-10 text-white" strokeWidth={3} /> : r?.status === 'failed' ? <X className="w-10 h-10 text-white" strokeWidth={3} /> : <Box className="w-9 h-9 text-white" />}
+            {r?.status === 'success' ? <Check className="w-10 h-10 text-onaccent" strokeWidth={3} /> : r?.status === 'failed' ? <X className="w-10 h-10 text-onaccent" strokeWidth={3} /> : <Box className="w-9 h-9 text-onaccent" />}
           </div>
           <h2 className="mt-5 text-xl font-semibold text-white">
             {r?.status === 'success' ? `${appName} is live` : r?.status === 'failed' ? 'Deployment failed' : `Deploying ${appName}`}
@@ -408,7 +433,7 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
                 <span className="w-6 h-6 rounded-full flex items-center justify-center shrink-0">
                   {s.status === 'done' && <span className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center"><Check className="w-3 h-3 text-white" strokeWidth={3} /></span>}
                   {s.status === 'running' && <Loader2 className="w-5 h-5 text-cyan-400 animate-spin" />}
-                  {s.status === 'warning' && <span className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center"><AlertTriangle className="w-3 h-3 text-white" /></span>}
+                  {s.status === 'warning' && <span className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center"><AlertTriangle className="w-3 h-3 text-onaccent" /></span>}
                   {s.status === 'failed' && <span className="w-5 h-5 rounded-full bg-rose-500 flex items-center justify-center"><X className="w-3 h-3 text-white" strokeWidth={3} /></span>}
                   {s.status === 'skipped' && <span className="w-5 h-5 rounded-full border border-white/15 flex items-center justify-center text-slate-600 text-[10px]">—</span>}
                   {s.status === 'pending' && <span className="w-5 h-5 rounded-full border border-white/15" />}
@@ -447,7 +472,7 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
       {/* Header + steps */}
       <div className={`${card} p-6`}>
         <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-2xl bg-gradient-to-br from-cyan-400 to-blue-600 text-white"><Rocket className="w-5 h-5" /></div>
+          <div className="p-2.5 rounded-2xl bg-gradient-to-br from-cyan-400 to-blue-600 text-onaccent"><Rocket className="w-5 h-5" /></div>
           <div className="flex-1">
             <h1 className="text-xl font-bold text-white">Deploy a new app</h1>
             <p className="text-xs text-slate-400">From GitHub or an uploaded project — with an optional database — to a live domain with HTTPS.</p>
@@ -461,7 +486,7 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
                 onClick={() => i < stepIndex && setStep(id)}
                 className={`flex items-center gap-2 text-xs font-semibold ${i <= stepIndex ? 'text-white' : 'text-slate-500'} ${i < stepIndex ? 'cursor-pointer' : 'cursor-default'}`}
               >
-                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] ${i < stepIndex ? 'bg-emerald-500 text-white' : i === stepIndex ? 'bg-cyan-500 text-slate-950' : 'bg-white/10'}`}>
+                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] ${i < stepIndex ? 'bg-emerald-500 text-onaccent' : i === stepIndex ? 'bg-cyan-500 text-slate-950' : 'bg-white/10'}`}>
                   {i < stepIndex ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : i + 1}
                 </span>
                 <span className="hidden sm:inline">{label}</span>
@@ -537,10 +562,17 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
 
               <div className="grid grid-cols-1 sm:grid-cols-[1fr_160px_auto] gap-2 items-end">
                 <label className="block"><span className="text-xs text-slate-400">Repository URL</span>
-                  <input value={gitUrl} onChange={(e) => setGitUrl(e.target.value)} placeholder="https://github.com/user/repo.git" className={`${input} mt-1`} /></label>
-                <label className="block"><span className="text-xs text-slate-400">Branch</span>
-                  <input value={branch} onChange={(e) => setBranch(e.target.value)} className={`${input} mt-1`} /></label>
-                <button onClick={() => analyzeGit()} disabled={!gitUrl || analyzing} className={primary}>
+                  <input value={gitUrl} onChange={(e) => { setGitUrl(e.target.value); setBranches([]) }} onBlur={() => gitUrl && !branches.length && loadBranches()} placeholder="https://github.com/user/repo.git" className={`${input} mt-1`} /></label>
+                <label className="block"><span className="text-xs text-slate-400 flex items-center gap-1">Branch {loadingBranches && <RefreshCw className="w-3 h-3 animate-spin" />}</span>
+                  {branches.length > 0 ? (
+                    <select value={branch} onChange={(e) => pickBranch(e.target.value)} disabled={analyzing} className={`${input} mt-1`}>
+                      {!branches.includes(branch) && <option value={branch}>{branch}</option>}
+                      {branches.map(b => <option key={b} value={b}>{b}</option>)}
+                    </select>
+                  ) : (
+                    <input value={branch} onChange={(e) => setBranch(e.target.value)} className={`${input} mt-1`} />
+                  )}</label>
+                <button onClick={() => { if (!branches.length) loadBranches(); analyzeGit() }} disabled={!gitUrl || analyzing} className={primary}>
                   {analyzing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Analyze
                 </button>
               </div>
@@ -663,12 +695,23 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
             )
           )}
 
+          {dbMode !== 'none' && ['mysql', 'postgresql'].includes(dbEngine) && (
+            <div>
+              <div className="text-xs text-slate-400">New database credentials <span className="text-slate-500">(optional — leave empty to generate them; they are written to .env)</span></div>
+              <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <input value={dbCreds.name} onChange={(e) => setDbCreds(c => ({ ...c, name: e.target.value }))} placeholder={`Database name (${(appName || 'app').replace(/-/g, '_')})`} className={input} />
+                <input value={dbCreds.user} onChange={(e) => setDbCreds(c => ({ ...c, user: e.target.value }))} placeholder="Username" autoComplete="off" className={input} />
+                <input type="password" value={dbCreds.password} onChange={(e) => setDbCreds(c => ({ ...c, password: e.target.value }))} placeholder="Password (min 8)" autoComplete="new-password" className={input} />
+              </div>
+            </div>
+          )}
+
           {dbMode !== 'none' && dbEngine === 'mysql' && (
             <details className="text-xs text-slate-400">
-              <summary className="cursor-pointer">MySQL admin login (only if the server's MySQL root needs a password)</summary>
+              <summary className="cursor-pointer">MySQL admin login (only if the panel can't log in to MySQL by itself — use root or another admin, not the new database's user)</summary>
               <div className="mt-2 grid grid-cols-2 gap-2">
-                <input value={dbAdmin.user} onChange={(e) => setDbAdmin(a => ({ ...a, user: e.target.value }))} placeholder="root" className={input} />
-                <input type="password" value={dbAdmin.password} onChange={(e) => setDbAdmin(a => ({ ...a, password: e.target.value }))} placeholder="password" className={input} />
+                <input value={dbAdmin.user} onChange={(e) => setDbAdmin(a => ({ ...a, user: e.target.value }))} placeholder="Admin user (root)" autoComplete="off" className={input} />
+                <input type="password" value={dbAdmin.password} onChange={(e) => setDbAdmin(a => ({ ...a, password: e.target.value }))} placeholder="Admin password" autoComplete="new-password" className={input} />
               </div>
             </details>
           )}

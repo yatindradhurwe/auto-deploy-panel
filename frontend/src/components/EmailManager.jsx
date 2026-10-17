@@ -73,6 +73,10 @@ export default function EmailManager() {
   const [dnsDomain, setDnsDomain] = useState(null)
   const [dnsInfo, setDnsInfo] = useState(null)
   const [dnsLoading, setDnsLoading] = useState(false)
+  const [dnsConn, setDnsConn] = useState(null)
+  const [dnsForm, setDnsForm] = useState({ provider: 'hostinger', token: '' })
+  const [dnsBusy, setDnsBusy] = useState('')
+  const [dnsRun, setDnsRun] = useState(null) // results of the last automatic setup
 
   // Webmail
   const [mailbox, setMailbox] = useState('')
@@ -121,7 +125,8 @@ export default function EmailManager() {
     setLoading(true)
     setError(null)
     try {
-      const [s, d, a, c] = await Promise.all([api('/status'), api('/domains'), api('/accounts'), api('/client-config')])
+      const [s, d, a, c, p] = await Promise.all([api('/status'), api('/domains'), api('/accounts'), api('/client-config'), api('/dns-provider').catch(() => null)])
+      if (p) setDnsConn(p.connection)
       setStatus(s.status)
       setDomains(d.domains)
       setAccounts(a.accounts)
@@ -215,6 +220,68 @@ export default function EmailManager() {
       openDns(data.domain.domain)
     } catch (err) {
       setError(err.message)
+    }
+  }
+
+  // ------------------------------------------------------------------ DNS provider (connect once)
+  const connectDns = async (e) => {
+    e.preventDefault()
+    setDnsBusy('connect')
+    setError(null)
+    try {
+      const data = await api('/dns-provider/connect', { method: 'POST', body: dnsForm })
+      setDnsConn(data.connection)
+      setDnsRun(data.domains)
+      setDnsForm({ ...dnsForm, token: '' })
+      flash(data.message)
+      if (dnsDomain) openDns(dnsDomain)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setDnsBusy('')
+    }
+  }
+
+  const disconnectDns = async () => {
+    if (!window.confirm('Disconnect the DNS provider? Records already added stay in place; new domains will need DNS added by hand.')) return
+    try {
+      const data = await api('/dns-provider/disconnect', { method: 'POST' })
+      setDnsConn(data.connection)
+      setDnsRun(null)
+      flash(data.message)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const autoDnsAll = async () => {
+    setDnsBusy('all')
+    setError(null)
+    try {
+      const data = await api('/domains/auto-dns-all', { method: 'POST' })
+      setDnsRun(data.domains)
+      flash(data.message)
+      if (dnsDomain) openDns(dnsDomain)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setDnsBusy('')
+    }
+  }
+
+  const autoDnsOne = async (domain, takeOverMx = false) => {
+    if (takeOverMx && !window.confirm(`Receive ${domain}'s email on this server instead of its current mail service? Mail stops arriving at the old service.`)) return
+    setDnsBusy(domain)
+    setError(null)
+    try {
+      await api('/domains/auto-dns', { method: 'POST', body: { domain, takeOverMx } })
+      flash(`Email DNS for ${domain} updated. Public DNS can take a few minutes to show it.`)
+      openDns(domain)
+    } catch (err) {
+      setError(err.message)
+      openDns(domain)
+    } finally {
+      setDnsBusy('')
     }
   }
 
@@ -391,7 +458,7 @@ export default function EmailManager() {
           <button onClick={loadAll} className={`${btnCls} bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/10`}>
             <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${loading ? 'animate-spin' : ''}`} /> Refresh
           </button>
-          <button onClick={() => setShowCreate(true)} className={`${btnCls} bg-cyan-600 hover:bg-cyan-500 text-white`}>
+          <button onClick={() => setShowCreate(true)} className={`${btnCls} bg-cyan-600 hover:bg-cyan-500 text-onaccent`}>
             <Plus className="w-3.5 h-3.5" /> New Mailbox
           </button>
         </div>
@@ -544,7 +611,7 @@ export default function EmailManager() {
               <select value={mailbox} onChange={(e) => { setMailbox(e.target.value); setPage(1); setOpenMessage(null) }} className={inputCls}>
                 {activeAccounts.map(a => <option key={a.id} value={a.email}>{a.email}</option>)}
               </select>
-              <button onClick={() => startCompose()} className={`${btnCls} w-full justify-center bg-cyan-600 hover:bg-cyan-500 text-white`}>
+              <button onClick={() => startCompose()} className={`${btnCls} w-full justify-center bg-cyan-600 hover:bg-cyan-500 text-onaccent`}>
                 <Send className="w-3.5 h-3.5" /> Compose
               </button>
               <div className="space-y-1">
@@ -555,7 +622,7 @@ export default function EmailManager() {
                     className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs cursor-pointer ${folder === f.id ? 'bg-cyan-500/10 text-cyan-200 border border-cyan-500/30' : 'text-slate-400 hover:bg-white/5 border border-transparent'}`}
                   >
                     <f.icon className="w-3.5 h-3.5" /> <span className="flex-1 text-left">{f.label}</span>
-                    {folder === f.id && list.unread > 0 && <span className="text-[10px] bg-cyan-600 text-white rounded-full px-1.5">{list.unread}</span>}
+                    {folder === f.id && list.unread > 0 && <span className="text-[10px] bg-cyan-600 text-onaccent rounded-full px-1.5">{list.unread}</span>}
                   </button>
                 ))}
               </div>
@@ -585,7 +652,7 @@ export default function EmailManager() {
                       </div>
                     )}
                   </div>
-                  <div className="flex-1 overflow-auto bg-white">
+                  <div className="flex-1 overflow-auto bg-onaccent">
                     {openMessage.html ? (
                       // Sandboxed: no scripts, no same-origin access to the panel
                       <iframe title="message" sandbox="" srcDoc={openMessage.html} className="w-full h-full min-h-[400px] border-0" />
@@ -637,11 +704,61 @@ export default function EmailManager() {
 
       {/* ------------------------------------------------------------ Domains */}
       {tab === 'domains' && (
+        <div className="space-y-6">
+        <div className={`${card} p-5 space-y-3`}>
+          <div className="flex items-center gap-2">
+            <Globe className="w-4 h-4 text-cyan-400" />
+            <span className="text-sm font-bold text-white">DNS provider</span>
+            {dnsConn?.connected
+              ? <span className="ml-2 text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">Connected · {dnsConn.label} · token {dnsConn.tokenHint}</span>
+              : <span className="ml-2 text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-white/10">Not connected</span>}
+          </div>
+          {dnsConn?.connected ? (
+            <>
+              <p className="text-xs text-slate-400">The panel adds email DNS records (MX, SPF, DKIM, DMARC) for every mail domain automatically, including domains you add later. Other DNS records are never removed.</p>
+              <div className="text-[11px] text-slate-500 font-mono break-words">Domains in this account: {dnsConn.zones.join(', ') || 'none'}</div>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={autoDnsAll} disabled={!!dnsBusy} className={`${btnCls} bg-cyan-600 hover:bg-cyan-500 text-onaccent disabled:opacity-50`}>
+                  <RefreshCw className={`w-3.5 h-3.5 ${dnsBusy === 'all' ? 'animate-spin' : ''}`} /> Set up email DNS for all domains
+                </button>
+                <button onClick={disconnectDns} disabled={!!dnsBusy} className={`${btnCls} bg-slate-800 border border-white/10 text-slate-300`}>Disconnect</button>
+              </div>
+            </>
+          ) : (
+            <form onSubmit={connectDns} className="space-y-3">
+              <p className="text-xs text-slate-400">Connect once and the panel sets up email DNS for all your domains by itself — no copying records. Where your domains are managed:</p>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(dnsConn?.providers || { hostinger: { label: 'Hostinger' }, cloudflare: { label: 'Cloudflare' } }).map(([id, p]) => (
+                  <button type="button" key={id} onClick={() => setDnsForm({ ...dnsForm, provider: id })}
+                    className={`${btnCls} border ${dnsForm.provider === id ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-200' : 'bg-slate-800 border-white/10 text-slate-300'}`}>{p.label}</button>
+                ))}
+              </div>
+              <div className="text-[11px] text-slate-500">Get an API token: {dnsConn?.providers?.[dnsForm.provider]?.tokenHelp}</div>
+              <div className="flex gap-2">
+                <input type="password" autoComplete="off" value={dnsForm.token} onChange={(e) => setDnsForm({ ...dnsForm, token: e.target.value })} placeholder="Paste API token" className={`${inputCls} font-mono`} />
+                <button disabled={!dnsForm.token || !!dnsBusy} className={`${btnCls} bg-cyan-600 hover:bg-cyan-500 text-onaccent whitespace-nowrap disabled:opacity-50`}>
+                  {dnsBusy === 'connect' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Connect
+                </button>
+              </div>
+            </form>
+          )}
+          {dnsRun && (
+            <div className="space-y-1.5 pt-2 border-t border-white/5">
+              {dnsRun.map(r => (
+                <div key={r.domain} className="text-[11px] font-mono flex gap-2 items-start">
+                  {r.error ? <XCircle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-px" /> : <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-px" />}
+                  <span className="text-slate-200">{r.domain}</span>
+                  <span className="text-slate-500">{r.error || r.results.map(x => `${x.record} ${x.action}`).join(' · ')}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 items-start">
           <div className={`${card} xl:col-span-2 p-4 space-y-3`}>
             <form onSubmit={handleAddDomain} className="flex gap-2">
               <input value={newDomain} onChange={(e) => setNewDomain(e.target.value)} placeholder="yourdomain.com" className={inputCls} />
-              <button className={`${btnCls} bg-cyan-600 hover:bg-cyan-500 text-white whitespace-nowrap`}><Plus className="w-3.5 h-3.5" /> Add</button>
+              <button className={`${btnCls} bg-cyan-600 hover:bg-cyan-500 text-onaccent whitespace-nowrap`}><Plus className="w-3.5 h-3.5" /> Add</button>
             </form>
             {domains.length === 0 && <div className="text-xs text-slate-500 p-3">No mail domains yet.</div>}
             {domains.map(d => (
@@ -680,11 +797,56 @@ export default function EmailManager() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-bold text-white">DNS for {dnsDomain}</div>
-                  <button onClick={() => openDns(dnsDomain)} className={`${btnCls} bg-slate-800 border border-white/10 text-slate-200`}>
-                    <RefreshCw className={`w-3.5 h-3.5 ${dnsLoading ? 'animate-spin' : ''}`} /> Re-check
-                  </button>
+                  <div className="flex gap-2">
+                    {dnsConn?.connected && (
+                      <button onClick={() => autoDnsOne(dnsDomain)} disabled={!!dnsBusy} className={`${btnCls} bg-cyan-600 hover:bg-cyan-500 text-onaccent disabled:opacity-50`}>
+                        <RefreshCw className={`w-3.5 h-3.5 ${dnsBusy === dnsDomain ? 'animate-spin' : ''}`} /> Set up automatically
+                      </button>
+                    )}
+                    <button onClick={() => openDns(dnsDomain)} className={`${btnCls} bg-slate-800 border border-white/10 text-slate-200`}>
+                      <RefreshCw className={`w-3.5 h-3.5 ${dnsLoading ? 'animate-spin' : ''}`} /> Re-check
+                    </button>
+                  </div>
                 </div>
-                <p className="text-[11px] text-slate-500">Add these at your DNS provider (for these domains: Hostinger → Domains → DNS / Nameservers). Changes can take up to an hour to show here.</p>
+                {dnsInfo?.autoDns && (
+                  <div className={`p-3 rounded-xl border text-xs space-y-1 ${dnsInfo.autoDns.error ? 'border-amber-700/40 bg-amber-950/20' : 'border-emerald-700/40 bg-emerald-950/20'}`}>
+                    <div className="font-semibold text-slate-200">Automatic DNS setup · {new Date(dnsInfo.autoDns.at).toLocaleString()}</div>
+                    {dnsInfo.autoDns.error
+                      ? <div className="text-amber-200">{dnsInfo.autoDns.error}</div>
+                      : dnsInfo.autoDns.results.map((r, i) => (
+                        <div key={i} className="font-mono text-[11px] text-slate-300"><span className="text-slate-500">{r.record}</span> {r.action} — {r.detail}</div>
+                      ))}
+                    {dnsInfo.autoDns.results?.some(r => r.record === 'MX' && r.action === 'skipped') && (
+                      <button onClick={() => autoDnsOne(dnsDomain, true)} disabled={!!dnsBusy} className="text-[11px] text-cyan-300 hover:underline cursor-pointer">Receive this domain's email on this server instead</button>
+                    )}
+                  </div>
+                )}
+                <p className="text-[11px] text-slate-500">{dnsConn?.connected ? 'These are added for you by the connected DNS provider.' : 'Connect your DNS provider above to add these automatically, or add them by hand at your DNS provider.'} Changes can take up to an hour to show here.</p>
+                {(() => {
+                  const mx = dnsInfo?.records.find((r) => r.type === 'MX')?.current || ''
+                  const onHostinger = /mx1\.hostinger\.com/i.test(mx) && /mx2\.hostinger\.com/i.test(mx)
+                  return (
+                    <div className={`p-3 rounded-xl border text-xs space-y-2 ${onHostinger ? 'border-emerald-700/40 bg-emerald-950/20' : 'border-cyan-700/40 bg-cyan-950/20'}`}>
+                      <div className="flex items-center gap-2">
+                        {onHostinger ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <Mail className="w-4 h-4 text-cyan-400" />}
+                        <span className="font-semibold text-slate-200">Using Hostinger Email for {dnsDomain}?</span>
+                        {onHostinger && <span className="ml-auto text-[10px] font-mono text-emerald-300">MX points to Hostinger</span>}
+                      </div>
+                      <p className="text-[11px] text-slate-400">Add these records instead of the MX record below so Hostinger receives this domain's mail. Mailboxes on this server stop receiving mail for the domain once MX points to Hostinger.</p>
+                      <div className="grid grid-cols-[60px_50px_60px_1fr_auto] gap-x-2 gap-y-1 font-mono text-[11px] items-center">
+                        <span className="text-slate-500">Type</span><span className="text-slate-500">Name</span><span className="text-slate-500">Priority</span><span className="text-slate-500">Value</span><span />
+                        {[['MX', '@', '5', 'mx1.hostinger.com'], ['MX', '@', '10', 'mx2.hostinger.com'], ['TXT', '@', '', 'v=spf1 include:_spf.mail.hostinger.com ~all']].map(([t, n, pr, v], i) => (
+                          <React.Fragment key={i}>
+                            <span className="text-slate-300">{t}</span><span className="text-slate-300">{n}</span><span className="text-slate-300">{pr || '—'}</span>
+                            <span className="text-slate-200 break-all">{v}</span>
+                            <button onClick={() => copy(v, `hg${i}`)} className="text-slate-500 hover:text-cyan-300 cursor-pointer">{copied === `hg${i}` ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}</button>
+                          </React.Fragment>
+                        ))}
+                      </div>
+                      <p className="text-[11px] text-slate-500">The TXT (SPF) record lets Hostinger send for the domain; keep only one SPF record. Mail apps: IMAP imap.hostinger.com:993 (SSL), SMTP smtp.hostinger.com:465 (SSL) or 587 (STARTTLS); username is the full email address.</p>
+                    </div>
+                  )
+                })()}
                 {dnsLoading && !dnsInfo && <div className="text-xs text-slate-500 font-mono">Checking public DNS…</div>}
                 {dnsInfo?.records.map((r, i) => (
                   <div key={i} className={`p-3 rounded-xl border text-xs ${r.ok ? 'border-emerald-700/40 bg-emerald-950/20' : 'border-amber-700/40 bg-amber-950/20'}`}>
@@ -709,6 +871,7 @@ export default function EmailManager() {
               </div>
             )}
           </div>
+        </div>
         </div>
       )}
 
@@ -781,7 +944,7 @@ export default function EmailManager() {
             </div>
             <div className="px-5 py-3.5 border-t border-white/10 flex justify-end gap-2">
               <button type="button" onClick={() => setShowCreate(false)} className={`${btnCls} bg-slate-800 text-slate-200`}>Cancel</button>
-              <button disabled={busy} className={`${btnCls} bg-cyan-600 hover:bg-cyan-500 text-white`}>{busy ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Create</button>
+              <button disabled={busy} className={`${btnCls} bg-cyan-600 hover:bg-cyan-500 text-onaccent`}>{busy ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Create</button>
             </div>
           </form>
         </div>
@@ -810,7 +973,7 @@ export default function EmailManager() {
             </div>
             <div className="px-5 py-3.5 border-t border-white/10 flex justify-end gap-2">
               <button type="button" onClick={() => setEditAccount(null)} className={`${btnCls} bg-slate-800 text-slate-200`}>Cancel</button>
-              <button disabled={busy} className={`${btnCls} bg-cyan-600 hover:bg-cyan-500 text-white`}>Save</button>
+              <button disabled={busy} className={`${btnCls} bg-cyan-600 hover:bg-cyan-500 text-onaccent`}>Save</button>
             </div>
           </form>
         </div>
@@ -850,7 +1013,7 @@ export default function EmailManager() {
             </div>
             <div className="px-5 py-3.5 border-t border-white/10 flex justify-end gap-2">
               <button type="button" onClick={() => setShowCompose(false)} className={`${btnCls} bg-slate-800 text-slate-200`}>Cancel</button>
-              <button disabled={sending} className={`${btnCls} bg-cyan-600 hover:bg-cyan-500 text-white`}>{sending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Send</button>
+              <button disabled={sending} className={`${btnCls} bg-cyan-600 hover:bg-cyan-500 text-onaccent`}>{sending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Send</button>
             </div>
           </form>
         </div>

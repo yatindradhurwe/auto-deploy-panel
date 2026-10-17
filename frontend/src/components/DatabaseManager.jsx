@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import {
   Database, Table, Play, RefreshCw, Search, Code, Layers, Plus, Trash2, Download, X,
-  AlertTriangle, ChevronRight, ChevronDown, ChevronLeft, FolderGit2, Key
+  AlertTriangle, ChevronRight, ChevronDown, ChevronLeft, FolderGit2, Key, Upload, UserCog, Eye, EyeOff
 } from 'lucide-react'
 import { useAuth } from '../store/AuthContext'
 import { useServers } from '../store/ServersContext'
@@ -15,6 +15,8 @@ const ENGINES = {
 }
 
 const PAGE_SIZE = 50
+const SYSTEM_DB_USERS = ['root', 'mysql', 'debian-sys-maint', 'postgres', 'admin']
+const inputCls = 'w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-emerald-500/50'
 
 function formatBytes(bytes) {
   if (bytes === null || bytes === undefined || Number.isNaN(bytes)) return '—'
@@ -24,6 +26,11 @@ function formatBytes(bytes) {
   let i = 0
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
   return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`
+}
+
+function randomPassword() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
+  return Array.from(crypto.getRandomValues(new Uint8Array(24)), b => chars[b % chars.length]).join('')
 }
 
 const formatCount = (n) => (n === null || n === undefined ? '—' : Number(n).toLocaleString())
@@ -66,6 +73,27 @@ export default function DatabaseManager({ project }) {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newTableName, setNewTableName] = useState('')
   const [newTableCols, setNewTableCols] = useState([{ name: 'id', type: 'INTEGER', primary: true, nullable: false }])
+
+  // Export / import / credentials
+  const [exporting, setExporting] = useState(false)
+  const [showImport, setShowImport] = useState(false)
+  const [importFile, setImportFile] = useState(null)
+  const [importState, setImportState] = useState(null) // { phase: 'uploading'|'importing'|'done', progress, message, backup }
+  const [showCreds, setShowCreds] = useState(false)
+  const [creds, setCreds] = useState({ newUser: '', newPassword: '', adminUser: '', adminPassword: '', restart: true })
+  const [showPw, setShowPw] = useState(false)
+  const [credsBusy, setCredsBusy] = useState(false)
+  const [credsResult, setCredsResult] = useState(null)
+
+  // New / delete database
+  const [showNewDb, setShowNewDb] = useState(false)
+  const [newDb, setNewDb] = useState({ engine: 'mysql', name: '', user: '', password: '', adminUser: '', adminPassword: '' })
+  const [newDbBusy, setNewDbBusy] = useState(false)
+  const [newDbResult, setNewDbResult] = useState(null) // { ok, message, connection }
+  const [showDropDb, setShowDropDb] = useState(false)
+  const [dropDb, setDropDb] = useState({ confirm: '', dropUser: false })
+  const [dropDbBusy, setDropDbBusy] = useState(false)
+  const [dropDbError, setDropDbError] = useState(null)
 
   const getToken = () => jwtToken
 
@@ -283,6 +311,158 @@ export default function DatabaseManager({ project }) {
     }
   }
 
+  const authHeaders = () => ({ 'Authorization': `Bearer ${getToken()}`, 'X-Server-Id': activeServer?.id || '' })
+
+  const handleExportDatabase = async () => {
+    setExporting(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/studio/databases/export', {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverId: activeServer?.id, connectionId: selectedConn.id })
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `Export failed (${res.status})`)
+      }
+      const name = (res.headers.get('Content-Disposition') || '').match(/filename="?([^";]+)"?/)?.[1] || `${selectedConn.database}.sql.gz`
+      const url = URL.createObjectURL(await res.blob())
+      const a = document.createElement('a')
+      a.href = url
+      a.download = name
+      a.click()
+      URL.revokeObjectURL(url)
+      flash(`Exported ${selectedConn.database}`)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  /** Chunked upload (resumes after network hiccups), then runs the import on the server. */
+  const handleImport = async () => {
+    if (!importFile) return
+    setImportState({ phase: 'uploading', progress: 0 })
+    try {
+      const init = await api('/uploads', { name: importFile.name, size: importFile.size })
+      let offset = 0
+      let failures = 0
+      while (offset < importFile.size) {
+        try {
+          const res = await fetch(`/api/studio/databases/uploads/${init.uploadId}/chunk?offset=${offset}`, {
+            method: 'POST',
+            headers: { ...authHeaders(), 'Content-Type': 'application/octet-stream' },
+            body: importFile.slice(offset, offset + init.chunkSize)
+          })
+          const data = await res.json().catch(() => ({}))
+          if (res.status === 409 && Number.isFinite(data.expectedOffset)) { offset = data.expectedOffset; continue }
+          if (!res.ok) throw Object.assign(new Error(data.error || `Upload failed (${res.status})`), { fatal: true })
+          offset = data.received
+          failures = 0
+          setImportState({ phase: 'uploading', progress: offset / importFile.size })
+        } catch (err) {
+          if (err.fatal || ++failures > 4) throw err
+          await new Promise(r => setTimeout(r, 1500 * failures))
+        }
+      }
+      await api(`/uploads/${init.uploadId}/complete`)
+      setImportState({ phase: 'importing', progress: 1 })
+      const data = await api('/import', { connectionId: selectedConn.id, uploadId: init.uploadId })
+      setImportState({ phase: 'done', progress: 1, message: data.message, backup: data.backup })
+      await reloadTables()
+    } catch (e) {
+      setImportState({ phase: 'error', message: e.message })
+    }
+  }
+
+  const openImport = () => {
+    setImportFile(null)
+    setImportState(null)
+    setShowImport(true)
+  }
+
+  const openCreds = () => {
+    setCreds({ newUser: '', newPassword: '', adminUser: '', adminPassword: '', restart: true })
+    setCredsResult(null)
+    setShowPw(false)
+    setShowCreds(true)
+  }
+
+  const generatePassword = () => {
+    setCreds(c => ({ ...c, newPassword: randomPassword() }))
+    setShowPw(true)
+  }
+
+  const handleChangeCreds = async (e) => {
+    e.preventDefault()
+    setCredsBusy(true)
+    setCredsResult(null)
+    try {
+      const data = await api('/credentials', { connectionId: selectedConn.id, ...creds })
+      setCredsResult({ ok: true, message: data.message })
+      flash('Database credentials updated')
+      const fresh = await api('', { refresh: true })
+      setDiscovery(fresh)
+      const updated = [...(fresh.projects || []).flatMap(p => p.databases), ...(fresh.unassigned || [])].find(d => d.database === selectedConn.database && d.engine === selectedConn.engine && d.host === selectedConn.host)
+      if (updated) setSelectedConn(updated)
+    } catch (err) {
+      setCredsResult({ ok: false, message: err.message })
+    } finally {
+      setCredsBusy(false)
+    }
+  }
+
+  const openNewDb = () => {
+    setNewDb({ engine: discovery?.engines?.mysql || !discovery?.engines?.postgresql ? 'mysql' : 'postgresql', name: '', user: '', password: '', adminUser: '', adminPassword: '' })
+    setNewDbResult(null)
+    setShowPw(false)
+    setShowNewDb(true)
+  }
+
+  const handleCreateDb = async (e) => {
+    e.preventDefault()
+    setNewDbBusy(true)
+    setNewDbResult(null)
+    try {
+      const data = await api('/create', newDb)
+      setNewDbResult({ ok: true, message: data.message, connection: data.connection })
+      flash(data.message)
+      setDiscovery(await api('', { refresh: true }))
+    } catch (err) {
+      setNewDbResult({ ok: false, message: err.message })
+    } finally {
+      setNewDbBusy(false)
+    }
+  }
+
+  const openDropDb = () => {
+    setDropDb({ confirm: '', dropUser: false })
+    setDropDbError(null)
+    setShowDropDb(true)
+  }
+
+  const handleDropDb = async (e) => {
+    e.preventDefault()
+    setDropDbBusy(true)
+    setDropDbError(null)
+    try {
+      const data = await api('/delete', { connectionId: selectedConn.id, ...dropDb })
+      setShowDropDb(false)
+      setSelectedConn(null)
+      setTables([])
+      setSelectedTable(null)
+      setTableData(null)
+      flash(data.message)
+      setDiscovery(await api('', { refresh: true }))
+    } catch (err) {
+      setDropDbError(err.message)
+    } finally {
+      setDropDbBusy(false)
+    }
+  }
+
   const handleExport = () => {
     if (!tableData) return
     const blob = new Blob([JSON.stringify(tableData.rows, null, 2)], { type: 'application/json' })
@@ -344,6 +524,13 @@ export default function DatabaseManager({ project }) {
             </div>
           )}
           <button
+            onClick={openNewDb}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-onaccent rounded-xl transition cursor-pointer flex items-center space-x-2 text-xs font-bold shadow-sm"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>New database</span>
+          </button>
+          <button
             onClick={() => loadDiscovery(true)}
             className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/10 rounded-xl transition cursor-pointer flex items-center space-x-2 text-xs font-semibold shadow-sm"
           >
@@ -374,10 +561,10 @@ export default function DatabaseManager({ project }) {
 
       {/* Mobile switcher */}
       <div className="flex lg:hidden bg-slate-900 border border-white/10 p-1 rounded-2xl font-mono text-xs">
-        <button onClick={() => setMobileTab('explorer')} className={`flex-1 py-2 rounded-xl font-bold transition ${mobileTab === 'explorer' ? 'bg-cyan-600 text-white' : 'text-slate-400'}`}>
+        <button onClick={() => setMobileTab('explorer')} className={`flex-1 py-2 rounded-xl font-bold transition ${mobileTab === 'explorer' ? 'bg-cyan-600 text-onaccent' : 'text-slate-400'}`}>
           📁 Explorer ({totalDatabases})
         </button>
-        <button onClick={() => setMobileTab('workbench')} className={`flex-1 py-2 rounded-xl font-bold transition ${mobileTab === 'workbench' ? 'bg-cyan-600 text-white' : 'text-slate-400'}`}>
+        <button onClick={() => setMobileTab('workbench')} className={`flex-1 py-2 rounded-xl font-bold transition ${mobileTab === 'workbench' ? 'bg-cyan-600 text-onaccent' : 'text-slate-400'}`}>
           ⚡ Data & Query
         </button>
       </div>
@@ -492,7 +679,37 @@ export default function DatabaseManager({ project }) {
                   <span>auth: {selectedConn.auth}</span>
                   {selectedConn.projects?.length > 0 && <span>used by: {selectedConn.projects.map(p => `${p.name}${p.source ? ` (${p.source})` : ''}`).join(', ')}</span>}
                 </div>
+                {['mysql', 'postgresql', 'sqlite'].includes(selectedConn.engine) && (
+                  <div className="ml-auto flex items-center gap-1.5 text-xs font-semibold">
+                    <button onClick={handleExportDatabase} disabled={exporting} title="Download a full .sql.gz dump" className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-50">
+                      {exporting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} Export
+                    </button>
+                    <button onClick={openImport} title="Import a .sql / .sql.gz / .dump file" className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-200 flex items-center gap-1.5 cursor-pointer">
+                      <Upload className="w-3.5 h-3.5" /> Import
+                    </button>
+                    {selectedConn.engine !== 'sqlite' && (
+                      <button onClick={openCreds} title="Change the database username or password" className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-200 flex items-center gap-1.5 cursor-pointer">
+                        <UserCog className="w-3.5 h-3.5" /> Credentials
+                      </button>
+                    )}
+                    {selectedConn.engine !== 'sqlite' && (
+                      <button onClick={openDropDb} title="Delete this database (a backup is taken first)" className="px-3 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900/60 border border-rose-700/40 text-rose-200 flex items-center gap-1.5 cursor-pointer">
+                        <Trash2 className="w-3.5 h-3.5" /> Delete
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
+
+              {selectedConn.credsError && (
+                <div className="mx-5 mt-3 flex items-start gap-2 p-3 rounded-xl bg-amber-950/50 border border-amber-700/40 text-[11px] text-amber-200">
+                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-400" />
+                  <div className="flex-1">
+                    MySQL rejects the login in the project's .env ({selectedConn.appUser || selectedConn.user}): <span className="font-mono">{selectedConn.credsError}</span>.
+                    {selectedConn.auth === 'server admin login' && ' You are browsing through the server\'s admin login.'} Use <button onClick={openCreds} className="underline font-semibold cursor-pointer">Credentials</button> to give the app a working user and password.
+                  </div>
+                </div>
+              )}
 
               {/* Tabs */}
               <div className="px-5 pt-3 flex items-center gap-1 border-b border-white/5 text-xs font-semibold">
@@ -536,7 +753,7 @@ export default function DatabaseManager({ project }) {
                           <RefreshCw className={`w-3.5 h-3.5 text-slate-300 ${dataLoading ? 'animate-spin' : ''}`} />
                         </button>
                         {(canEditRows || selectedConn.engine === 'redis') && (
-                          <button onClick={() => { setInsertRowData({}); setShowInsertModal(true) }} className="px-3 py-2 rounded-lg bg-emerald-600/80 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer">
+                          <button onClick={() => { setInsertRowData({}); setShowInsertModal(true) }} className="px-3 py-2 rounded-lg bg-emerald-600/80 hover:bg-emerald-500 text-onaccent text-xs font-semibold flex items-center gap-1.5 cursor-pointer">
                             <Plus className="w-3.5 h-3.5" /> Insert
                           </button>
                         )}
@@ -674,7 +891,7 @@ export default function DatabaseManager({ project }) {
                     <button
                       onClick={handleRunQuery}
                       disabled={executingQuery}
-                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 cursor-pointer"
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-onaccent text-xs font-bold flex items-center gap-2 cursor-pointer"
                     >
                       {executingQuery ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />} Run (Ctrl+Enter)
                     </button>
@@ -751,7 +968,7 @@ export default function DatabaseManager({ project }) {
             </div>
             <div className="px-5 py-3.5 border-t border-white/10 flex justify-end gap-2">
               <button type="button" onClick={() => setShowInsertModal(false)} className="px-4 py-2 rounded-lg bg-slate-800 text-slate-200 text-xs cursor-pointer">Cancel</button>
-              <button type="submit" className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer">Insert row</button>
+              <button type="submit" className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-onaccent text-xs font-bold cursor-pointer">Insert row</button>
             </div>
           </form>
         </div>
@@ -792,7 +1009,214 @@ export default function DatabaseManager({ project }) {
             </div>
             <div className="px-5 py-3.5 border-t border-white/10 flex justify-end gap-2">
               <button type="button" onClick={() => setShowCreateModal(false)} className="px-4 py-2 rounded-lg bg-slate-800 text-slate-200 text-xs cursor-pointer">Cancel</button>
-              <button type="submit" className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer">Create</button>
+              <button type="submit" className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-onaccent text-xs font-bold cursor-pointer">Create</button>
+            </div>
+          </form>
+        </div>
+      )}
+      {/* Import modal */}
+      {showImport && selectedConn && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-lg flex flex-col">
+            <div className="px-5 py-3.5 border-b border-white/10 flex items-center justify-between">
+              <span className="text-sm font-bold text-white">Import into {selectedConn.database}</span>
+              <button type="button" disabled={['uploading', 'importing'].includes(importState?.phase)} onClick={() => setShowImport(false)} className="text-slate-400 hover:text-white cursor-pointer disabled:opacity-40"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-[11px] text-slate-400">Runs the dump against this database. Tables in the dump replace existing ones with the same name. A backup of the current data is saved on the server first.</p>
+              <input
+                type="file"
+                accept={selectedConn.engine === 'postgresql' ? '.sql,.gz,.dump' : '.sql,.gz'}
+                disabled={!!importState && importState.phase !== 'error'}
+                onChange={(e) => { setImportFile(e.target.files?.[0] || null); setImportState(null) }}
+                className="block w-full text-xs text-slate-300 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-slate-800 file:text-slate-200 file:cursor-pointer"
+              />
+              {importFile && <div className="text-[11px] text-slate-500 font-mono">{importFile.name} · {formatBytes(importFile.size)}</div>}
+              {importState?.phase === 'uploading' && (
+                <div>
+                  <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden"><div className="h-full bg-emerald-500 transition-all" style={{ width: `${Math.round(importState.progress * 100)}%` }} /></div>
+                  <div className="text-[11px] text-slate-400 mt-1 font-mono">Uploading {Math.round(importState.progress * 100)}%</div>
+                </div>
+              )}
+              {importState?.phase === 'importing' && <div className="text-xs text-slate-300 flex items-center gap-2"><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Backing up and importing… this can take a while for big dumps.</div>}
+              {importState?.phase === 'done' && (
+                <div className="p-3 rounded-lg bg-emerald-950/60 border border-emerald-700/50 text-xs text-emerald-200">
+                  {importState.message}
+                  <div className="text-[11px] text-emerald-300/70 font-mono mt-1 break-all">Previous data backed up to {importState.backup}</div>
+                </div>
+              )}
+              {importState?.phase === 'error' && <pre className="p-3 rounded-lg bg-rose-950/60 border border-rose-700/50 text-xs text-rose-200 whitespace-pre-wrap break-all">{importState.message}</pre>}
+            </div>
+            <div className="px-5 py-3.5 border-t border-white/10 flex justify-end gap-2">
+              <button type="button" disabled={['uploading', 'importing'].includes(importState?.phase)} onClick={() => setShowImport(false)} className="px-4 py-2 rounded-lg bg-slate-800 text-slate-200 text-xs cursor-pointer disabled:opacity-40">{importState?.phase === 'done' ? 'Close' : 'Cancel'}</button>
+              {importState?.phase !== 'done' && (
+                <button type="button" onClick={handleImport} disabled={!importFile || ['uploading', 'importing'].includes(importState?.phase)} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-onaccent text-xs font-bold cursor-pointer disabled:opacity-50">Import</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Credentials modal */}
+      {showCreds && selectedConn && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <form onSubmit={handleChangeCreds} autoComplete="off" className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+            <div className="px-5 py-3.5 border-b border-white/10 flex items-center justify-between">
+              <span className="text-sm font-bold text-white">Credentials for {selectedConn.database}</span>
+              <button type="button" onClick={() => setShowCreds(false)} className="text-slate-400 hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-5 space-y-3 overflow-y-auto">
+              <p className="text-[11px] text-slate-400">Current user: <span className="font-mono text-slate-200">{selectedConn.appUser || selectedConn.user || '—'}</span>. The change is applied in {selectedConn.engine === 'mysql' ? 'MySQL' : 'PostgreSQL'} and written to the project's .env files that use this database (a .env.bak copy is kept).</p>
+              {selectedConn.engine === 'mysql' && (!(selectedConn.appUser || selectedConn.user) || SYSTEM_DB_USERS.includes((selectedConn.appUser || selectedConn.user).toLowerCase())) && (
+                <p className="text-[11px] text-amber-200 bg-amber-950/40 border border-amber-700/40 rounded-lg p-2.5">
+                  {(selectedConn.appUser || selectedConn.user) ? `The app uses the system account "${selectedConn.appUser || selectedConn.user}".` : 'No app user is known for this database.'} Enter a new username and password: a dedicated MySQL user with full access to {selectedConn.database} is created and the app's .env is switched to it.
+                </p>
+              )}
+              <label className="block">
+                <span className="text-[11px] text-slate-400">New username <span className="text-slate-600">(leave empty to keep)</span></span>
+                <input value={creds.newUser} onChange={(e) => setCreds(c => ({ ...c, newUser: e.target.value }))} placeholder={selectedConn.appUser || selectedConn.user || ''} autoComplete="off" className="mt-1 w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-emerald-500/50" />
+              </label>
+              <label className="block">
+                <span className="text-[11px] text-slate-400">New password <span className="text-slate-600">(leave empty to keep; 8+ characters, no quotes, backslashes, backticks or $)</span></span>
+                <div className="mt-1 flex gap-2">
+                  <div className="relative flex-1">
+                    <input type={showPw ? 'text' : 'password'} value={creds.newPassword} onChange={(e) => setCreds(c => ({ ...c, newPassword: e.target.value }))} autoComplete="new-password" className="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-emerald-500/50 pr-9" />
+                    <button type="button" onClick={() => setShowPw(v => !v)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-200 cursor-pointer">{showPw ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}</button>
+                  </div>
+                  <button type="button" onClick={generatePassword} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-200 text-xs cursor-pointer">Generate</button>
+                </div>
+              </label>
+              {selectedConn.engine === 'mysql' && (
+                <details className="text-[11px] text-slate-400">
+                  <summary className="cursor-pointer">MySQL admin login (needed to rename the user if the panel can't log in to MySQL by itself)</summary>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <input value={creds.adminUser} onChange={(e) => setCreds(c => ({ ...c, adminUser: e.target.value }))} placeholder="Admin user (root)" autoComplete="off" className="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-emerald-500/50" />
+                    <input type="password" value={creds.adminPassword} onChange={(e) => setCreds(c => ({ ...c, adminPassword: e.target.value }))} placeholder="Admin password" autoComplete="new-password" className="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-emerald-500/50" />
+                  </div>
+                </details>
+              )}
+              <label className="flex items-center gap-2 text-[11px] text-slate-300">
+                <input type="checkbox" checked={creds.restart} onChange={(e) => setCreds(c => ({ ...c, restart: e.target.checked }))} />
+                Restart the project's app afterwards so it uses the new credentials
+              </label>
+              {credsResult && (
+                <div className={`p-3 rounded-lg text-xs border ${credsResult.ok ? 'bg-emerald-950/60 border-emerald-700/50 text-emerald-200' : 'bg-rose-950/60 border-rose-700/50 text-rose-200'}`}>{credsResult.message}</div>
+              )}
+            </div>
+            <div className="px-5 py-3.5 border-t border-white/10 flex justify-end gap-2">
+              <button type="button" onClick={() => setShowCreds(false)} className="px-4 py-2 rounded-lg bg-slate-800 text-slate-200 text-xs cursor-pointer">{credsResult?.ok ? 'Close' : 'Cancel'}</button>
+              <button type="submit" disabled={credsBusy || (!creds.newUser.trim() && !creds.newPassword)} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-onaccent text-xs font-bold cursor-pointer disabled:opacity-50 flex items-center gap-1.5">
+                {credsBusy && <RefreshCw className="w-3.5 h-3.5 animate-spin" />} Save
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+      {/* New database modal */}
+      {showNewDb && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <form onSubmit={handleCreateDb} autoComplete="off" className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+            <div className="px-5 py-3.5 border-b border-white/10 flex items-center justify-between">
+              <span className="text-sm font-bold text-white">New database on {activeServer?.name || 'this server'}</span>
+              <button type="button" onClick={() => setShowNewDb(false)} className="text-slate-400 hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
+            </div>
+            {newDbResult?.ok ? (
+              <div className="p-5 space-y-3 overflow-y-auto">
+                <div className="p-3 rounded-lg text-xs border bg-emerald-950/60 border-emerald-700/50 text-emerald-200">{newDbResult.message}</div>
+                {newDbResult.connection?.url && (
+                  <div>
+                    <div className="text-[11px] text-slate-400 mb-1">Connection string for your app's .env:</div>
+                    <div className="flex gap-2">
+                      <code className="flex-1 bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-[11px] text-emerald-200 font-mono break-all">DATABASE_URL={newDbResult.connection.url}</code>
+                      <button type="button" onClick={() => { navigator.clipboard.writeText(`DATABASE_URL=${newDbResult.connection.url}`); flash('Copied') }} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-200 text-xs cursor-pointer">Copy</button>
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1 font-mono">host 127.0.0.1 · port {newDbResult.connection.port} · database {newDbResult.connection.database} · user {newDbResult.connection.user}</div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="p-5 space-y-3 overflow-y-auto">
+                <div className="grid grid-cols-2 gap-2">
+                  {['mysql', 'postgresql'].map(eng => (
+                    <button key={eng} type="button" onClick={() => setNewDb(d => ({ ...d, engine: eng }))} className={`px-3 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${newDb.engine === eng ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-200' : 'border-white/10 bg-slate-950 text-slate-400'}`}>
+                      {ENGINES[eng].icon} {ENGINES[eng].label}{discovery?.engines && !discovery.engines[eng] ? ' (not running)' : ''}
+                    </button>
+                  ))}
+                </div>
+                <label className="block">
+                  <span className="text-[11px] text-slate-400">Database name <span className="text-slate-600">(letters, numbers, underscores)</span></span>
+                  <input required value={newDb.name} onChange={(e) => setNewDb(d => ({ ...d, name: e.target.value }))} placeholder="my_app_db" className={`mt-1 ${inputCls}`} />
+                </label>
+                <label className="block">
+                  <span className="text-[11px] text-slate-400">Username <span className="text-slate-600">(optional — a new user gets full access to this database; an existing one is given access)</span></span>
+                  <input value={newDb.user} onChange={(e) => setNewDb(d => ({ ...d, user: e.target.value }))} placeholder="my_app_user" autoComplete="off" className={`mt-1 ${inputCls}`} />
+                </label>
+                {newDb.user.trim() && (
+                  <label className="block">
+                    <span className="text-[11px] text-slate-400">Password for a new user <span className="text-slate-600">(leave empty for an existing user; 8+ characters, no quotes, backslashes, backticks or $)</span></span>
+                    <div className="mt-1 flex gap-2">
+                      <div className="relative flex-1">
+                        <input type={showPw ? 'text' : 'password'} value={newDb.password} onChange={(e) => setNewDb(d => ({ ...d, password: e.target.value }))} autoComplete="new-password" className={`${inputCls} pr-9`} />
+                        <button type="button" onClick={() => setShowPw(v => !v)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-200 cursor-pointer">{showPw ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}</button>
+                      </div>
+                      <button type="button" onClick={() => { setNewDb(d => ({ ...d, password: randomPassword() })); setShowPw(true) }} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-200 text-xs cursor-pointer">Generate</button>
+                    </div>
+                  </label>
+                )}
+                {newDb.engine === 'mysql' && (
+                  <details className="text-[11px] text-slate-400">
+                    <summary className="cursor-pointer">MySQL admin login (only if the panel can't log in to MySQL by itself)</summary>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <input value={newDb.adminUser} onChange={(e) => setNewDb(d => ({ ...d, adminUser: e.target.value }))} placeholder="Admin user (root)" autoComplete="off" className={inputCls} />
+                      <input type="password" value={newDb.adminPassword} onChange={(e) => setNewDb(d => ({ ...d, adminPassword: e.target.value }))} placeholder="Admin password" autoComplete="new-password" className={inputCls} />
+                    </div>
+                  </details>
+                )}
+                {newDbResult && !newDbResult.ok && <div className="p-3 rounded-lg text-xs border bg-rose-950/60 border-rose-700/50 text-rose-200 whitespace-pre-wrap break-all">{newDbResult.message}</div>}
+              </div>
+            )}
+            <div className="px-5 py-3.5 border-t border-white/10 flex justify-end gap-2">
+              <button type="button" onClick={() => setShowNewDb(false)} className="px-4 py-2 rounded-lg bg-slate-800 text-slate-200 text-xs cursor-pointer">{newDbResult?.ok ? 'Close' : 'Cancel'}</button>
+              {!newDbResult?.ok && (
+                <button type="submit" disabled={newDbBusy || !newDb.name.trim()} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-onaccent text-xs font-bold cursor-pointer disabled:opacity-50 flex items-center gap-1.5">
+                  {newDbBusy && <RefreshCw className="w-3.5 h-3.5 animate-spin" />} Create database
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Delete database modal */}
+      {showDropDb && selectedConn && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <form onSubmit={handleDropDb} autoComplete="off" className="bg-slate-900 border border-rose-700/40 rounded-2xl w-full max-w-lg flex flex-col">
+            <div className="px-5 py-3.5 border-b border-white/10 flex items-center justify-between">
+              <span className="text-sm font-bold text-rose-200 flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-rose-400" /> Delete {selectedConn.database}</span>
+              <button type="button" disabled={dropDbBusy} onClick={() => setShowDropDb(false)} className="text-slate-400 hover:text-white cursor-pointer disabled:opacity-40"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-[11px] text-slate-300">
+                This permanently drops the database and all its tables. A gzipped backup is saved on the server (/var/backups/autodeploy-db) first.
+                {selectedConn.projects?.length > 0 && <> It is used by <span className="font-semibold text-amber-200">{selectedConn.projects.map(p => p.name).join(', ')}</span>, which will stop working.</>}
+              </p>
+              <label className="block">
+                <span className="text-[11px] text-slate-400">Type <span className="font-mono text-rose-200">{selectedConn.database}</span> to confirm</span>
+                <input autoFocus value={dropDb.confirm} onChange={(e) => setDropDb(d => ({ ...d, confirm: e.target.value }))} className={`mt-1 ${inputCls} focus:border-rose-500/50`} />
+              </label>
+              {(selectedConn.appUser || selectedConn.user) && !SYSTEM_DB_USERS.includes((selectedConn.appUser || selectedConn.user).toLowerCase()) && (
+                <label className="flex items-center gap-2 text-[11px] text-slate-300">
+                  <input type="checkbox" checked={dropDb.dropUser} onChange={(e) => setDropDb(d => ({ ...d, dropUser: e.target.checked }))} />
+                  Also remove the user <span className="font-mono">{selectedConn.appUser || selectedConn.user}</span> (kept if it still has other databases)
+                </label>
+              )}
+              {dropDbError && <div className="p-3 rounded-lg text-xs border bg-rose-950/60 border-rose-700/50 text-rose-200 whitespace-pre-wrap break-all">{dropDbError}</div>}
+            </div>
+            <div className="px-5 py-3.5 border-t border-white/10 flex justify-end gap-2">
+              <button type="button" disabled={dropDbBusy} onClick={() => setShowDropDb(false)} className="px-4 py-2 rounded-lg bg-slate-800 text-slate-200 text-xs cursor-pointer disabled:opacity-40">Cancel</button>
+              <button type="submit" disabled={dropDbBusy || dropDb.confirm !== selectedConn.database} className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-onaccent text-xs font-bold cursor-pointer disabled:opacity-50 flex items-center gap-1.5">
+                {dropDbBusy ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />} Back up &amp; delete
+              </button>
             </div>
           </form>
         </div>

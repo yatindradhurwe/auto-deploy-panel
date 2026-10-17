@@ -15,6 +15,7 @@ import DeleteProjectModal from './DeleteProjectModal'
 import ProjectSettingsModal from './ProjectSettingsModal'
 import { useAuth } from '../store/AuthContext'
 import { useServers } from '../store/ServersContext'
+import ThemeToggle from './ThemeToggle'
 
 export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
   const { token: jwtToken } = useAuth()
@@ -96,7 +97,7 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
           appName: project.repoName || project.name,
           projectPath: project.path,
           host: activeServer ? (activeServer.ipAddress || activeServer.host) : '187.127.165.128',
-          branch: 'main'
+          branch: project.branch || undefined
         })
       })
       const data = await res.json()
@@ -125,10 +126,10 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#07090E] text-slate-100 flex flex-col font-sans overflow-hidden">
+    <div className="min-h-screen bg-slate-950 app-canvas text-slate-100 flex flex-col font-sans overflow-hidden">
       
       {/* Top Header Navigation Bar (Fits 100% in Viewport, Icon-Only Project Settings) */}
-      <header className="h-14 bg-[#0B0E17]/90 backdrop-blur-2xl border-b border-white/10 px-3 lg:px-5 flex items-center justify-between gap-2 z-30 shrink-0 shadow-2xl sticky top-0 overflow-x-auto scrollbar-none">
+      <header className="h-14 bg-slate-900/90 backdrop-blur-2xl border-b border-white/10 px-3 lg:px-5 flex items-center justify-between gap-2 z-30 shrink-0 shadow-2xl sticky top-0 overflow-x-auto scrollbar-none">
         
         {/* Left: Back to Dashboard & Project Breadcrumb */}
         <div className="flex items-center space-x-2.5 shrink-0">
@@ -166,7 +167,7 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
               onClick={() => setActiveCanvasTab('preview')}
               className={`h-8 px-3 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
                 activeCanvasTab === 'preview'
-                  ? 'bg-gradient-to-r from-cyan-500 via-indigo-600 to-indigo-700 text-white shadow-md shadow-cyan-500/25 ring-1 ring-cyan-400/40'
+                  ? 'bg-gradient-to-r from-cyan-500 via-indigo-600 to-indigo-700 text-onaccent shadow-md shadow-cyan-500/25 ring-1 ring-cyan-400/40'
                   : 'text-slate-400 hover:text-white hover:bg-white/10'
               }`}
             >
@@ -178,7 +179,7 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
               onClick={() => setActiveCanvasTab('code')}
               className={`h-8 px-3 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
                 activeCanvasTab === 'code'
-                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-600/25 ring-1 ring-purple-400/40'
+                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-onaccent shadow-md shadow-purple-600/25 ring-1 ring-purple-400/40'
                   : 'text-slate-400 hover:text-white hover:bg-white/10'
               }`}
             >
@@ -190,7 +191,7 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
               onClick={() => setActiveCanvasTab('database')}
               className={`h-8 px-3 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
                 activeCanvasTab === 'database'
-                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-600/25 ring-1 ring-emerald-400/40'
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-onaccent shadow-md shadow-emerald-600/25 ring-1 ring-emerald-400/40'
                   : 'text-slate-400 hover:text-white hover:bg-white/10'
               }`}
             >
@@ -202,7 +203,7 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
               onClick={() => setActiveCanvasTab('env')}
               className={`h-8 px-3 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
                 activeCanvasTab === 'env'
-                  ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-md shadow-amber-600/25 ring-1 ring-amber-400/40'
+                  ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-onaccent shadow-md shadow-amber-600/25 ring-1 ring-amber-400/40'
                   : 'text-slate-400 hover:text-white hover:bg-white/10'
               }`}
             >
@@ -214,7 +215,7 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
               onClick={() => setActiveCanvasTab('logs')}
               className={`h-8 px-3 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
                 activeCanvasTab === 'logs'
-                  ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-600/25 ring-1 ring-indigo-400/40'
+                  ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-onaccent shadow-md shadow-indigo-600/25 ring-1 ring-indigo-400/40'
                   : 'text-slate-400 hover:text-white hover:bg-white/10'
               }`}
             >
@@ -226,7 +227,7 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
               onClick={() => setActiveCanvasTab('git')}
               className={`h-8 px-3 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
                 activeCanvasTab === 'git'
-                  ? 'bg-gradient-to-r from-rose-600 to-pink-600 text-white shadow-md shadow-rose-600/25 ring-1 ring-rose-400/40'
+                  ? 'bg-gradient-to-r from-rose-600 to-pink-600 text-onaccent shadow-md shadow-rose-600/25 ring-1 ring-rose-400/40'
                   : 'text-slate-400 hover:text-white hover:bg-white/10'
               }`}
             >
@@ -291,10 +292,12 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
             <span className="hidden xl:inline">Open Site</span>
           </a>
 
+          <ThemeToggle compact />
+
           <button
             onClick={handlePublishServerUpdate}
             disabled={publishing}
-            className="h-8.5 px-3 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-extrabold rounded-xl text-xs font-mono shadow-lg shadow-cyan-500/20 inline-flex items-center justify-center space-x-1.5 transition transform hover:scale-[1.02] cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
+            className="h-8.5 px-3 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-onaccent font-extrabold rounded-xl text-xs font-mono shadow-lg shadow-cyan-500/20 inline-flex items-center justify-center space-x-1.5 transition transform hover:scale-[1.02] cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
           >
             <Upload className={`w-3.5 h-3.5 shrink-0 ${publishing ? 'animate-spin' : ''}`} />
             <span>{publishing ? 'Publishing...' : 'Publish'}</span>
@@ -317,7 +320,7 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
         <aside
           className={`${
             sidebarHidden ? 'w-0 border-r-0' : 'w-80 md:w-96 border-r border-white/10'
-          } bg-[#07090E] transition-all duration-300 flex flex-col z-20 shrink-0 relative`}
+          } bg-slate-950 transition-all duration-300 flex flex-col z-20 shrink-0 relative`}
         >
           {/* AI Sidebar Header */}
           <div className="p-3.5 border-b border-slate-800 bg-slate-950 flex items-center justify-between font-mono text-xs">
@@ -374,7 +377,7 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
         )}
 
         {/* Center Main Workspace Canvas Area */}
-        <main className="flex-1 bg-[#05070B] flex flex-col relative overflow-hidden">
+        <main className="flex-1 bg-slate-950 flex flex-col relative overflow-hidden">
           
           {/* Mode 1: Live Interactive Preview */}
           {activeCanvasTab === 'preview' && (
@@ -427,7 +430,7 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
                   key={`${iframeKey}-${useProxy ? 'proxy' : 'direct'}`}
                   src={getIframeSrc()}
                   title="Project Live Preview"
-                  className="flex-1 w-full h-full border-0 bg-white"
+                  className="flex-1 w-full h-full border-0 bg-onaccent"
                 />
               </div>
             </div>

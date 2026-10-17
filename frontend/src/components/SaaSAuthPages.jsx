@@ -18,6 +18,7 @@ import {
   CreditCard,
   Cpu
 } from 'lucide-react'
+import ThemeToggle from './ThemeToggle'
 
 /**
  * Organization (admin) sign in and signup at /login and /signup. Super admins use /admin/login.
@@ -137,12 +138,12 @@ export default function SaaSAuthPages({ apiBaseUrl = '', initialView = 'login' }
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-white">
+    <div className="min-h-screen bg-slate-950 app-canvas text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-white">
       {/* Top Navigation */}
       <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur-md sticky top-0 z-50 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center space-x-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
-            <Rocket className="w-6 h-6 text-white" />
+            <Rocket className="w-6 h-6 text-onaccent" />
           </div>
           <div>
             <div className="text-xl font-black bg-gradient-to-r from-cyan-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent tracking-wider">
@@ -152,6 +153,8 @@ export default function SaaSAuthPages({ apiBaseUrl = '', initialView = 'login' }
           </div>
         </div>
 
+        <div className="flex items-center space-x-3">
+        <ThemeToggle compact />
         {view !== 'onboarding' && (
           <div className="flex items-center space-x-3">
             <button
@@ -168,7 +171,7 @@ export default function SaaSAuthPages({ apiBaseUrl = '', initialView = 'login' }
               onClick={() => setView('signup')}
               className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all ${
                 view === 'signup'
-                  ? 'bg-gradient-to-r from-cyan-500 to-indigo-600 text-white shadow-lg shadow-cyan-500/20'
+                  ? 'bg-gradient-to-r from-cyan-500 to-indigo-600 text-onaccent shadow-lg shadow-cyan-500/20'
                   : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
               }`}
             >
@@ -176,6 +179,7 @@ export default function SaaSAuthPages({ apiBaseUrl = '', initialView = 'login' }
             </button>}
           </div>
         )}
+        </div>
       </header>
 
       {platformStatus?.maintenanceMode && (
@@ -251,7 +255,7 @@ export default function SaaSAuthPages({ apiBaseUrl = '', initialView = 'login' }
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-cyan-500/25 transition-all flex items-center justify-center space-x-2"
+                className="w-full py-3.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-onaccent font-bold rounded-xl shadow-lg shadow-cyan-500/25 transition-all flex items-center justify-center space-x-2"
               >
                 {loading ? <Zap className="w-5 h-5 animate-spin" /> : <><span>Sign In to Dashboard</span><ArrowRight className="w-4 h-4" /></>}
               </button>
@@ -349,7 +353,7 @@ export default function SaaSAuthPages({ apiBaseUrl = '', initialView = 'login' }
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-cyan-500/25 transition-all flex items-center justify-center space-x-2"
+                className="w-full py-3.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-onaccent font-bold rounded-xl shadow-lg shadow-cyan-500/25 transition-all flex items-center justify-center space-x-2"
               >
                 {loading ? <Zap className="w-5 h-5 animate-spin" /> : <><span>Create Workspace</span><ArrowRight className="w-4 h-4" /></>}
               </button>
@@ -417,7 +421,7 @@ export default function SaaSAuthPages({ apiBaseUrl = '', initialView = 'login' }
                 <button
                   onClick={handleCompleteOnboarding}
                   disabled={loading}
-                  className="w-full py-3.5 bg-gradient-to-r from-cyan-500 to-indigo-600 text-white font-bold rounded-xl shadow-lg shadow-cyan-500/25 flex items-center justify-center space-x-2"
+                  className="w-full py-3.5 bg-gradient-to-r from-cyan-500 to-indigo-600 text-onaccent font-bold rounded-xl shadow-lg shadow-cyan-500/25 flex items-center justify-center space-x-2"
                 >
                   {loading ? <Zap className="w-5 h-5 animate-spin" /> : <><span>Continue to Server Agent Setup</span><ArrowRight className="w-4 h-4" /></>}
                 </button>
@@ -451,7 +455,7 @@ export default function SaaSAuthPages({ apiBaseUrl = '', initialView = 'login' }
                   onClick={() => {
                     if (authToken && userObj) startSession(authToken, userObj, 'panel')
                   }}
-                  className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/25 flex items-center justify-center space-x-2"
+                  className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-onaccent font-bold rounded-xl shadow-lg shadow-emerald-500/25 flex items-center justify-center space-x-2"
                 >
                   <CheckCircle className="w-5 h-5" />
                   <span>Enter Organization Console</span>

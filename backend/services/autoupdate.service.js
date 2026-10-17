@@ -29,7 +29,7 @@ export async function executeProjectAutoUpdate(appName, triggerSource = 'manual'
   const username = ownerSettings.username || 'root'
   const password = ownerSettings.password || ''
   const projectPath = config.projectPath || `/var/www/${appName}`
-  const branch = config.branch || 'main'
+  const branch = config.branch || undefined // unset → updateProject keeps the folder's current branch
   const gitRepoUrl = config.gitRepoUrl || ownerSettings.gitRepoUrl || ''
 
   console.log(`[ANTIGRAVITY AUTO-UPDATE] Executing update for project '${appName}' triggered via '${triggerSource}'...`)

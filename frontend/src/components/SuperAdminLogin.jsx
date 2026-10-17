@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { Crown, Mail, Lock, ShieldCheck, ArrowRight, Loader2 } from 'lucide-react'
 import { useAuth } from '../store/AuthContext'
+import ThemeToggle from './ThemeToggle'
 
 /**
  * Sign-in for platform staff (super admins) at /admin/login. Organization admins use /login.
@@ -29,7 +30,7 @@ export default function SuperAdminLogin() {
   const inputClass = 'w-full pl-10 pr-4 py-3 bg-slate-950 border border-purple-500/20 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-purple-400 transition'
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-purple-500/30">
+    <div className="min-h-screen bg-slate-950 app-canvas text-slate-100 flex flex-col font-sans selection:bg-purple-500/30">
       <header className="border-b border-purple-500/20 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center space-x-3">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-purple-600 via-indigo-600 to-amber-500 flex items-center justify-center shadow-lg shadow-purple-500/20">
@@ -40,7 +41,10 @@ export default function SuperAdminLogin() {
             <div className="text-[10px] font-mono font-bold tracking-wider text-purple-300">SUPER ADMIN CONSOLE</div>
           </div>
         </div>
-        <a href="/login" className="text-xs text-slate-400 hover:text-cyan-300 font-semibold">Organization login →</a>
+        <div className="flex items-center gap-3">
+          <ThemeToggle compact />
+          <a href="/login" className="text-xs text-slate-400 hover:text-cyan-300 font-semibold">Organization login →</a>
+        </div>
       </header>
 
       {platformStatus?.maintenanceMode && (
@@ -87,7 +91,7 @@ export default function SuperAdminLogin() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-purple-500/25 flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer"
+              className="w-full py-3.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-onaccent font-bold rounded-xl shadow-lg shadow-purple-500/25 flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ArrowRight className="w-5 h-5" />}
               <span>{loading ? 'Signing in…' : 'Sign in to console'}</span>
