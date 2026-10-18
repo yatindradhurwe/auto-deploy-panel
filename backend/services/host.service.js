@@ -27,6 +27,16 @@ const PANEL_PUBLIC_IP = process.env.PANEL_PUBLIC_IP || '187.127.165.128'
 const httpError = (status, message) => Object.assign(new Error(message), { status })
 
 /** True when the server record describes the machine the panel runs on. */
+/**
+ * Bash snippet defining `G`, which runs git in the current folder as the folder's owner. git refuses
+ * repos owned by another user ("dubious ownership"), and running it as root there would let that user's
+ * .git/config run code as root; as the owner it's safe and new files keep the site user's ownership.
+ */
+export const GIT_AS_OWNER = 'OWNER=$(stat -c %U .); if [ "$OWNER" != root ] && [ "$(id -u)" = 0 ]; then G() { runuser -u "$OWNER" -- env HOME="$(getent passwd "$OWNER" | cut -d: -f6)" git "$@"; }; else G() { git "$@"; }; fi\n'
+
+/** Runs git with `args` in `dir` as the folder's owner (see GIT_AS_OWNER). */
+export const runGit = (host, dir, args, opts = {}) => host.exec(`${GIT_AS_OWNER}G ${args.map(q).join(' ')}`, { cwd: dir, ...opts })
+
 export function isLocalServer(server) {
   if (!server) return true
   const addr = server.ipAddress || server.hostname

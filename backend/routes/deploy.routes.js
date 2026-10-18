@@ -227,6 +227,25 @@ router.post('/save-github-token', (req, res) => {
 })
 
 /**
+ * GET /api/deploy/github-account → the GitHub account behind the saved token ({ connected: false } when none)
+ */
+router.get('/github-account', async (req, res) => {
+  const token = (getUserSettings(req.user?.id)?.githubToken || '').trim()
+  if (!token) return res.json({ success: true, connected: false })
+  try {
+    const r = await fetch('https://api.github.com/user', {
+      headers: { Authorization: `Bearer ${token.replace(/^(bearer|token) /i, '')}`, 'User-Agent': 'AutoDeploy-Console-App', Accept: 'application/vnd.github.v3+json' },
+      signal: AbortSignal.timeout(15000)
+    })
+    const u = await r.json().catch(() => ({}))
+    if (!r.ok) return res.json({ success: true, connected: false, error: `The saved GitHub token was rejected (${u.message || r.status}). Connect again with a new token.` })
+    res.json({ success: true, connected: true, login: u.login, name: u.name || '', avatarUrl: u.avatar_url || '', profileUrl: u.html_url || '' })
+  } catch (err) {
+    res.status(502).json({ success: false, error: `Could not reach GitHub: ${err.message}` })
+  }
+})
+
+/**
  * Fetch Repositories from GitHub API using Personal Access Token
  */
 router.post('/github-repos', async (req, res) => {

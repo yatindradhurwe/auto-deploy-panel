@@ -1,4 +1,4 @@
-import { q } from './host.service.js'
+import { q, GIT_AS_OWNER } from './host.service.js'
 
 /**
  * Project lifecycle operations (update from Git, delete) through a host executor, so they run
@@ -23,7 +23,7 @@ function checkDir(dir) {
 export async function updateProject(host, { projectPath, appName, branch, gitRepoUrl = '', githubToken = '' }, onLog = () => {}) {
   const dir = checkDir(projectPath || (appName ? `/var/www/${appName}` : ''))
   // No branch given → stay on the branch the folder already tracks; never switch a project onto 'main' by default.
-  if (!branch && await host.exists(`${dir}/.git`)) branch = (await host.exec('git rev-parse --abbrev-ref HEAD', { cwd: dir })).stdout?.trim()
+  if (!branch && await host.exists(`${dir}/.git`)) branch = (await host.exec(`${GIT_AS_OWNER}G rev-parse --abbrev-ref HEAD`, { cwd: dir })).stdout?.trim()
   if (!branch || branch === 'HEAD') branch = 'main'
   if (!BRANCH_RE.test(branch)) throw httpError(400, 'Invalid branch name.')
   const app = appName && APP_RE.test(appName) ? appName : dir.split('/').pop()
@@ -41,17 +41,31 @@ export async function updateProject(host, { projectPath, appName, branch, gitRep
   } else {
     await run(`
 set -e
-ORIGIN=$(git remote get-url origin 2>/dev/null | sed -E 's#https://[^@]+@#https://#')
+${GIT_AS_OWNER}
+ORIGIN=$(G remote get-url origin 2>/dev/null | sed -E 's#https://[^@]+@#https://#')
 TOKEN=${q(githubToken)}
 if [ -n "$TOKEN" ] && echo "$ORIGIN" | grep -q '^https://github.com/'; then
-  git -c credential.helper= fetch "$(echo "$ORIGIN" | sed "s#https://#https://x-access-token:$TOKEN@#")" ${q(branch)}
+  G -c credential.helper= fetch "$(echo "$ORIGIN" | sed "s#https://#https://x-access-token:$TOKEN@#")" ${q(branch)}
 else
-  git fetch origin ${q(branch)}
+  G fetch origin ${q(branch)}
 fi
-git stash --include-untracked >/dev/null 2>&1 || true
-git checkout -B ${q(branch)} FETCH_HEAD
-git reset --hard FETCH_HEAD
-git log -1 --format='Now at %h — %s'`)
+# Refuse a commit with unresolved merge conflicts before any file is touched (the live code stays as it is)
+CONFLICTS=$(G grep -lE '^(<<<<<<<|>>>>>>>)( |$)' FETCH_HEAD -- . ':(exclude)*.md' 2>/dev/null | sed 's#^FETCH_HEAD:##' | head -8 | tr '\n' ' ' || true)
+if [ -n "$CONFLICTS" ]; then
+  echo "Not deploying: the latest commit on ${branch} has unresolved merge conflicts (<<<<<<< markers) in: $CONFLICTS— resolve them, commit and push, then Publish again. Nothing on the server was changed." >&2
+  exit 1
+fi
+# The server's env files win over copies tracked in the repo (they hold this server's secrets and the panel's settings)
+KEEP=$(mktemp -d)
+for f in .env .env.local .env.production; do [ -f "$f" ] && cp -p "$f" "$KEEP/$f"; done
+# Local edits to tracked files are set aside (git stash list); untracked files such as uploads and
+# runtime data stay where they are, except ones the new commit itself adds
+G stash >/dev/null 2>&1 || true
+G checkout -f -B ${q(branch)} FETCH_HEAD
+G reset --hard FETCH_HEAD
+for f in .env .env.local .env.production; do [ -f "$KEEP/$f" ] && cp -p "$KEEP/$f" "$f" && echo "Kept the server's $f"; done
+rm -rf "$KEEP"
+G log -1 --format='Now at %h — %s'`)
   }
 
   step('Installing dependencies and building')
@@ -64,7 +78,9 @@ if [ -f backend/package.json ]; then (cd backend && npm_install && if has_build;
 if [ -f package.json ] && [ ! -f frontend/package.json ] && [ ! -f backend/package.json ]; then npm_install; if has_build; then npm run build; fi; fi
 if [ -f composer.json ]; then COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --optimize-autoloader --no-interaction; fi
 if [ -f artisan ]; then php artisan migrate --force || true; php artisan config:cache || true; fi
-if [ -f requirements.txt ] && [ -d venv ]; then venv/bin/pip install -r requirements.txt; fi`)
+if [ -f requirements.txt ] && [ -d venv ]; then venv/bin/pip install -r requirements.txt; fi
+# Install/build ran as root: hand new files back to the folder's owner (site users on CloudPanel etc.)
+if [ "$(stat -c %U .)" != root ] && [ "$(id -u)" = 0 ]; then chown -R --from=root:root --reference=. . ; fi`)
 
   step(`Reloading ${app}`)
   await run(`

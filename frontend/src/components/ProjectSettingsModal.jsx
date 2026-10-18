@@ -107,6 +107,137 @@ function Field({ label, children, hint }) {
   )
 }
 
+/**
+ * GitHub account behind the user's saved token, plus a picker for its repositories and branches.
+ * Picking a repository fills the URL and branch fields of the Git section.
+ */
+function GitHubConnect({ api, locked, gitUrl, onPick, onBranches }) {
+  const [account, setAccount] = useState(null) // null = loading
+  const [token, setToken] = useState('')
+  const [changing, setChanging] = useState(false)
+  const [repos, setRepos] = useState([])
+  const [repoQuery, setRepoQuery] = useState('')
+  const [busy, setBusy] = useState('')
+  const [error, setError] = useState('')
+
+  const loadRepos = async () => {
+    setBusy('repos')
+    try {
+      const d = await api('/api/deploy/github-repos', { method: 'POST', body: {} })
+      setRepos(d.repos || [])
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const loadAccount = async () => {
+    setError('')
+    try {
+      const d = await api('/api/deploy/github-account')
+      setAccount(d)
+      if (d.error) setError(d.error)
+      if (d.connected) loadRepos()
+    } catch (err) {
+      setAccount({ connected: false })
+      setError(err.message)
+    }
+  }
+
+  useEffect(() => { loadAccount() }, [])
+
+  const connect = async () => {
+    if (!token.trim()) return
+    setBusy('connect')
+    setError('')
+    try {
+      await api('/api/deploy/save-github-token', { method: 'POST', body: { githubToken: token.trim() } })
+      setToken('')
+      setChanging(false)
+      setRepos([])
+      await loadAccount()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const pick = async (repo) => {
+    onPick(repo.clone_url, repo.default_branch || 'main')
+    setBusy('branches')
+    try {
+      const d = await api('/api/deploy/git-branches', { method: 'POST', body: { gitUrl: repo.clone_url } })
+      onBranches(d.branches || [], d.defaultBranch || repo.default_branch)
+    } catch {
+      onBranches([], repo.default_branch)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const shown = repos.filter((r) => !repoQuery.trim() || r.full_name.toLowerCase().includes(repoQuery.trim().toLowerCase())).slice(0, 50)
+
+  return (
+    <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-4 space-y-3 text-xs">
+      <div className="font-bold text-sm flex items-center gap-2"><GitBranch className="w-4 h-4 text-cyan-400" />GitHub account</div>
+      {account === null ? (
+        <div className="text-slate-400 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" />Checking your GitHub connection…</div>
+      ) : account.connected && !changing ? (
+        <div className="flex items-center gap-3">
+          {account.avatarUrl && <img src={account.avatarUrl} alt="" className="w-8 h-8 rounded-full" />}
+          <div className="flex-1 min-w-0">
+            <a href={account.profileUrl} target="_blank" rel="noreferrer" className="font-bold text-white hover:underline">{account.login}</a>
+            {account.name && <span className="text-slate-400"> · {account.name}</span>}
+            <div className="text-[11px] text-slate-500">Private repositories of this account can be connected and pulled.</div>
+          </div>
+          <button disabled={locked} onClick={() => setChanging(true)} className="px-3 py-1.5 text-[11px] text-slate-300 bg-slate-800 rounded-lg cursor-pointer disabled:opacity-50">Use another account</button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-slate-400">Connect a GitHub account with a Personal Access Token (classic with the <span className="font-mono">repo</span> scope, or fine-grained with read access to Contents). <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer" className="text-cyan-300 hover:underline">Create a token</a></p>
+          <div className="flex gap-2">
+            <input type="password" disabled={locked} value={token} onChange={(e) => setToken(e.target.value)} placeholder="ghp_… or github_pat_…" autoComplete="off" className={inputCls} />
+            <button disabled={locked || !token.trim() || busy === 'connect'} onClick={connect} className="px-3 py-2 bg-cyan-500/20 border border-cyan-500/40 text-cyan-200 font-bold rounded-xl whitespace-nowrap flex items-center gap-1.5 cursor-pointer disabled:opacity-50">
+              {busy === 'connect' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Connect GitHub
+            </button>
+            {changing && <button onClick={() => { setChanging(false); setToken('') }} className="px-3 py-2 text-slate-400 hover:text-white cursor-pointer">Cancel</button>}
+          </div>
+          <p className="text-[11px] text-slate-500">The token is saved to your account and used for all your projects.</p>
+        </div>
+      )}
+
+      {account?.connected && !changing && (
+        <div className="space-y-2 pt-2 border-t border-white/10">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-300 font-bold">Pick a repository</span>
+            <button onClick={loadRepos} disabled={busy === 'repos'} className="text-[11px] text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer"><RefreshCw className={`w-3 h-3 ${busy === 'repos' ? 'animate-spin' : ''}`} />Refresh</button>
+          </div>
+          <input value={repoQuery} onChange={(e) => setRepoQuery(e.target.value)} placeholder="Search repositories…" className={inputCls} />
+          <div className="max-h-48 overflow-y-auto space-y-1">
+            {busy === 'repos' && !repos.length && <div className="text-slate-500 py-2">Loading repositories…</div>}
+            {busy !== 'repos' && !shown.length && <div className="text-slate-500 py-2">No repositories found.</div>}
+            {shown.map((r) => {
+              const active = r.clone_url === gitUrl
+              return (
+                <button key={r.id} disabled={locked} onClick={() => pick(r)} className={`w-full text-left px-3 py-2 rounded-xl flex items-center justify-between gap-2 cursor-pointer disabled:opacity-50 ${active ? 'bg-cyan-500/15 border border-cyan-500/30 text-cyan-200' : 'hover:bg-white/5 text-slate-300'}`}>
+                  <span className="font-mono truncate">{r.full_name}</span>
+                  <span className="flex items-center gap-2 shrink-0 text-[10px] text-slate-500">
+                    {r.private && <Lock className="w-3 h-3" />}{r.language}{active && <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" />}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+          {busy === 'branches' && <div className="text-slate-500 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" />Loading branches…</div>}
+        </div>
+      )}
+      {error && <div className="text-rose-300 flex gap-2"><AlertCircle className="w-4 h-4 shrink-0" />{error}</div>}
+    </div>
+  )
+}
+
 export default function ProjectSettingsModal({ isOpen, project, onClose }) {
   const api = useApi()
   const [activeTab, setActiveTab] = useState('overview')
@@ -118,6 +249,7 @@ export default function ProjectSettingsModal({ isOpen, project, onClose }) {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState(null) // { tone, text }
   const [revealed, setRevealed] = useState({})
+  const [gitBranches, setGitBranches] = useState([])
 
   const base = useMemo(() => ({ projectPath: project?.path, domain: project?.domain || '', appNames: appNamesOf(project) }), [project])
 
@@ -191,7 +323,7 @@ export default function ProjectSettingsModal({ isOpen, project, onClose }) {
       case 'analytics': return save('analytics', { GA_MEASUREMENT_ID: form.GA_MEASUREMENT_ID, POSTHOG_KEY: form.POSTHOG_KEY, POSTHOG_HOST: form.POSTHOG_HOST, inject: form.injectAnalytics }, { withRestart: true })
       case 'redirects': return save('redirects', { redirects: form.redirects })
       case 'domains': return save('domains', { domains: form.domains })
-      case 'git': return save('git', { repoUrl: form.gitUrl.trim(), branch: form.gitBranch.trim() })
+      case 'git': return save('git', { repoUrl: (form.gitUrl || '').trim(), branch: (form.gitBranch || '').trim() })
       default:
         if (ENV_FIELDS[activeTab]) return save(activeTab, envValues(ENV_FIELDS[activeTab].map((f) => f[0])), { withRestart: true })
     }
@@ -477,31 +609,47 @@ export default function ProjectSettingsModal({ isOpen, project, onClose }) {
 
               {activeTab === 'git' && (
                 <div className="space-y-5">
-                  {!data.git?.isRepo ? (
-                    <p className="text-xs text-amber-300">This project folder is not a Git repository, so there is no repository to change. Deploy it from Git first.</p>
-                  ) : (
-                    <>
-                      <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-4 space-y-2 text-xs">
-                        <div className="font-bold text-sm flex items-center gap-2"><GitBranch className="w-4 h-4 text-cyan-400" />Connected now</div>
-                        <div className="text-slate-300 break-all">
-                          {data.git.remoteUrl
-                            ? <a href={data.git.remoteUrl.replace(/\.git$/, '')} target="_blank" rel="noreferrer" className="text-cyan-300 hover:underline font-mono">{data.git.remoteUrl}</a>
-                            : <span className="text-slate-500">No remote set</span>}
-                          <span className="text-slate-500"> · branch </span><span className="font-mono text-white">{data.git.branch}</span>
-                        </div>
-                        {data.git.lastCommit && (
-                          <div className="text-slate-400"><span className="font-mono text-slate-300">{data.git.lastCommit.hash}</span> — {data.git.lastCommit.subject} <span className="text-slate-500">({new Date(data.git.lastCommit.date).toLocaleString()})</span></div>
-                        )}
+                  {data.git?.isRepo ? (
+                    <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-4 space-y-2 text-xs">
+                      <div className="font-bold text-sm flex items-center gap-2"><GitBranch className="w-4 h-4 text-cyan-400" />Connected now</div>
+                      <div className="text-slate-300 break-all">
+                        {data.git.remoteUrl
+                          ? <a href={data.git.remoteUrl.replace(/\.git$/, '')} target="_blank" rel="noreferrer" className="text-cyan-300 hover:underline font-mono">{data.git.remoteUrl}</a>
+                          : <span className="text-slate-500">No remote set</span>}
+                        <span className="text-slate-500"> · branch </span><span className="font-mono text-white">{data.git.branch}</span>
                       </div>
-                      <Field label="Repository URL" hint="HTTPS URL, e.g. https://github.com/owner/repo.git. Private GitHub repos use the panel's saved GitHub token.">
-                        <input disabled={locked} value={form.gitUrl || ''} onChange={(e) => set('gitUrl', e.target.value)} placeholder="https://github.com/owner/repo.git" className={`${inputCls} font-mono`} />
-                      </Field>
-                      <Field label="Branch" hint="Publish and auto-update pull this branch.">
-                        <input disabled={locked} value={form.gitBranch || ''} onChange={(e) => set('gitBranch', e.target.value)} placeholder="main" className={`${inputCls} font-mono`} />
-                      </Field>
-                      <p className="text-[11px] text-slate-500">Saving checks that the repository and branch exist, then connects this project to them. The live site doesn't change until you click Publish, which pulls the new code and redeploys.</p>
-                    </>
+                      {data.git.lastCommit && (
+                        <div className="text-slate-400"><span className="font-mono text-slate-300">{data.git.lastCommit.hash}</span> — {data.git.lastCommit.subject} <span className="text-slate-500">({new Date(data.git.lastCommit.date).toLocaleString()})</span></div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 space-y-1.5 text-xs text-amber-200">
+                      <div className="font-bold text-sm">Deployed from uploaded source code</div>
+                      <p>This project isn't connected to Git yet. Connect a GitHub repository so Publish and auto-update pull new code from it.</p>
+                      <p className="text-amber-200/80">Connecting doesn't change the live site. The next Publish replaces the uploaded files with the repository's code; <span className="font-mono">.env</span>, <span className="font-mono">node_modules</span> and files your repository ignores are kept, and any other uploaded file that isn't in the repository is set aside in a Git stash.</p>
+                    </div>
                   )}
+                  <GitHubConnect
+                    api={api}
+                    locked={locked}
+                    gitUrl={form.gitUrl}
+                    onPick={(url, branch) => { setForm((f) => ({ ...f, gitUrl: url, gitBranch: branch })); setGitBranches([]) }}
+                    onBranches={(list, def) => { setGitBranches(list); if (def) set('gitBranch', def) }}
+                  />
+                  <Field label="Repository URL" hint="HTTPS URL, e.g. https://github.com/owner/repo.git. Private GitHub repos use your connected GitHub account.">
+                    <input disabled={locked} value={form.gitUrl || ''} onChange={(e) => set('gitUrl', e.target.value)} placeholder="https://github.com/owner/repo.git" className={`${inputCls} font-mono`} />
+                  </Field>
+                  <Field label="Branch" hint="Publish and auto-update pull this branch.">
+                    {gitBranches.length ? (
+                      <select disabled={locked} value={form.gitBranch || ''} onChange={(e) => set('gitBranch', e.target.value)} className={`${inputCls} font-mono`}>
+                        {!gitBranches.includes(form.gitBranch) && form.gitBranch && <option value={form.gitBranch}>{form.gitBranch}</option>}
+                        {gitBranches.map((b) => <option key={b} value={b}>{b}</option>)}
+                      </select>
+                    ) : (
+                      <input disabled={locked} value={form.gitBranch || ''} onChange={(e) => set('gitBranch', e.target.value)} placeholder="main" className={`${inputCls} font-mono`} />
+                    )}
+                  </Field>
+                  <p className="text-[11px] text-slate-500">Saving checks that the repository and branch exist, then connects this project to them. The live site doesn't change until you click Publish, which pulls the new code and redeploys.</p>
                 </div>
               )}
 

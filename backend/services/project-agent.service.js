@@ -6,7 +6,7 @@ import os from 'os'
 import { fileURLToPath } from 'url'
 import { PROVIDERS, getProvider } from './agent-providers.js'
 import { readDb, getServerById } from './db.service.js'
-import { getHost, q } from './host.service.js'
+import { getHost, q, runGit } from './host.service.js'
 import { getStoredSettings } from './project-settings.service.js'
 import { getBalance, chargeUsage } from './ai-credits.service.js'
 
@@ -810,9 +810,9 @@ export async function deploySession(id, { commit = false, commitMessage = '' } =
       log.push('Not a git repository — skipped commit.')
     } else {
       const files = Object.keys(s.changes)
-      const add = await host.run('git', ['add', '-A', '--', ...files], { cwd: root })
+      const add = await runGit(host, root, ['add', '-A', '--', ...files])
       const msg = String(commitMessage || s.title || 'Update via AI agent').slice(0, 200)
-      const res = add.code === 0 ? await host.run('git', ['-c', 'user.name=AutoDeploy AI Agent', '-c', 'user.email=agent@autodeploy.local', 'commit', '-m', msg, '--', ...files], { cwd: root }) : add
+      const res = add.code === 0 ? await runGit(host, root, ['-c', 'user.name=AutoDeploy AI Agent', '-c', 'user.email=agent@autodeploy.local', 'commit', '-m', msg, '--', ...files]) : add
       log.push(res.code === 0 ? `Committed ${files.length} file(s): ${msg}` : `Commit failed: ${(res.stderr || res.stdout).trim()}`)
     }
   }

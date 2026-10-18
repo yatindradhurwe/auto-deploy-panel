@@ -1,5 +1,6 @@
 import path from 'path'
 import { readDb, writeDb } from './db.service.js'
+import { q, runGit as gitIn } from './host.service.js'
 
 /**
  * Project settings from the studio, applied to the real app on its server:
@@ -451,7 +452,7 @@ const stripCreds = (url) => String(url || '').replace(/^(https:\/\/)[^@\/]+@/, '
 
 async function readGit(host, dir) {
   if (!await host.exists(`${dir}/.git`)) return { isRepo: false }
-  const out = async (args) => { const r = await host.run('git', args, { cwd: dir }); return r.code === 0 ? r.stdout.trim() : '' }
+  const out = async (args) => { const r = await gitIn(host, dir, args); return r.code === 0 ? r.stdout.trim() : '' }
   const [url, branch, last] = await Promise.all([
     out(['remote', 'get-url', 'origin']),
     out(['rev-parse', '--abbrev-ref', 'HEAD']),
@@ -461,30 +462,63 @@ async function readGit(host, dir) {
   return { isRepo: true, remoteUrl: stripCreds(url), branch, lastCommit: hash ? { hash, subject, date } : null }
 }
 
-/** Points the project at another repository/branch. The code itself is pulled and deployed by Publish. */
-async function saveGit(host, server, dir, values) {
+/** Clone URL with the user's GitHub token for github.com repos (never stored in .git/config). */
+const withToken = (repoUrl, token) => (token && /^https:\/\/github\.com\//.test(repoUrl) ? repoUrl.replace(/^https:\/\//, `https://x-access-token:${token.replace(/^(bearer|token) /i, '')}@`) : repoUrl)
+
+/**
+ * Points the project at another repository/branch. The code itself is pulled and deployed by Publish.
+ * A folder that was deployed from an upload (no .git yet) is linked in place: the working tree is left
+ * alone, so the live site doesn't change until Publish replaces it with the repository's code.
+ */
+async function saveGit(host, server, dir, values, githubToken = '') {
   const repoUrl = String(values.repoUrl || '').trim().replace(/\/+$/, '')
   const branch = String(values.branch || '').trim()
   if (!GIT_URL_RE.test(repoUrl)) throw httpError(400, 'Repository URL must look like https://github.com/owner/repo.git')
   if (stripCreds(repoUrl) !== repoUrl) throw httpError(400, 'Leave credentials out of the URL; the saved GitHub token is used automatically.')
   if (!GIT_BRANCH_RE.test(branch)) throw httpError(400, 'Branch name is not valid.')
-  if (!await host.exists(`${dir}/.git`)) throw httpError(400, 'This project folder is not a Git repository yet. Deploy it from Git first.')
+  const isRepo = await host.exists(`${dir}/.git`)
 
   // Keep the credentials of the current remote when the new repo is on the same host (private repos keep working)
-  const cur = await host.run('git', ['remote', 'get-url', 'origin'], { cwd: dir })
+  const cur = isRepo ? await gitIn(host, dir, ['remote', 'get-url', 'origin']) : { code: 1 }
   const creds = cur.code === 0 ? (cur.stdout.trim().match(/^https:\/\/([^@\/]+)@([^\/]+)\//) || []) : []
   const newHost = (repoUrl.match(/^https:\/\/([^\/]+)\//) || [])[1]
   const authed = creds[1] && creds[2] === newHost ? repoUrl.replace(/^https:\/\//, `https://${creds[1]}@`) : repoUrl
+  const reach = authed === repoUrl ? withToken(repoUrl, githubToken) : authed
 
-  const check = await host.run('git', ['ls-remote', '--heads', authed, branch], { cwd: dir, timeout: 60000 })
-  if (check.code !== 0) throw httpError(400, `Can't reach ${repoUrl}. Check the URL and that the panel's GitHub token can read it.`)
+  const check = await gitIn(host, dir, ['-c', 'credential.helper=', 'ls-remote', '--heads', reach, branch], { timeout: 60000 })
+  if (check.code !== 0) throw httpError(400, `Can't reach ${repoUrl}. Check the URL and that your connected GitHub account can read it.`)
   if (!check.stdout.trim()) throw httpError(400, `Branch "${branch}" doesn't exist in ${repoUrl}.`)
 
-  const set = cur.code === 0
-    ? await host.run('git', ['remote', 'set-url', 'origin', authed], { cwd: dir })
-    : await host.run('git', ['remote', 'add', 'origin', authed], { cwd: dir })
-  if (set.code !== 0) throw httpError(500, set.stderr || 'Could not update the Git remote.')
-  await host.run('git', ['fetch', 'origin', branch], { cwd: dir, timeout: 300000 })
+  if (isRepo) {
+    const set = cur.code === 0
+      ? await gitIn(host, dir, ['remote', 'set-url', 'origin', authed])
+      : await gitIn(host, dir, ['remote', 'add', 'origin', authed])
+    if (set.code !== 0) throw httpError(500, set.stderr || 'Could not update the Git remote.')
+    await gitIn(host, dir, ['-c', 'credential.helper=', 'fetch', reach, `+refs/heads/${branch}:refs/remotes/origin/${branch}`], { timeout: 300000 })
+  } else {
+    const git = async (args, msg, timeout = 60000) => {
+      const r = await gitIn(host, dir, args, { timeout })
+      if (r.code !== 0) throw httpError(500, `${msg}: ${(r.stderr || r.stdout || '').replace(/(https:\/\/)[^@\s/]+@/g, '$1***@').trim()}`)
+    }
+    try {
+      await git(['init', '-q'], 'Could not turn the project folder into a Git repository')
+      await git(['remote', 'add', 'origin', repoUrl], 'Could not add the Git remote')
+      await git(['-c', 'credential.helper=', 'fetch', reach, `+refs/heads/${branch}:refs/remotes/origin/${branch}`], `Could not fetch ${branch}`, 300000)
+      // Point the branch at the fetched commit without touching the uploaded files (mixed reset keeps the working tree)
+      await git(['symbolic-ref', 'HEAD', `refs/heads/${branch}`], 'Could not set the branch')
+      await git(['reset', '-q', `origin/${branch}`], 'Could not link the branch')
+      await git(['branch', `--set-upstream-to=origin/${branch}`], 'Could not set the upstream branch')
+      // Publish stashes untracked files before checking out; keep server-only files out of that even if
+      // the uploaded code had no .gitignore (local to this clone, never committed)
+      const exclude = `${dir}/.git/info/exclude`
+      await host.writeFile(exclude, ['.env', '.env.*', 'node_modules/', 'venv/', 'vendor/', ''].join('\n'))
+      await host.exec(`chown --reference=. ${q(exclude)}`, { cwd: dir })
+    } catch (err) {
+      // Leave the folder as it was so the upload keeps working and the user can retry
+      await host.run('rm', ['-rf', `${dir}/.git`])
+      throw err
+    }
+  }
 
   // Keep the panel's records in step, so Publish and auto-update use the new repo and branch
   const db = readDb()
@@ -499,9 +533,10 @@ async function saveGit(host, server, dir, values) {
 }
 
 /**
- * Applies one section. `level` is the caller's project access ('super'|'owner'|'manager').
+ * Applies one section. `level` is the caller's project access ('super'|'owner'|'manager');
+ * `githubToken` is the caller's saved GitHub token, used to reach private repositories.
  */
-export async function saveSection(host, server, dir, { section, values = {}, domain, userId, level }) {
+export async function saveSection(host, server, dir, { section, values = {}, domain, userId, level, githubToken = '' }) {
   const stored = getStoredSettings(server, dir)
   const result = { section, applied: [] }
 
@@ -511,7 +546,7 @@ export async function saveSection(host, server, dir, { section, values = {}, dom
 
   if (section === 'git') {
     if (!['super', 'owner'].includes(level)) throw httpError(403, 'Only organization owners and admins can change the Git repository.')
-    await saveGit(host, server, dir, values)
+    await saveGit(host, server, dir, values, githubToken)
     result.applied.push(`Now connected to ${values.repoUrl} (${values.branch})`, 'Click Publish to pull this code and redeploy')
     return result
   }

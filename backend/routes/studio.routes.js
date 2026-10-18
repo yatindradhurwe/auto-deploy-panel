@@ -6,7 +6,7 @@ import https from 'https'
 import { fileURLToPath } from 'url'
 import { authenticateToken } from '../middleware/auth.middleware.js'
 import { isSystemAdminUser } from '../config/secrets.js'
-import { hostFor, getHost, publicServer, isLocalServer, forgetHost, testServerConnection, q } from '../services/host.service.js'
+import { hostFor, getHost, publicServer, isLocalServer, forgetHost, testServerConnection, q, runGit, GIT_AS_OWNER } from '../services/host.service.js'
 import { discoverProjects } from '../services/project-discovery.service.js'
 import { updateProject, deleteProject } from '../services/project-ops.service.js'
 import { validateResourceOwnership } from '../middleware/tenant.middleware.js'
@@ -483,7 +483,7 @@ router.all('/projects/realtime-fetch', withHost(async (req, res, host) => {
 router.post('/git/status', withHost(async (req, res, host) => {
   const dir = await resolveProjectDir(host, req.body.projectPath)
   if (!dir) return res.json({ success: false, branch: 'main', modifiedCount: 0, raw: 'Project directory not found' })
-  const r = await host.exec('git status --short && git branch --show-current', { cwd: dir })
+  const r = await host.exec(`${GIT_AS_OWNER}G status --short && G branch --show-current`, { cwd: dir })
   if (r.code !== 0) return res.json({ success: false, branch: 'main', modifiedCount: 0, raw: 'Not a git repo' })
   const lines = r.stdout.trim().split('\n')
   const branch = lines.pop() || 'main'
@@ -492,15 +492,27 @@ router.post('/git/status', withHost(async (req, res, host) => {
 }))
 
 /**
+ * Where pull/push talk to: origin, or origin with the user's GitHub token for a github.com remote that
+ * carries no credentials of its own (e.g. a project connected from Settings → Git Repository).
+ */
+async function gitRemoteFor(req, host, dir) {
+  const r = await runGit(host, dir, ['remote', 'get-url', 'origin'])
+  const url = r.code === 0 ? r.stdout.trim() : ''
+  const token = (getUserSettings(req.user?.id)?.githubToken || '').trim().replace(/^(bearer|token) /i, '')
+  return token && /^https:\/\/github\.com\//.test(url) ? url.replace(/^https:\/\//, `https://x-access-token:${token}@`) : 'origin'
+}
+const redactGit = (t) => String(t || '').replace(/(https:\/\/)[^@\s/]+@/g, '$1***@')
+
+/**
  * POST /api/studio/git/pull
  */
 router.post('/git/pull', withHost(async (req, res, host) => {
   const dir = await requireProjectDir(host, req.body.projectPath)
-  const branch = req.body.branch || (await host.exec('git rev-parse --abbrev-ref HEAD', { cwd: dir })).stdout?.trim() || 'main'
+  const branch = req.body.branch || (await runGit(host, dir, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout?.trim() || 'main'
   if (!BRANCH_REGEX.test(branch)) return res.status(400).json({ success: false, error: 'Invalid branch name' })
-  const r = await host.run('git', ['pull', '--ff-only', 'origin', branch], { cwd: dir, timeout: 300000 })
-  if (r.code !== 0) return res.status(500).json({ success: false, error: r.stderr || r.stdout })
-  res.json({ success: true, message: 'Git Pull completed successfully', output: r.stdout })
+  const r = await runGit(host, dir, ['-c', 'credential.helper=', 'pull', '--ff-only', await gitRemoteFor(req, host, dir), branch], { timeout: 300000 })
+  if (r.code !== 0) return res.status(500).json({ success: false, error: redactGit(r.stderr || r.stdout) })
+  res.json({ success: true, message: 'Git Pull completed successfully', output: redactGit(r.stdout) })
 }))
 
 /**
@@ -510,13 +522,13 @@ router.post('/git/push', withHost(async (req, res, host) => {
   const { commitMessage = 'update from studio ide', branch = 'main' } = req.body
   const dir = await requireProjectDir(host, req.body.projectPath)
   if (!BRANCH_REGEX.test(branch)) return res.status(400).json({ success: false, error: 'Invalid branch name' })
-  const add = await host.run('git', ['add', '.'], { cwd: dir })
+  const add = await runGit(host, dir, ['add', '.'])
   if (add.code !== 0) return res.status(500).json({ success: false, error: add.stderr })
-  const commit = await host.run('git', ['commit', '-m', String(commitMessage)], { cwd: dir })
+  const commit = await runGit(host, dir, ['commit', '-m', String(commitMessage)])
   if (commit.code !== 0 && !/nothing to commit|working tree clean/.test(commit.stdout)) return res.status(500).json({ success: false, error: commit.stdout || commit.stderr })
-  const push = await host.run('git', ['push', 'origin', branch], { cwd: dir, timeout: 300000 })
-  if (push.code !== 0) return res.status(500).json({ success: false, error: push.stderr || push.stdout })
-  res.json({ success: true, message: 'Git Push completed successfully', output: [commit.stdout, push.stdout, push.stderr].filter(Boolean).join('\n') || 'Already up to date.' })
+  const push = await runGit(host, dir, ['-c', 'credential.helper=', 'push', await gitRemoteFor(req, host, dir), branch], { timeout: 300000 })
+  if (push.code !== 0) return res.status(500).json({ success: false, error: redactGit(push.stderr || push.stdout) })
+  res.json({ success: true, message: 'Git Push completed successfully', output: redactGit([commit.stdout, push.stdout, push.stderr].filter(Boolean).join('\n')) || 'Already up to date.' })
 }))
 
 /**
@@ -695,7 +707,8 @@ router.post('/project-settings/save', withHost(async (req, res, host) => {
     return res.json({ success: true, message: `${outputs.join(', ')} ${action === 'start' ? 'is online' : 'stopped'}.` })
   }
 
-  const result = await saveSection(host, req.tenant?.server || null, dir, { section, values, domain, userId: req.user.id, level: req.studioAccess?.level })
+  const githubToken = section === 'git' ? (getUserSettings(req.user?.id)?.githubToken || '').trim() : ''
+  const result = await saveSection(host, req.tenant?.server || null, dir, { section, values, domain, userId: req.user.id, level: req.studioAccess?.level, githubToken })
   // .env changes reach a running Node app only after a restart
   if (restart && names.length) {
     for (const n of names) await host.run('pm2', ['restart', n, '--update-env'], { timeout: 60000 })
@@ -864,7 +877,7 @@ router.post('/env/save', withHost(async (req, res, host) => {
 router.post('/git/history', withHost(async (req, res, host) => {
   const dir = await resolveProjectDir(host, req.body.projectPath)
   if (!dir) return res.status(400).json({ error: 'Invalid project directory' })
-  const r = await host.run('git', ['log', '-n', '12', '--pretty=format:%h|%s|%an|%cr'], { cwd: dir })
+  const r = await runGit(host, dir, ['log', '-n', '12', '--pretty=format:%h|%s|%an|%cr'])
   if (r.code !== 0) return res.json({ success: true, commits: [] })
   const commits = r.stdout.split('\n').filter(l => l.trim()).map(line => {
     const [hash, subject, author, relativeTime] = line.split('|')
@@ -881,7 +894,7 @@ router.post('/git/rollback', withHost(async (req, res, host) => {
   const dir = await resolveProjectDir(host, req.body.projectPath)
   if (!dir || !commitHash) return res.status(400).json({ error: 'Invalid rollback parameters' })
   if (!/^[0-9a-fA-F]{4,40}$/.test(commitHash)) return res.status(400).json({ error: 'Invalid commit hash' })
-  const r = await host.run('git', ['reset', '--hard', commitHash], { cwd: dir })
+  const r = await runGit(host, dir, ['reset', '--hard', commitHash])
   if (r.code !== 0) return res.status(500).json({ error: r.stderr || r.stdout })
   res.json({ success: true, message: `Successfully rolled back to commit ${commitHash}`, output: r.stdout })
 }))
