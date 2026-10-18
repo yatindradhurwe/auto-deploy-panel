@@ -22,7 +22,10 @@ const initialState = { projects: [], loading: false, error: '', errorCode: '', s
 function reducer(state, action) {
   switch (action.type) {
     case 'LOADING':
-      return { ...state, loading: true, error: '', errorCode: '', serverId: action.serverId }
+      // Another server: drop the previous server's projects right away so they are never shown under it
+      return action.serverId === state.serverId
+        ? { ...state, loading: true, error: '', errorCode: '' }
+        : { ...state, projects: [], loading: true, error: '', errorCode: '', serverId: action.serverId }
     case 'LOADED':
       // Ignore a late answer for a server that is no longer selected
       return action.serverId === state.serverId ? { ...state, projects: action.projects, loading: false } : state
@@ -41,7 +44,9 @@ const ProjectsContext = createContext(null)
 
 export function ProjectsProvider({ children }) {
   const { token } = useAuth()
-  const { activeServerId } = useServers()
+  const { activeServerId: selectedServerId, ready: serversReady } = useServers()
+  // Wait for the server list, so a remembered but removed server is never queried
+  const activeServerId = serversReady ? selectedServerId : ''
   const [state, dispatch] = useReducer(reducer, initialState)
 
   const api = useCallback((path, options = {}) => apiRequest(token, path, {

@@ -1,6 +1,6 @@
 import express from 'express'
 import { authenticateToken } from '../middleware/auth.middleware.js'
-import { requireTenant } from '../middleware/tenant.middleware.js'
+import { requireTenant, requireSelectedServer } from '../middleware/tenant.middleware.js'
 import { recordAuditLog, getOrganizationMembers, getServersByOrgId } from '../services/db.service.js'
 import {
   ORG_ADMIN_ROLES,
@@ -19,6 +19,8 @@ import {
 const router = express.Router()
 
 router.use(authenticateToken, requireTenant)
+// Listing and granting shares act on the selected server; never fall back to another one
+router.use('/shares', (req, res, next) => (req.path === '/' ? requireSelectedServer(req, res, next) : next()))
 
 const handle = (fn) => (req, res) => {
   try {

@@ -11,7 +11,20 @@ import ThemeToggle from './ThemeToggle'
 
 export default function SuperAdminDashboardLayout({ apiBaseUrl = '' }) {
   const { user: currentUser, token: jwtToken, logout: onLogout } = useAuth()
-  const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'users' | 'organizations' | 'servers' | 'subscriptions' | 'support' | 'plans' | 'audit-logs' | 'settings' | 'idempotency' | 'profile'
+  // The tab lives in the URL (/admin/<tab>) so a reload or back/forward keeps the same screen
+  const tabFromPath = () => decodeURIComponent(window.location.pathname.split('/')[2] || '') || 'dashboard'
+  const [activeTab, setActiveTabState] = useState(tabFromPath) // 'dashboard' | 'users' | 'organizations' | 'servers' | 'subscriptions' | 'support' | 'plans' | 'audit-logs' | 'settings' | 'idempotency' | 'profile'
+  const setActiveTab = (tab) => {
+    const path = `/admin/${encodeURIComponent(tab)}`
+    if (window.location.pathname !== path) window.history.pushState(null, '', path)
+    setActiveTabState(tab)
+  }
+
+  useEffect(() => {
+    const onPop = () => setActiveTabState(tabFromPath())
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [impersonatingOrg, setImpersonatingOrg] = useState(null)

@@ -1,14 +1,15 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer } from 'react'
 import { useAuth } from './AuthContext'
 import { apiRequest } from '../hooks/useApi'
-import { getActiveServerId, setActiveServerId as rememberActiveServer } from '../utils/activeServer'
+import { loadActiveServerFor, setActiveServerId as rememberActiveServer } from '../utils/activeServer'
 
 /**
  * Servers of the signed-in organization and the one selected in the panel.
  * The selection is also mirrored to utils/activeServer so every /api/ call carries X-Server-Id.
+ * Until the list has loaded the selection is unconfirmed, and screens wait for `ready`.
  */
 
-const initialState = { servers: [], activeServerId: getActiveServerId() || '', loading: true, error: '' }
+const initialState = { servers: [], activeServerId: '', loading: true, loaded: false, error: '' }
 
 function reducer(state, action) {
   switch (action.type) {
@@ -18,7 +19,7 @@ function reducer(state, action) {
       const { servers } = action
       // Keep the remembered server if it still exists; otherwise fall back to the first one
       const activeServerId = servers.some((s) => s.id === state.activeServerId) ? state.activeServerId : (servers[0]?.id || '')
-      return { ...state, servers, activeServerId, loading: false }
+      return { ...state, servers, activeServerId, loading: false, loaded: true }
     }
     case 'LIVE_STATUS': {
       const byId = new Map(action.servers.map((s) => [s.id, s]))
@@ -27,6 +28,8 @@ function reducer(state, action) {
     case 'FAILED':
       return { ...state, loading: false, error: action.error }
     case 'SELECT':
+      // Only servers of this account can be selected
+      if (action.id && state.loaded && !state.servers.some((s) => s.id === action.id)) return state
       return { ...state, activeServerId: action.id || '' }
     default:
       return state
@@ -36,8 +39,8 @@ function reducer(state, action) {
 const ServersContext = createContext(null)
 
 export function ServersProvider({ children }) {
-  const { token } = useAuth()
-  const [state, dispatch] = useReducer(reducer, initialState)
+  const { token, user } = useAuth()
+  const [state, dispatch] = useReducer(reducer, user?.id, (userId) => ({ ...initialState, activeServerId: loadActiveServerFor(userId) }))
 
   const refresh = useCallback(async () => {
     dispatch({ type: 'LOADING' })
@@ -72,9 +75,20 @@ export function ServersProvider({ children }) {
     rememberActiveServer(state.activeServerId)
   }, [state.activeServerId])
 
+  // Signed out / switched account: stop sending this account's server with requests
+  useEffect(() => () => { loadActiveServerFor('') }, [])
+
+  // The API says the selected server is gone (removed in another tab or by a teammate)
+  useEffect(() => {
+    const onMissing = () => refresh()
+    window.addEventListener('autodeploy:server-missing', onMissing)
+    return () => window.removeEventListener('autodeploy:server-missing', onMissing)
+  }, [refresh])
+
   const value = useMemo(() => ({
     ...state,
-    activeServer: state.servers.find((s) => s.id === state.activeServerId) || state.servers[0] || null,
+    activeServer: state.servers.find((s) => s.id === state.activeServerId) || null,
+    ready: state.loaded,
     refresh,
     selectServer,
     connectServer

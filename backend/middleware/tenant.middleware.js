@@ -52,16 +52,23 @@ export const requireTenant = (req, res, next) => {
     // Resolve active serverId from header > query > body > first org server
     let serverId = req.headers['x-server-id'] || req.query.serverId || (req.body && req.body.serverId)
     let server = null
+    // A server the client explicitly selected but that no longer exists. Never swap in another
+    // server for it: the caller would get a different server's projects and data.
+    let serverMissing = false
 
     if (serverId) {
       server = getServerById(serverId)
       // A server from another organization is never usable, whatever id the client sends
       if (server && server.organizationId && server.organizationId !== orgId && !isSystemAdmin) {
-        return res.status(403).json({ error: 'Access denied: this server belongs to another organization.' })
+        return res.status(403).json({ error: 'Access denied: this server belongs to another organization.', code: 'SERVER_FORBIDDEN' })
+      }
+      if (!server) {
+        serverMissing = true
+        serverId = null
       }
     }
 
-    if (!server) {
+    if (!server && !serverMissing) {
       const orgServers = getServersByOrgId(orgId)
       if (orgServers.length > 0) {
         server = orgServers[0]
@@ -78,6 +85,7 @@ export const requireTenant = (req, res, next) => {
       organization,
       serverId,
       server,
+      serverMissing,
       memberRole
     }
 
@@ -86,6 +94,22 @@ export const requireTenant = (req, res, next) => {
     console.error('[TENANT MIDDLEWARE ERROR]:', err)
     res.status(500).json({ error: 'Internal tenant context initialization error.' })
   }
+}
+
+/**
+ * Answers a request that targets a selected server which no longer exists. The X-Server-Missing
+ * header lets the panel refresh its server list without parsing every response.
+ */
+export const sendServerNotFound = (res) => res.status(404).set('X-Server-Missing', '1').json({
+  success: false,
+  error: 'The selected server was not found. It may have been removed; select another server.',
+  code: 'SERVER_NOT_FOUND'
+})
+
+/** Rejects the request when it targets a server that does not exist (see requireTenant). */
+export const requireSelectedServer = (req, res, next) => {
+  if (req.tenant?.serverMissing) return sendServerNotFound(res)
+  next()
 }
 
 /**

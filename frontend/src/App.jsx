@@ -77,7 +77,7 @@ export default function App() {
   // Admins never see the console. Super admins open the console by default and can still use
   // the server panel under /app for the platform's own servers.
   const showConsole = isSuperAdmin && !path.startsWith('/app')
-  if (!isSuperAdmin && !path.startsWith('/app')) window.history.replaceState(null, '', '/app/dashboard')
+  if (!isSuperAdmin && !path.startsWith('/app')) window.history.replaceState(null, '', '/app/servers')
   if (showConsole && (!path.startsWith('/admin') || path === '/admin/login')) window.history.replaceState(null, '', '/admin/dashboard')
 
   return (

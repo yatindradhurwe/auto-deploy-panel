@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
   Server, Terminal, ShieldCheck, Globe, Zap, Cpu, CheckCircle2,
   XCircle, AlertTriangle, Play, RefreshCw, Copy, Check, Lock, HardDrive, Code,
@@ -31,13 +31,28 @@ import { useAuth } from '../store/AuthContext'
 
 import DeploymentWizard from './DeploymentWizard'
 import { useServers } from '../store/ServersContext'
+import { useProjects } from '../store/ProjectsContext'
+import { useNavigation, projectRouteName } from '../store/NavigationContext'
 import ThemeToggle from './ThemeToggle'
 
 export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
   const { user: currentUser, token: jwtToken, logout } = useAuth()
-  const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard' | 'servers' | 'projects' | 'deployments' | 'databases' | 'code' | 'env' | 'domains' | 'logs' | 'email' | 'team' | 'billing' | 'settings' | 'profile'
-  const [activeWorkspaceProject, setActiveWorkspaceProject] = useState(null)
-  const [viewStep, setViewStep] = useState('servers') // Default home page after login: 'servers' ("Connect & Manage Your Server Infrastructure")
+  // Screen ('servers' landing | 'hub' | 'workspace' | 'project'), tab and open project live in the URL (store/NavigationContext)
+  const {
+    viewStep,
+    activeTab,
+    projectName,
+    projectServerId,
+    project: openProject,
+    setActiveTab,
+    showServers,
+    showHub,
+    openProject: setActiveWorkspaceProject,
+    closeProject,
+    resolveProject
+  } = useNavigation()
+  const { projects, loading: loadingProjects, serverId: projectsServerId } = useProjects()
+  const activeWorkspaceProject = viewStep === 'project' ? openProject : null
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const {
@@ -45,6 +60,7 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
     activeServerId,
     activeServer,
     loading: loadingServers,
+    ready: serversReady,
     refresh: fetchTenantServers,
     selectServer: setActiveServerId,
     connectServer
@@ -68,7 +84,11 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
 
   const [activeServerMetrics, setActiveServerMetrics] = useState(null)
 
+  // Latest server whose metrics were requested; a late answer for another server is dropped
+  const metricsServerRef = useRef('')
   const fetchActiveServerMetrics = async (srvId) => {
+    metricsServerRef.current = srvId || ''
+    setActiveServerMetrics(null)
     if (!srvId) return
     try {
       const res = await fetch('/api/studio/server-metrics', {
@@ -81,7 +101,7 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
         body: JSON.stringify({ serverId: srvId })
       })
       const data = await res.json()
-      if (data.success && data.server) {
+      if (data.success && data.server && metricsServerRef.current === srvId) {
         setActiveServerMetrics(data.server)
       }
     } catch (e) {}
@@ -105,12 +125,33 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
   }, [])
 
   useEffect(() => {
-    if (activeServerId) {
-      fetchActiveServerMetrics(activeServerId)
-    }
-    // A project studio belongs to the server it was opened on
-    setActiveWorkspaceProject(p => (p && p.serverId && activeServerId && p.serverId !== activeServerId ? null : p))
-  }, [activeServerId])
+    if (serversReady) fetchActiveServerMetrics(activeServerId)
+  }, [activeServerId, serversReady])
+
+  // A project studio belongs to the server it was opened on (part of its URL).
+  //  - the user switched away from that server → close the studio
+  //  - opened from a link / reload / back-forward while another server is selected → select its server
+  const projectOwnerId = viewStep === 'project' ? (projectServerId || openProject?.serverId || '') : ''
+  const prevServerRef = useRef(null)
+  useEffect(() => {
+    if (!serversReady) return
+    const prev = prevServerRef.current
+    prevServerRef.current = activeServerId
+    if (!projectOwnerId || projectOwnerId === activeServerId) return
+    if (prev !== projectOwnerId && servers.some((s) => s.id === projectOwnerId)) setActiveServerId(projectOwnerId)
+    else closeProject()
+  }, [serversReady, activeServerId, projectOwnerId, servers, setActiveServerId, closeProject])
+
+  const onProjectServer = serversReady && (!projectOwnerId || projectOwnerId === activeServerId)
+
+  // After a reload in a new tab the open project is not cached yet: look it up on its server
+  useEffect(() => {
+    if (viewStep !== 'project' || openProject || !onProjectServer || loadingProjects) return
+    if (!activeServerId || projectsServerId !== activeServerId) return
+    const match = projects.find((p) => projectRouteName(p) === projectName)
+    if (match) resolveProject({ ...match, serverId: activeServerId })
+    else closeProject()
+  }, [viewStep, openProject, onProjectServer, projectName, projects, loadingProjects, projectsServerId, activeServerId, resolveProject, closeProject])
 
   const handleConnectServer = async (e) => {
     e.preventDefault()
@@ -181,12 +222,25 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
     }
   ]
 
-  if (activeWorkspaceProject) {
+  if (activeWorkspaceProject && onProjectServer) {
     return (
       <ProjectDedicatedStudio
         project={activeWorkspaceProject}
-        onBackToDashboard={() => setActiveWorkspaceProject(null)}
+        onBackToDashboard={closeProject}
       />
+    )
+  }
+
+  // Nothing server-bound renders until the selected server is confirmed, so no request
+  // ever goes out for a remembered server that was removed or belongs to another account
+  if (viewStep === 'project' || (viewStep !== 'servers' && !serversReady)) {
+    return (
+      <div className="min-h-screen bg-slate-950 app-canvas flex flex-col items-center justify-center text-slate-100 font-sans">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-9 h-9 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-xs text-slate-400 font-mono tracking-wide">{viewStep === 'project' ? `Opening ${projectName}...` : 'Loading servers...'}</p>
+        </div>
+      </div>
     )
   }
 
@@ -201,13 +255,13 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
           if (srv && srv.id) {
             setActiveServerId(srv.id)
           }
-          setViewStep('hub')
+          showHub()
         }}
         onConnectServer={async (srvForm, callback) => {
           setConnecting(true)
           try {
             await connectServer(srvForm)
-            setViewStep('hub')
+            showHub()
             if (callback) callback()
           } catch (err) {
             alert('Error connecting server: ' + err.message)
@@ -328,10 +382,10 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
         server={activeServer}
         currentUser={currentUser}
         onOpenProjectStudio={(p) => setActiveWorkspaceProject(p)}
-        onChangeServerNode={() => setViewStep('servers')}
+        onChangeServerNode={showServers}
         onTabChange={(tabId) => {
           if (tabId === 'servers') {
-            setViewStep('servers')
+            showServers()
           } else {
             setActiveTab(tabId)
           }
@@ -372,7 +426,7 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
 
           <div className="flex items-center space-x-1.5 sm:space-x-3 overflow-x-auto no-scrollbar">
             <button
-              onClick={() => setViewStep('hub')}
+              onClick={() => showHub()}
               className="text-xs bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700 px-2.5 sm:px-3 py-1.5 rounded-xl font-bold flex items-center space-x-1.5 transition cursor-pointer shrink-0"
               title="Return to Projects Hub"
             >

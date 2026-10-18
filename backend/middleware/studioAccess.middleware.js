@@ -9,6 +9,7 @@ import {
 } from '../services/project-access.service.js'
 import { isLocalServer } from '../services/host.service.js'
 import { getSessionOwner } from '../services/project-agent.service.js'
+import { sendServerNotFound } from './tenant.middleware.js'
 
 /**
  * Authorization for /api/studio (runs after authenticateToken + requireTenant).
@@ -64,15 +65,20 @@ function touchedPaths(route, body, dir) {
 }
 
 export function requireStudioAccess(req, res, next) {
+  const route = req.path
+  const match = POLICIES.find(([re]) => re.test(route))
+  const needsServer = match?.[2]?.needsServer ?? true
+
+  // Never run against some other server when the selected one is gone (super admins included)
+  if (needsServer && req.tenant?.serverMissing) return sendServerNotFound(res)
+
   if (isSuperSession(req)) {
     req.studioAccess = { level: 'super' }
     return next()
   }
 
-  const route = req.path
-  const match = POLICIES.find(([re]) => re.test(route))
   if (!match) return deny(res, 403, 'Access denied. This action requires platform administrator privileges.')
-  const [, policy, { needsServer = true } = {}] = match
+  const [, policy] = match
 
   if (needsServer && isPlatformHost(req.tenant?.server)) {
     return deny(res, 403, 'Select one of your organization\'s servers. The platform host is managed by platform staff.', 'PLATFORM_HOST')
@@ -137,13 +143,14 @@ export function requireStudioAccess(req, res, next) {
 }
 
 // Deploy helpers any organization member may use; they don't touch a server
-const DEPLOY_MEMBER_PATHS = /^\/(analyze-git|detect-stack|get-github-token|save-github-token|github-repos|ai-copilot)$/
+const DEPLOY_MEMBER_PATHS = /^\/(analyze-git|detect-stack|get-github-token|save-github-token|github-account|github-repos|ai-copilot)$/
 
 /**
  * Authorization for /api/deploy: deploying and SSH helpers are for organization owners/admins,
  * and only ever against the organization's own servers (never the panel host).
  */
 export function requireDeployAccess(req, res, next) {
+  if (req.path === '/deploy' && req.tenant?.serverMissing) return sendServerNotFound(res)
   if (isSuperSession(req) || DEPLOY_MEMBER_PATHS.test(req.path)) return next()
   if (!isOrgAdmin(req)) return deny(res, 403, 'Only organization owners and admins can deploy or connect to servers.')
 

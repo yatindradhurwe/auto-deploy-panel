@@ -5,7 +5,8 @@ import { useServers } from '../store/ServersContext'
 
 export default function ServerManager({ onSelectServer }) {
   const { token: jwtToken } = useAuth()
-  const { activeServer } = useServers()
+  // refreshServers keeps the shared servers store (selector, hub) in step with changes made here
+  const { activeServer, refresh: refreshServers } = useServers()
   const [servers, setServers] = useState([])
   const [loading, setLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
@@ -114,6 +115,7 @@ export default function ServerManager({ onSelectServer }) {
       const data = await res.json()
       if (data.success && data.server) {
         setServers(prev => [data.server, ...prev])
+        refreshServers()
         setShowAddModal(false)
         resetForm()
       } else {
@@ -139,6 +141,8 @@ export default function ServerManager({ onSelectServer }) {
       if (data.success) {
         setServers(prev => prev.filter(s => s.id !== serverId))
         if (selectedServerDetails?.id === serverId) setSelectedServerDetails(null)
+        // If it was the selected server, the store moves the panel to one that still exists
+        refreshServers()
       }
     } catch (err) {
       alert('Failed to delete server: ' + err.message)
