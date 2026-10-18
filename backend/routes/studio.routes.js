@@ -8,6 +8,7 @@ import { authenticateToken } from '../middleware/auth.middleware.js'
 import { isSystemAdminUser } from '../config/secrets.js'
 import { hostFor, getHost, publicServer, isLocalServer, forgetHost, testServerConnection, q, runGit, GIT_AS_OWNER } from '../services/host.service.js'
 import { discoverProjects } from '../services/project-discovery.service.js'
+import { issueTerminalTicket } from '../services/terminal.service.js'
 import { updateProject, deleteProject } from '../services/project-ops.service.js'
 import { validateResourceOwnership } from '../middleware/tenant.middleware.js'
 import { filterProjectsForUser, sharesForUser, projectLevel, hasLevel, isSuperSession } from '../services/project-access.service.js'
@@ -819,6 +820,27 @@ router.post('/files/upload', withHost(async (req, res, host) => {
     uploadedCount++
   }
   res.json({ success: true, message: `Successfully uploaded ${uploadedCount} file(s) into project`, uploadedCount })
+}))
+
+/**
+ * POST /api/studio/terminal/session { projectPath? } — one-time ticket for an interactive console
+ * (WebSocket /api/studio/terminal/ws, see terminal.service). With projectPath it starts in that project.
+ */
+router.post('/terminal/session', withHost(async (req, res, host) => {
+  const { projectPath } = req.body
+  let cwd = ''
+  if (projectPath) {
+    cwd = await resolveProjectDir(host, projectPath)
+    if (!cwd) return res.status(400).json({ success: false, error: `Project directory not found: ${projectPath}` })
+  }
+  const { ticket, expiresIn } = issueTerminalTicket({
+    userId: req.user.id,
+    orgId: req.tenant?.organizationId || null,
+    server: req.tenant?.server || null,
+    cwd,
+    label: projectPath ? path.posix.basename(cwd) : ''
+  })
+  res.json({ success: true, ticket, expiresIn, cwd, server: host.label })
 }))
 
 /**

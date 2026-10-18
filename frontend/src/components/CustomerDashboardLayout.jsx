@@ -4,7 +4,7 @@ import {
   XCircle, AlertTriangle, Play, RefreshCw, Copy, Check, Lock, HardDrive, Code,
   Github, Search, X, ChevronRight, ChevronLeft, ChevronDown, Sparkles, FolderGit2, Bot, LogOut, UserCheck,
   Layers, Database, FolderTree, LayoutDashboard, Key, Activity, Clock, Webhook, Save, Trash2, DownloadCloud, Mail,
-  CreditCard, Users, Crown, Plus, AlertCircle, Building, Sliders, Settings, HelpCircle, Menu, UserCircle
+  CreditCard, Users, Crown, Plus, AlertCircle, Building, Sliders, Settings, HelpCircle, Menu, UserCircle, TerminalSquare
 } from 'lucide-react'
 import ServerSelectorDropdown from './ServerSelectorDropdown'
 import ServerManager from './ServerManager'
@@ -34,6 +34,7 @@ import { useServers } from '../store/ServersContext'
 import { useProjects } from '../store/ProjectsContext'
 import { useNavigation, projectRouteName } from '../store/NavigationContext'
 import ThemeToggle from './ThemeToggle'
+import SshConsole from './SshConsole'
 
 export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
   const { user: currentUser, token: jwtToken, logout } = useAuth()
@@ -196,7 +197,8 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
       title: 'DEVELOPMENT',
       items: [
         { id: 'code', label: 'Code Studio IDE', icon: FolderTree },
-        { id: 'webhooks', label: 'Webhooks CI/CD', icon: Webhook }
+        { id: 'webhooks', label: 'Webhooks CI/CD', icon: Webhook },
+        { id: 'ssh', label: 'SSH Console', icon: TerminalSquare }
       ]
     },
     {
@@ -352,6 +354,13 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
       return renderHubSubView(
         <DatabaseManager apiBaseUrl={apiBaseUrl} />,
         'Database Management Suite'
+      )
+    }
+
+    if (activeTab === 'ssh') {
+      return renderHubSubView(
+        <SshConsole title={`SSH · ${activeServer?.name || 'server'}`} className="h-[calc(100vh-190px)]" />,
+        'SSH Console'
       )
     }
 
@@ -672,6 +681,7 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
           {activeTab === 'cron' && <CronManager apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'webhooks' && <WebhookManager apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'logs' && <LogsTelemetryManager apiBaseUrl={apiBaseUrl} />}
+          {activeTab === 'ssh' && <SshConsole title={`SSH · ${activeServer?.name || 'server'}`} className="h-[calc(100vh-200px)]" />}
           {activeTab === 'email' && <EmailManager apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'team' && <TeamManager apiBaseUrl={apiBaseUrl} />}
           {activeTab === 'billing' && <BillingManager apiBaseUrl={apiBaseUrl} />}

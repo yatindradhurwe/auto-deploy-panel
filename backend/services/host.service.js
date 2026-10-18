@@ -154,6 +154,23 @@ function toStat(st) {
 
 const MAX_CHANNELS = 4 // OpenSSH allows 10 sessions per connection by default; SFTP and aborts need spares
 
+/** ssh2 connection settings for a server record. */
+export function connectConfigFor(s) {
+  const label = s.name || s.ipAddress
+  const cfg = {
+    host: s.ipAddress || s.hostname,
+    port: Number(s.port) && Number(s.port) !== 21 ? Number(s.port) : 22,
+    username: s.username || 'root',
+    readyTimeout: 15000,
+    keepaliveInterval: 20000,
+    keepaliveCountMax: 3
+  }
+  if (s.sshKey) cfg.privateKey = s.sshKey
+  if (s.password) cfg.password = s.password
+  if (!cfg.privateKey && !cfg.password) throw httpError(400, `No SSH password or key is stored for ${label}. Edit the server and add its credentials.`)
+  return cfg
+}
+
 class RemoteHost {
   constructor(server) {
     this.isLocal = false
@@ -169,19 +186,7 @@ class RemoteHost {
   }
 
   connectConfig() {
-    const s = this.server
-    const cfg = {
-      host: s.ipAddress || s.hostname,
-      port: Number(s.port) && Number(s.port) !== 21 ? Number(s.port) : 22,
-      username: s.username || 'root',
-      readyTimeout: 15000,
-      keepaliveInterval: 20000,
-      keepaliveCountMax: 3
-    }
-    if (s.sshKey) cfg.privateKey = s.sshKey
-    if (s.password) cfg.password = s.password
-    if (!cfg.privateKey && !cfg.password) throw httpError(400, `No SSH password or key is stored for ${this.label}. Edit the server and add its credentials.`)
-    return cfg
+    return connectConfigFor(this.server)
   }
 
   async connect() {

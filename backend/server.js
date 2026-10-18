@@ -17,6 +17,7 @@ import { authenticateToken } from './middleware/auth.middleware.js'
 import { requireStudioAccess, requireDeployAccess } from './middleware/studioAccess.middleware.js'
 import { initAutoUpdateService, executeProjectAutoUpdate } from './services/autoupdate.service.js'
 import { initMailService } from './services/mail.service.js'
+import { attachTerminalServer } from './services/terminal.service.js'
 
 const app = express()
 // nginx on the same host terminates TLS; trust its X-Forwarded-For so req.ip is the real client (rate limits, audit)
@@ -117,8 +118,11 @@ app.use('/api/studio', authenticateToken, requireTenant, requireStudioAccess, re
 app.use('/api/projects', projectsRoutes)
 app.use('/api/templates', templatesRoutes)
 
-app.listen(PORT, HOST, () => {
+const httpServer = app.listen(PORT, HOST, () => {
   console.log(`[AUTODEPLOY-STUDIO-BACKEND] Multi-Tenant Engine Listening on http://${HOST}:${PORT}`)
   initAutoUpdateService()
   initMailService()
 })
+
+// Interactive SSH consoles (WebSocket upgrades on /api/studio/terminal/ws)
+attachTerminalServer(httpServer)

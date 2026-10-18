@@ -16,11 +16,15 @@ import ProjectSettingsModal from './ProjectSettingsModal'
 import { useAuth } from '../store/AuthContext'
 import { useServers } from '../store/ServersContext'
 import ThemeToggle from './ThemeToggle'
+import SshConsole from './SshConsole'
 
 export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
   const { token: jwtToken } = useAuth()
   const { activeServer } = useServers()
-  const [activeCanvasTab, setActiveCanvasTab] = useState('preview') // 'preview' | 'code' | 'database' | 'env' | 'logs'
+  const [activeCanvasTab, setActiveCanvasTab] = useState('preview') // 'preview' | 'code' | 'database' | 'env' | 'logs' | 'git' | 'ssh'
+  // The console stays mounted (and connected) after its first visit, so switching tabs keeps the shell
+  const [sshOpened, setSshOpened] = useState(false)
+  useEffect(() => { if (activeCanvasTab === 'ssh') setSshOpened(true) }, [activeCanvasTab])
   const [deviceMode, setDeviceMode] = useState('desktop') // 'desktop' | 'mobile'
   const [showSettingsModal, setShowSettingsModal] = useState(false)
 
@@ -233,6 +237,18 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
             >
               <FolderGit2 className="w-3.5 h-3.5 shrink-0" />
               <span>Git Sync</span>
+            </button>
+
+            <button
+              onClick={() => setActiveCanvasTab('ssh')}
+              className={`h-8 px-3 rounded-xl font-bold inline-flex items-center justify-center space-x-1.5 transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${
+                activeCanvasTab === 'ssh'
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-onaccent shadow-md shadow-emerald-600/25 ring-1 ring-emerald-400/40'
+                  : 'text-slate-400 hover:text-white hover:bg-white/10'
+              }`}
+            >
+              <Terminal className="w-3.5 h-3.5 shrink-0" />
+              <span>SSH Console</span>
             </button>
           </div>
 
@@ -479,6 +495,18 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
             <div className="flex-1 h-full overflow-auto p-4">
               <GitSyncWorkspace
                 project={project}
+              />
+            </div>
+          )}
+
+          {/* Mode 7: Interactive SSH console, starting in the project folder */}
+          {sshOpened && (
+            <div className={`flex-1 h-full p-4 flex flex-col ${activeCanvasTab === 'ssh' ? '' : 'hidden'}`}>
+              <SshConsole
+                title={`SSH · ${project?.name || project?.repoName || 'project'}`}
+                projectPath={project?.path || project?.repoName || project?.name}
+                serverId={project?.serverId || ''}
+                className="flex-1"
               />
             </div>
           )}

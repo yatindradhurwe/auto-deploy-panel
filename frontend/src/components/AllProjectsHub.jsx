@@ -126,6 +126,16 @@ export default function AllProjectsHub({
               Email Box
             </button>
             <button
+              onClick={() => onTabChange && onTabChange('ssh')}
+              className={`h-8 px-3.5 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap inline-flex items-center justify-center shrink-0 ${
+                activeHubTab === 'ssh'
+                  ? 'text-white bg-white/15 border border-white/20 shadow-md'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              SSH Console
+            </button>
+            <button
               onClick={() => onTabChange && onTabChange('servers')}
               className={`h-8 px-3.5 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap inline-flex items-center justify-center shrink-0 ${
                 activeHubTab === 'servers'
