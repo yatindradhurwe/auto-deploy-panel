@@ -6,7 +6,7 @@ import { useServers } from '../store/ServersContext'
 export default function ServerManager({ onSelectServer }) {
   const { token: jwtToken } = useAuth()
   // refreshServers keeps the shared servers store (selector, hub) in step with changes made here
-  const { activeServer, refresh: refreshServers } = useServers()
+  const { activeServer, servers: liveServers, refresh: refreshServers } = useServers()
   const [servers, setServers] = useState([])
   const [loading, setLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
@@ -176,6 +176,12 @@ export default function ServerManager({ onSelectServer }) {
       cloudInstanceId: ''
     })
     setServerType('vps')
+  }
+
+  // Live load comes from the shared store (/api/studio/servers); null when it isn't known
+  const liveLoad = (srv, key) => {
+    const v = liveServers.find((s) => s.id === srv.id)?.[key] ?? srv[key]
+    return typeof v === 'number' ? `${v}%` : '—'
   }
 
   const renderTypeBadge = (type) => {
@@ -601,15 +607,15 @@ export default function ServerManager({ onSelectServer }) {
               <div className="grid grid-cols-3 gap-2 my-4 bg-slate-950 p-2.5 rounded-xl border border-slate-800/80 text-center">
                 <div>
                   <div className="text-[10px] text-slate-400 uppercase font-semibold">CPU</div>
-                  <div className="text-xs font-bold text-cyan-400 font-mono mt-0.5">{srv.cpu || 12}%</div>
+                  <div className="text-xs font-bold text-cyan-400 font-mono mt-0.5">{liveLoad(srv, 'cpu')}</div>
                 </div>
                 <div className="border-x border-slate-800">
                   <div className="text-[10px] text-slate-400 uppercase font-semibold">RAM</div>
-                  <div className="text-xs font-bold text-emerald-400 font-mono mt-0.5">{srv.ram || 45}%</div>
+                  <div className="text-xs font-bold text-emerald-400 font-mono mt-0.5">{liveLoad(srv, 'ram')}</div>
                 </div>
                 <div>
                   <div className="text-[10px] text-slate-400 uppercase font-semibold">DISK</div>
-                  <div className="text-xs font-bold text-purple-400 font-mono mt-0.5">{srv.disk || 36}%</div>
+                  <div className="text-xs font-bold text-purple-400 font-mono mt-0.5">{liveLoad(srv, 'disk')}</div>
                 </div>
               </div>
 

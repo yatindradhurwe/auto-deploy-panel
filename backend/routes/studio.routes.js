@@ -26,7 +26,8 @@ import {
   saveProjectAutoUpdateConfig,
   getAllProjectAutoUpdateConfigs,
   getWebhookAuditLogs,
-  purgeProjectAndRelatedResources
+  purgeProjectAndRelatedResources,
+  recordAuditLog
 } from '../services/db.service.js'
 import { executeProjectAutoUpdate } from '../services/autoupdate.service.js'
 import * as mail from '../services/mail.service.js'
@@ -38,6 +39,7 @@ import {
   getRealSslCertificates,
   getRealCronJobs
 } from '../services/server.service.js'
+import { getServerHealth, cacheSizes, runMaintenanceTask } from '../services/maintenance.service.js'
 import {
   discoverDatabases,
   listTables,
@@ -287,6 +289,40 @@ router.post('/servers/delete', withHost(async (req, res) => {
   forgetHost(server.id)
   metricsCache.delete(server.id)
   res.json({ success: true, message: `${server.name} disconnected. Its apps keep running.` })
+}))
+
+/**
+ * POST /api/studio/maintenance/health — live CPU (sampled over 1s), memory, disks, top processes and services.
+ */
+router.post('/maintenance/health', withHost(async (req, res, host) => {
+  res.json({ success: true, server: host.label, isPanelHost: host.isLocal, health: await getServerHealth(host) })
+}))
+
+/**
+ * POST /api/studio/maintenance/caches — bytes held by each clean-able cache.
+ */
+router.post('/maintenance/caches', withHost(async (req, res, host) => {
+  res.json({ success: true, caches: await cacheSizes(host) })
+}))
+
+/**
+ * POST /api/studio/maintenance/run — runs one fixed maintenance task ({ task, service? }).
+ */
+router.post('/maintenance/run', withHost(async (req, res, host) => {
+  const { task, service } = req.body || {}
+  const server = req.tenant?.server || null
+  const result = await runMaintenanceTask(host, server?.id || 'local', String(task || ''), { service })
+  recordAuditLog({
+    organizationId: req.tenant?.organizationId,
+    userId: req.user?.id,
+    action: 'SERVER_MAINTENANCE',
+    resourceType: 'server',
+    resourceId: server?.id || 'local',
+    ip: req.headers['x-real-ip'] || req.ip,
+    details: { server: host.label, task, service: service || null, success: result.success, freedBytes: result.freedBytes }
+  })
+  if (task === 'reboot' && server) metricsCache.delete(server.id)
+  res.status(result.success ? 200 : 500).json({ ...result, error: result.success ? undefined : result.output || 'Task failed.' })
 }))
 
 /**

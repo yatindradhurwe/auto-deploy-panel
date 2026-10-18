@@ -33,7 +33,7 @@ const POLICIES = [
   [/^\/ai\/agent\/status$/, 'list', { needsServer: false }],
   [/^\/ai\/agent\/sessions$/, 'project:manager'],
   [/^\/ai\/agent\/sessions\/[^/]+(\/(delete|message|stop|changes|revert|deploy))?$/, 'agent-session'],
-  [/^\/(servers\/scan|terminal\/(exec|session)|nginx\/config|ssl\/(issue|certificates)|cron\/(list|save)|databases(\/[a-z-]+)?|projects\/delete)$/, 'org-admin']
+  [/^\/(servers\/scan|terminal\/(exec|session)|nginx\/config|ssl\/(issue|certificates)|cron\/(list|save)|databases(\/[a-z-]+)?|projects\/delete|maintenance\/(health|caches|run))$/, 'org-admin']
 ]
 
 const deny = (res, status, error, code) => res.status(status).json({ success: false, error, ...(code ? { code } : {}) })
