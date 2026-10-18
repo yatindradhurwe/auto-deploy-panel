@@ -12,7 +12,8 @@ import { useAuth } from '../store/AuthContext'
  *
  *  - projectPath: start in this project folder (project console); omit for a server-wide console
  *  - serverId: server to open on (defaults to the server selected in the panel)
- * Tabs stay connected while you switch between them; Ctrl+Shift+C / Ctrl+Shift+V copy and paste.
+ * Tabs stay connected while you switch between them. Copy: Ctrl+C with a selection, Ctrl+Shift+C or right-click;
+ * paste: Ctrl+V, Ctrl+Shift+V or the right-click menu (Cmd+C / Cmd+V on macOS).
  */
 
 const THEME = {
@@ -102,12 +103,25 @@ function TerminalPane({ active, projectPath, serverId, fontSize, onStatus, onInf
     termRef.current = term
     fitRef.current = fit
 
+    // Copy the selection: Clipboard API on HTTPS, otherwise execCommand, which fires xterm's own copy handler
+    const copySelection = () => {
+      const sel = term.getSelection()
+      if (!sel) return false
+      if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(sel).then(() => term.clearSelection()).catch(() => {})
+      else { term.focus(); try { document.execCommand('copy') } catch { /* unsupported */ } term.clearSelection() }
+      return true
+    }
     term.attachCustomKeyEventHandler((e) => {
-      if (e.type !== 'keydown' || !e.ctrlKey || !e.shiftKey) return true
-      if (e.code === 'KeyC') { const sel = term.getSelection(); if (sel) navigator.clipboard?.writeText(sel).catch(() => {}); return false }
-      if (e.code === 'KeyV') { navigator.clipboard?.readText().then((t) => t && send({ type: 'input', data: t })).catch(() => {}); return false }
+      if (e.type !== 'keydown' || !e.ctrlKey || e.altKey || e.metaKey) return true
+      // Ctrl+C copies when text is selected (otherwise it stays the interrupt key); Ctrl+Shift+C always copies
+      if (e.code === 'KeyC' && (e.shiftKey || term.hasSelection())) { e.preventDefault(); copySelection(); return false }
+      // Ctrl+V / Ctrl+Shift+V: let the browser fire its native paste into xterm (no clipboard permission or HTTPS needed)
+      if (e.code === 'KeyV') return false
       return true
     })
+    // Right-click copies the selection; with nothing selected the browser menu (with Paste) opens as usual
+    const onContextMenu = (e) => { if (term.hasSelection() && copySelection()) e.preventDefault() }
+    hostRef.current.addEventListener('contextmenu', onContextMenu)
     const dataSub = term.onData((d) => {
       if (statusRef.current === 'closed' || statusRef.current === 'error') { if (d === '\r') connect(); return }
       send({ type: 'input', data: d })
@@ -118,7 +132,9 @@ function TerminalPane({ active, projectPath, serverId, fontSize, onStatus, onInf
     ro.observe(hostRef.current)
     connect()
 
+    const host = hostRef.current
     return () => {
+      host.removeEventListener('contextmenu', onContextMenu)
       ro.disconnect()
       dataSub.dispose()
       resizeSub.dispose()
