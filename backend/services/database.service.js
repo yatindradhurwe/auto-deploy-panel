@@ -1300,15 +1300,66 @@ export async function createDatabase(host, { engine = 'mysql', name, user, passw
 }
 
 /**
- * Drops a MySQL or PostgreSQL database after writing a gzipped backup to /var/backups/autodeploy-db.
- * `confirm` must repeat the database name. With `dropUser`, the app's user is removed too unless it
- * still has access to other databases.
+ * Deletes a SQLite file, drops a MongoDB database or flushes a Redis logical database, after a
+ * backup: an SQL dump for SQLite, a mongodump archive for MongoDB and an RDB snapshot of the whole
+ * Redis instance (Redis cannot snapshot a single logical database).
+ */
+async function dropOtherDatabase(host, entry, stamp) {
+  const name = entry.engine === 'redis' ? `db${entry.database}` : entry.database
+  const base = `${BACKUP_DIR}/${String(name).replace(/[^\w.-]/g, '_')}-${stamp}-before-delete`
+  await host.exec(`mkdir -p ${BACKUP_DIR} && chmod 700 ${BACKUP_DIR}`)
+  let backup
+
+  if (entry.engine === 'sqlite') {
+    backup = `${base}.sql.gz`
+    await dumpTo(host, entry, backup)
+    const files = ['', '-wal', '-shm', '-journal'].map(x => q(entry.file + x)).join(' ')
+    const r = await host.exec(`rm -f ${files}`)
+    if (r.code !== 0) throw httpErr(500, `Could not remove ${entry.file}: ${(r.stderr || '').trim()}`)
+  } else if (entry.engine === 'mongodb') {
+    if (!(await host.exec('command -v mongodump >/dev/null && echo ok')).stdout.includes('ok')) {
+      throw httpErr(400, 'Deleting a MongoDB database needs mongodump for the backup (install mongodb-database-tools).')
+    }
+    backup = `${base}.archive.gz`
+    try {
+      await run(entry._exec, 'mongodump', [`--uri=${mongoUri(entry)}`, `--archive=${backup}`, '--gzip', '--quiet'], { timeout: 30 * 60 * 1000, secrets: [entry.password] })
+    } catch (e) {
+      await host.exec(`rm -f ${q(backup)}`).catch(() => {})
+      throw httpErr(500, `Backup failed: ${e.message}`)
+    }
+    await mongoEval(entry, 'return db.dropDatabase()')
+  } else if (entry.engine === 'redis') {
+    backup = `${base}.rdb.gz`
+    const rdb = `${base}.rdb`
+    try {
+      await run(entry._exec, 'redis-cli', ['-h', entry.host, '-p', String(entry.port), '--rdb', rdb], { env: entry.password ? { REDISCLI_AUTH: entry.password } : {}, timeout: 30 * 60 * 1000, secrets: [entry.password] })
+      const r = await host.exec(`gzip -f ${q(rdb)}`)
+      if (r.code !== 0) throw new Error((r.stderr || '').trim())
+    } catch (e) {
+      await host.exec(`rm -f ${q(rdb)} ${q(backup)}`).catch(() => {})
+      throw httpErr(500, `Backup failed: ${e.message}`)
+    }
+    await redisCli(entry, ['FLUSHDB'], { json: false })
+  } else {
+    throw httpErr(400, `Deleting is not supported for ${entry.engine} databases.`)
+  }
+
+  discoveryCache.delete(host.id)
+  const what = entry.engine === 'redis' ? `Flushed every key in ${name}` : `Deleted ${name}`
+  return { message: `${what}. A backup is at ${backup}.`, backup }
+}
+
+/**
+ * Drops a database after writing a gzipped backup to /var/backups/autodeploy-db.
+ * `confirm` must repeat the database name. With `dropUser` (MySQL / PostgreSQL), the app's user is
+ * removed too unless it still has access to other databases.
  */
 export async function dropDatabase(host, connectionId, { confirm, dropUser = false, adminUser, adminPassword }) {
   const entry = await getEntry(host, connectionId)
-  if (!ENGINE_LABEL[entry.engine]) throw httpErr(400, 'Deleting is supported for MySQL and PostgreSQL databases.')
-  if (String(confirm || '') !== entry.database) throw httpErr(400, `Type the database name (${entry.database}) to confirm.`)
+  const shownName = entry.engine === 'redis' ? `db${entry.database}` : entry.database
+  if (String(confirm || '') !== shownName) throw httpErr(400, `Type the database name (${shownName}) to confirm.`)
   if ((SYSTEM_DATABASES[entry.engine] || []).includes(entry.database)) throw httpErr(400, `"${entry.database}" is a system database.`)
+  if (!ENGINE_LABEL[entry.engine]) return dropOtherDatabase(host, entry, new Date().toISOString().replace(/[-:]/g, '').slice(0, 15))
   if (entry.engine === 'postgresql' && !entry.peer) throw httpErr(400, 'Deleting a PostgreSQL database needs superuser access on its server.')
 
   const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)

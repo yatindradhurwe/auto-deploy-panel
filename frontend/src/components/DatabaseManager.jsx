@@ -613,10 +613,19 @@ export default function DatabaseManager({ project }) {
                       {group.databases.map(db => {
                         const active = selectedConn?.id === db.id
                         return (
-                          <div key={db.id}>
+                          <div key={db.id} className="relative group">
+                            {['mysql', 'postgresql', 'sqlite', 'mongodb', 'redis'].includes(db.engine) && (
+                              <button
+                                onClick={() => { if (!active) selectConnection(db); openDropDb() }}
+                                title={`Delete ${db.database} (a backup is taken first)`}
+                                className="absolute right-1.5 top-1.5 z-10 p-1 rounded-md text-slate-600 hover:text-rose-400 hover:bg-rose-500/10 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 focus:opacity-100 transition cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                             <button
                               onClick={() => selectConnection(db)}
-                              className={`w-full text-left px-2 py-1.5 rounded-lg transition cursor-pointer ${active ? 'bg-emerald-500/10 border border-emerald-500/30' : 'hover:bg-white/5 border border-transparent'}`}
+                              className={`w-full text-left pl-2 pr-8 py-1.5 rounded-lg transition cursor-pointer ${active ? 'bg-emerald-500/10 border border-emerald-500/30' : 'hover:bg-white/5 border border-transparent'}`}
                             >
                               <div className="flex items-center gap-2">
                                 <Database className={`w-3.5 h-3.5 shrink-0 ${active ? 'text-emerald-400' : 'text-slate-500'}`} />
@@ -692,13 +701,11 @@ export default function DatabaseManager({ project }) {
                         <UserCog className="w-3.5 h-3.5" /> Credentials
                       </button>
                     )}
-                    {selectedConn.engine !== 'sqlite' && (
-                      <button onClick={openDropDb} title="Delete this database (a backup is taken first)" className="px-3 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900/60 border border-rose-700/40 text-rose-200 flex items-center gap-1.5 cursor-pointer">
-                        <Trash2 className="w-3.5 h-3.5" /> Delete
-                      </button>
-                    )}
                   </div>
                 )}
+                <button onClick={openDropDb} title="Delete this database (a backup is taken first)" className={`${['mysql', 'postgresql', 'sqlite'].includes(selectedConn.engine) ? '' : 'ml-auto '}px-3 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900/60 border border-rose-700/40 text-rose-200 flex items-center gap-1.5 cursor-pointer text-xs font-semibold`}>
+                  <Trash2 className="w-3.5 h-3.5" /> Delete
+                </button>
               </div>
 
               {selectedConn.credsError && (
@@ -1197,7 +1204,11 @@ export default function DatabaseManager({ project }) {
             </div>
             <div className="p-5 space-y-3">
               <p className="text-[11px] text-slate-300">
-                This permanently drops the database and all its tables. A gzipped backup is saved on the server (/var/backups/autodeploy-db) first.
+                {{
+                  sqlite: 'This permanently deletes the SQLite file and all its tables. A gzipped SQL dump is saved on the server (/var/backups/autodeploy-db) first.',
+                  mongodb: 'This permanently drops the database and all its collections. A gzipped mongodump archive is saved on the server (/var/backups/autodeploy-db) first.',
+                  redis: 'This permanently removes every key in this Redis database (FLUSHDB). A snapshot of the whole Redis server is saved (/var/backups/autodeploy-db) first.'
+                }[selectedConn.engine] || 'This permanently drops the database and all its tables. A gzipped backup is saved on the server (/var/backups/autodeploy-db) first.'}
                 {selectedConn.projects?.length > 0 && <> It is used by <span className="font-semibold text-amber-200">{selectedConn.projects.map(p => p.name).join(', ')}</span>, which will stop working.</>}
               </p>
               <label className="block">
