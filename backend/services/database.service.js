@@ -266,8 +266,17 @@ async function serverMysqlAdmin(host) {
 /** Swaps the mysql client in an admin command for another MySQL tool (e.g. mysqldump). */
 const withMysqlBin = (cmd, bin) => cmd.replace(/(^|\s)mysql(?=\s|$)/, `$1${bin}`)
 
+/**
+ * The server's default admin login reads every option file, and a stray option there (e.g. a
+ * server-only `skip-grant-tables` under [client]) makes mysqldump refuse to start. Only the
+ * connection settings from those files are passed on, quoted for the option file format.
+ */
+const MYSQL_CONN_OPTS = 'user|password|host|port|socket'
+const cleanDefaults = (bin) => `--defaults-file=<(echo '[client]'; my_print_defaults -s client ${bin} | grep -E '^--(${MYSQL_CONN_OPTS})=' | sed -e 's/\\\\/\\\\\\\\/g' -e 's/"/\\\\"/g' -e 's/^--\\([^=]*\\)=\\(.*\\)$/\\1="\\2"/')`
+
 /** Shell prefix running a MySQL tool as this entry: the app's own login, or the server's admin login when that is rejected. */
 function mysqlShell(entry, bin = 'mysql') {
+  if (entry.useAdmin && entry.adminCmd === 'mysql' && bin !== 'mysql') return `${bin} ${cleanDefaults(bin)}`
   if (entry.useAdmin) return withMysqlBin(entry.adminCmd, bin)
   return `MYSQL_PWD=${q(entry.password || '')} ${bin} --no-defaults -h ${q(entry.host)} -P ${q(entry.port)} -u ${q(entry.user)}`
 }
@@ -982,7 +991,7 @@ const sqlHosts = (out) => out.split('\n').map(h => h.trim()).filter(h => /^[A-Za
 /** Shell command that writes a plain SQL dump of the database to stdout. */
 function dumpCommand(entry) {
   if (entry.engine === 'mysql') {
-    return `${mysqlShell(entry, 'mysqldump')} $(mysqldump --help 2>/dev/null | grep -q set-gtid-purged && echo --set-gtid-purged=OFF) --single-transaction --quick --routines --triggers --no-tablespaces ${q(entry.database)}`
+    return `${mysqlShell(entry, 'mysqldump')} $(mysqldump --no-defaults --help 2>/dev/null | grep -q set-gtid-purged && echo --set-gtid-purged=OFF) --single-transaction --quick --routines --triggers --no-tablespaces ${q(entry.database)}`
   }
   if (entry.engine === 'postgresql') {
     if (entry.peer) return `runuser -u postgres -- pg_dump --no-owner --no-privileges -d ${q(entry.database)}`
