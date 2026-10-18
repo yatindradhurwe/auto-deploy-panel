@@ -1,5 +1,6 @@
 import colors from 'tailwindcss/colors'
 import plugin from 'tailwindcss/plugin'
+import defaultTheme from 'tailwindcss/defaultTheme'
 
 /**
  * Theme-aware palette.
@@ -51,6 +52,7 @@ function themeVars(mode) {
 export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
+    screens: { xs: '480px', ...defaultTheme.screens },
     extend: {
       colors: {
         slate: scale('slate'),

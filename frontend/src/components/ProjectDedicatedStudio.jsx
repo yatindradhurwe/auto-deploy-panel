@@ -29,7 +29,7 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
   const [showSettingsModal, setShowSettingsModal] = useState(false)
 
   // AI Agent Left Panel State
-  const [sidebarHidden, setSidebarHidden] = useState(false)
+  const [sidebarHidden, setSidebarHidden] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
   const [errorMsg, setErrorMsg] = useState(null)
 
   // Server Update / Deployment Status
@@ -133,10 +133,10 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
     <div className="min-h-screen bg-slate-950 app-canvas text-slate-100 flex flex-col font-sans overflow-hidden">
       
       {/* Top Header Navigation Bar (Fits 100% in Viewport, Icon-Only Project Settings) */}
-      <header className="h-14 bg-slate-900/90 backdrop-blur-2xl border-b border-white/10 px-3 lg:px-5 flex items-center justify-between gap-2 z-30 shrink-0 shadow-2xl sticky top-0 overflow-x-auto scrollbar-none">
+      <header className="min-h-[3.5rem] bg-slate-900/90 backdrop-blur-2xl border-b border-white/10 px-3 lg:px-5 py-2 flex flex-wrap xl:flex-nowrap items-center justify-between gap-2 z-30 shrink-0 shadow-2xl sticky top-0">
         
         {/* Left: Back to Dashboard & Project Breadcrumb */}
-        <div className="flex items-center space-x-2.5 shrink-0">
+        <div className="flex items-center space-x-2.5 min-w-0">
           <button
             onClick={onBackToDashboard}
             className="h-8.5 px-2.5 bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-white/10 hover:border-cyan-500/40 rounded-xl text-xs font-bold font-mono inline-flex items-center justify-center space-x-1 transition-all cursor-pointer shadow-md backdrop-blur-md shrink-0"
@@ -147,7 +147,7 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
 
           <div className="h-4 w-px bg-white/15 hidden sm:block shrink-0"></div>
 
-          <div className="flex items-center space-x-1.5 font-mono text-xs shrink-0">
+          <div className="flex items-center space-x-1.5 font-mono text-xs min-w-0">
             <span className="text-slate-400 font-medium hidden md:inline">Projects</span>
             <span className="text-slate-600 hidden md:inline">/</span>
             <span className="font-extrabold text-white flex items-center gap-1.5 tracking-tight text-xs sm:text-sm">
@@ -164,7 +164,7 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
         </div>
 
         {/* Center: Canvas View Selector & Device Frame Controls */}
-        <div className="flex items-center space-x-2 overflow-x-auto scrollbar-none py-0.5 max-w-full justify-center shrink-0">
+        <div className="order-last xl:order-none w-full xl:w-auto min-w-0 flex items-center space-x-2 overflow-x-auto scrollbar-none py-0.5 justify-start xl:justify-center">
           {/* Main View Mode Selector */}
           <div className="bg-slate-950/90 p-1 rounded-2xl border border-white/10 inline-flex items-center space-x-1 font-mono text-xs backdrop-blur-xl shadow-inner overflow-x-auto scrollbar-none shrink-0">
             <button
@@ -279,7 +279,7 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
         </div>
 
         {/* Right: Refresh, Settings (Icon Only), Open Site, Publish & Delete Action Buttons */}
-        <div className="flex items-center space-x-1.5 shrink-0 justify-end ml-auto">
+        <div className="flex items-center space-x-1.5 shrink-0 justify-end ml-auto xl:ml-0">
           <button
             onClick={() => setIframeKey((k) => k + 1)}
             title="Refresh Live Preview"
@@ -316,7 +316,7 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
             className="h-8.5 px-3 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-onaccent font-extrabold rounded-xl text-xs font-mono shadow-lg shadow-cyan-500/20 inline-flex items-center justify-center space-x-1.5 transition transform hover:scale-[1.02] cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
           >
             <Upload className={`w-3.5 h-3.5 shrink-0 ${publishing ? 'animate-spin' : ''}`} />
-            <span>{publishing ? 'Publishing...' : 'Publish'}</span>
+            <span className="hidden xs:inline">{publishing ? 'Publishing...' : 'Publish'}</span>
           </button>
 
           <button
@@ -335,8 +335,8 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
         {/* Left AI Agent Chat Panel */}
         <aside
           className={`${
-            sidebarHidden ? 'w-0 border-r-0' : 'w-80 md:w-96 border-r border-white/10'
-          } bg-slate-950 transition-all duration-300 flex flex-col z-20 shrink-0 relative`}
+            sidebarHidden ? 'w-0 border-r-0' : 'w-[85vw] max-w-[20rem] md:w-96 md:max-w-none border-r border-white/10'
+          } bg-slate-950 transition-all duration-300 flex flex-col z-20 shrink-0 absolute md:relative inset-y-0 left-0 overflow-hidden`}
         >
           {/* AI Sidebar Header */}
           <div className="p-3.5 border-b border-slate-800 bg-slate-950 flex items-center justify-between font-mono text-xs">
@@ -400,7 +400,7 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
             <div className="flex-1 flex items-center justify-center p-4 overflow-auto bg-slate-950/60">
               <div
                 className={`transition-all duration-300 bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden flex flex-col ${
-                  deviceMode === 'mobile' ? 'w-[375px] h-[667px]' : 'w-full h-full'
+                  deviceMode === 'mobile' ? 'w-[375px] max-w-full h-[667px] max-h-full' : 'w-full h-full'
                 }`}
               >
                 {/* Frame Header Address Bar */}

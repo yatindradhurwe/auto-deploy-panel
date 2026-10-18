@@ -299,13 +299,13 @@ export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio })
   return (
     <div className="space-y-6 font-sans">
       {/* Header Banner - Apple Glassmorphism + AWS Telemetry */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl p-6 shadow-2xl shadow-slate-950/50">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 sm:p-6 shadow-2xl shadow-slate-950/50">
         <div className="flex items-center space-x-4">
           <div className="p-3.5 rounded-2xl bg-purple-500/10 border border-purple-500/30 text-purple-400 ring-1 ring-purple-500/20 shadow-md">
             <Layers className="w-6 h-6" />
           </div>
           <div>
-            <h2 className="text-xl font-extrabold text-white tracking-tight flex items-center gap-2.5">
+            <h2 className="text-lg sm:text-xl font-extrabold text-white tracking-tight flex flex-wrap items-center gap-2.5">
               Projects & PM2 Cloud Services Explorer
               <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-purple-950/90 border border-purple-800 text-purple-300 font-mono font-bold">
                 PM2 Engine
@@ -317,7 +317,7 @@ export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio })
           </div>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setShowDeployWizard(true)}
             className="px-4 py-2 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-indigo-500 text-onaccent font-extrabold border border-cyan-400/40 rounded-2xl transition cursor-pointer flex items-center gap-2 text-xs shadow-lg shadow-cyan-500/20"
@@ -365,7 +365,7 @@ export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio })
 
       {/* Services Table Card - AWS EC2 Style */}
       <div className="bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl overflow-hidden shadow-2xl shadow-slate-950/50">
-        <div className="p-4 border-b border-white/10 bg-slate-950/90 flex items-center justify-between text-xs">
+        <div className="p-4 border-b border-white/10 bg-slate-950/90 flex flex-wrap items-center justify-between gap-2 text-xs">
           <span className="font-extrabold text-white tracking-wider uppercase font-mono">Active PM2 Application Services</span>
           <span className="text-slate-400 font-mono text-[11px] bg-slate-900 px-3 py-1 rounded-xl border border-white/5">Node v20.x Engine</span>
         </div>
@@ -512,7 +512,7 @@ export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio })
 
       {/* Discovered Server Projects & Applications Section */}
       <div className="bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl overflow-hidden shadow-2xl shadow-slate-950/50">
-        <div className="p-4 border-b border-white/10 bg-slate-950/90 flex items-center justify-between text-xs">
+        <div className="p-4 border-b border-white/10 bg-slate-950/90 flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex items-center space-x-2">
             <FolderGit2 className="w-4 h-4 text-cyan-400" />
             <span className="font-extrabold text-white tracking-wider uppercase font-mono">Discovered Server Applications & Web Projects ({projects.length})</span>

@@ -91,7 +91,7 @@ export default function TeamManager({ apiBaseUrl = '' }) {
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
+    <div className="sm:p-6 max-w-6xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/60 border border-slate-800 rounded-3xl p-6 backdrop-blur-xl">
         <div>
@@ -131,8 +131,8 @@ export default function TeamManager({ apiBaseUrl = '' }) {
       )}
 
       {/* Members Table */}
-      <div className="bg-slate-900/80 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl backdrop-blur-xl">
-        <table className="w-full text-left border-collapse">
+      <div className="bg-slate-900/80 border border-slate-800 rounded-3xl overflow-x-auto shadow-2xl backdrop-blur-xl">
+        <table className="w-full min-w-[640px] text-left border-collapse">
           <thead>
             <tr className="border-b border-slate-800 bg-slate-950/60 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
               <th className="py-4 px-6">Member</th>

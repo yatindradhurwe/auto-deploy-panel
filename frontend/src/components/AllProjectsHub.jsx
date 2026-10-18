@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import {
   Layers, Search, Grid, List, ExternalLink, Globe, Play, Sparkles, Code,
-  Server, RefreshCw, CheckCircle2, ChevronDown, Bell, User, Plus, FolderGit2,
+  Server, RefreshCw, CheckCircle2, ChevronDown, Bell, User, FolderGit2,
   Trash2, ShieldCheck, DownloadCloud, Activity, Zap, HardDrive, ShoppingBag, Users, LogOut
 } from 'lucide-react'
 import { useAuth } from '../store/AuthContext'
@@ -70,10 +70,10 @@ export default function AllProjectsHub({
     <div className="min-h-screen bg-slate-950 app-canvas text-slate-100 flex flex-col font-sans">
       
       {/* Top Navigation Header (Apple macOS Responsive & Clean Alignment) */}
-      <header className="min-h-[4rem] bg-slate-900/90 backdrop-blur-2xl border-b border-white/10 px-4 lg:px-6 py-2 flex flex-wrap lg:flex-nowrap items-center justify-between gap-3 z-30 shrink-0 sticky top-0 shadow-2xl">
+      <header className="min-h-[4rem] bg-slate-900/90 backdrop-blur-2xl border-b border-white/10 px-4 lg:px-6 py-2 flex flex-wrap xl:flex-nowrap items-center justify-between gap-x-3 gap-y-2 z-30 shrink-0 sticky top-0 shadow-2xl">
         
-        {/* Left: Logo & Top Header Nav Tabs */}
-        <div className="flex items-center space-x-4 shrink-0">
+        {/* Left: Logo & Top Header Nav Tabs (tabs drop to their own scrollable row below xl) */}
+        <div className="contents xl:flex xl:items-center xl:space-x-4 xl:min-w-0">
           <div className="flex items-center space-x-2.5 cursor-pointer group shrink-0" onClick={onChangeServerNode}>
             <div className="w-8.5 h-8.5 rounded-xl bg-gradient-to-tr from-cyan-500 via-indigo-600 to-purple-600 flex items-center justify-center font-black text-onaccent shadow-lg shadow-cyan-500/20 group-hover:scale-105 transition-transform">
               ⚡
@@ -81,9 +81,9 @@ export default function AllProjectsHub({
             <span className="font-extrabold text-white text-base tracking-tight group-hover:text-cyan-400 transition-colors">AutoDeploy</span>
           </div>
 
-          <div className="h-4 w-px bg-white/10 hidden md:block shrink-0"></div>
+          <div className="h-4 w-px bg-white/10 hidden xl:block shrink-0"></div>
 
-          <nav className="hidden md:flex items-center space-x-1.5 font-mono text-xs bg-slate-950/80 backdrop-blur-md p-1 rounded-2xl border border-white/10 shadow-inner overflow-x-auto scrollbar-none">
+          <nav className="order-last xl:order-none w-full xl:w-auto min-w-0 flex items-center space-x-1.5 font-mono text-xs bg-slate-950/80 backdrop-blur-md p-1 rounded-2xl border border-white/10 shadow-inner overflow-x-auto scrollbar-none">
             <button
               onClick={() => onTabChange && onTabChange('projects')}
               className={`h-8 px-3.5 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap inline-flex items-center justify-center shrink-0 ${
@@ -136,6 +136,16 @@ export default function AllProjectsHub({
               SSH Console
             </button>
             <button
+              onClick={() => onTabChange && onTabChange('maintenance')}
+              className={`h-8 px-3.5 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap inline-flex items-center justify-center shrink-0 ${
+                activeHubTab === 'maintenance'
+                  ? 'text-white bg-white/15 border border-white/20 shadow-md'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              Server Health
+            </button>
+            <button
               onClick={() => onTabChange && onTabChange('servers')}
               className={`h-8 px-3.5 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap inline-flex items-center justify-center shrink-0 ${
                 activeHubTab === 'servers'
@@ -159,7 +169,7 @@ export default function AllProjectsHub({
         </div>
 
         {/* Right Controls: Search, Server Selector, User Avatar, Upgrade */}
-        <div className="flex items-center space-x-2.5 font-mono text-xs shrink-0 justify-end ml-auto lg:ml-0">
+        <div className="flex items-center space-x-2 sm:space-x-2.5 font-mono text-xs shrink-0 justify-end ml-auto">
           
           <div className="relative hidden 2xl:block">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3.5 top-2.5" />
@@ -178,7 +188,7 @@ export default function AllProjectsHub({
             className="h-8.5 px-3 bg-slate-900/90 hover:bg-slate-800 text-cyan-300 border border-white/10 hover:border-cyan-500/40 rounded-xl font-bold inline-flex items-center justify-center space-x-2 transition cursor-pointer shadow-md backdrop-blur-md shrink-0"
           >
             <Server className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-            <span className="truncate max-w-[130px] font-sans font-semibold text-xs">{server?.name || 'Server Node'}</span>
+            <span className="truncate max-w-[90px] sm:max-w-[130px] font-sans font-semibold text-xs">{server?.name || 'Server Node'}</span>
             <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
           </button>
 
@@ -199,14 +209,6 @@ export default function AllProjectsHub({
           </button>
 
           <button
-            onClick={() => onTabChange && onTabChange('deployments')}
-            className="h-8.5 px-3.5 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-onaccent font-extrabold rounded-xl shadow-lg shadow-cyan-500/20 inline-flex items-center justify-center space-x-1.5 transition transform hover:scale-[1.02] cursor-pointer whitespace-nowrap shrink-0"
-          >
-            <Plus className="w-3.5 h-3.5 shrink-0" />
-            <span>1-Click Deploy</span>
-          </button>
-
-          <button
             onClick={logout}
             title="Log out"
             className="h-8.5 px-3 bg-slate-900/90 hover:bg-rose-500/10 text-slate-300 hover:text-rose-300 border border-white/10 hover:border-rose-500/40 rounded-xl text-xs font-bold inline-flex items-center space-x-1.5 transition cursor-pointer shrink-0"
@@ -218,7 +220,7 @@ export default function AllProjectsHub({
       </header>
 
       {/* Main All Projects Hub Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
         
         {/* Workspace Sub-header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -227,15 +229,15 @@ export default function AllProjectsHub({
               <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
               <span>{server?.name || 'ESTAGE Workspace'}</span>
             </div>
-            <h1 className="text-3xl font-black text-white tracking-tight">All Projects</h1>
+            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">All Projects</h1>
             <p className="text-xs text-slate-400 font-mono mt-1">
               {projects.length} project{projects.length !== 1 ? 's' : ''} connected on {server?.ipAddress || 'live server'} — continue where you left off
             </p>
           </div>
 
-          <div className="flex items-center space-x-3 w-full md:w-auto">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full md:w-auto">
             {/* Filter Search Input */}
-            <div className="flex-1 md:w-64">
+            <div className="flex-1 md:w-64 md:flex-none">
               <input
                 type="text"
                 value={searchQuery}
@@ -247,7 +249,7 @@ export default function AllProjectsHub({
 
             <button
               onClick={() => onTabChange && onTabChange('deployments')}
-              className="px-4 py-2 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-onaccent font-extrabold text-xs rounded-2xl shadow-lg flex items-center space-x-2 shrink-0 transition cursor-pointer"
+              className="px-4 py-2 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-onaccent font-extrabold text-xs rounded-2xl shadow-lg flex items-center justify-center space-x-2 shrink-0 transition cursor-pointer"
             >
               <Zap className="w-4 h-4 text-amber-300" />
               <span>+ New Project / 1-Click Deploy</span>
@@ -257,8 +259,8 @@ export default function AllProjectsHub({
 
         {/* Credit / Usage Notification Banner (Matching Screenshot) */}
         {showCreditNotice && (
-          <div className="bg-slate-950 border border-cyan-500/30 rounded-2xl p-4 flex items-center justify-between shadow-xl">
-            <div className="flex items-center space-x-3">
+          <div className="bg-slate-950 border border-cyan-500/30 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl">
+            <div className="flex items-center space-x-3 min-w-0">
               <div className="p-2.5 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
                 <Zap className="w-5 h-5" />
               </div>
@@ -269,7 +271,7 @@ export default function AllProjectsHub({
             </div>
             <button
               onClick={() => setShowCreditNotice(false)}
-              className="px-3 py-1 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold font-mono text-xs rounded-xl shadow transition cursor-pointer"
+              className="px-3 py-1 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold font-mono text-xs rounded-xl shadow transition cursor-pointer self-start sm:self-auto shrink-0"
             >
               Top up credits
             </button>
@@ -326,7 +328,7 @@ export default function AllProjectsHub({
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className={viewMode === 'list' ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6'}>
             {filteredProjects.map((proj, idx) => (
               <div
                 key={proj.id || idx}
@@ -334,7 +336,7 @@ export default function AllProjectsHub({
               >
                 {/* Top Live Screenshot / Preview Card Header */}
                 <div
-                  className={`h-44 bg-gradient-to-br ${getThumbnailStyle(idx)} border-b border-slate-800/80 p-4 relative flex flex-col justify-between group-hover:opacity-95 transition`}
+                  className={`${viewMode === 'list' ? 'hidden' : 'h-44'} bg-gradient-to-br ${getThumbnailStyle(idx)} border-b border-slate-800/80 p-4 relative flex flex-col justify-between group-hover:opacity-95 transition`}
                 >
                   {/* Browser Mac Dots */}
                   <div className="flex items-center justify-between">
@@ -373,10 +375,10 @@ export default function AllProjectsHub({
                 {/* Card Bottom Metadata & Status Pills */}
                 <div className="p-4 space-y-3 font-mono">
                   <div className="flex items-center justify-between">
-                    <h4 className="font-extrabold text-white text-sm truncate flex items-center gap-2">
+                    <h4 className="font-extrabold text-white text-sm truncate min-w-0 flex items-center gap-2">
                       <span>{proj.name}</span>
                     </h4>
-                    <div className="flex items-center space-x-1.5">
+                    <div className="flex items-center space-x-1.5 shrink-0">
                       <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
                         proj.access === 'manager' || proj.access === 'viewer'
                           ? 'bg-purple-950 text-purple-300 border-purple-800'
@@ -395,9 +397,9 @@ export default function AllProjectsHub({
                     </div>
                   </div>
 
-                  <div className="text-[11px] text-slate-500 flex items-center justify-between border-t border-slate-900 pt-2">
-                    <span className="truncate max-w-[200px] text-cyan-400">{getProjectWebsiteUrl(proj)}</span>
-                    <span className="text-slate-600 text-[10px]">Updated Today</span>
+                  <div className="text-[11px] text-slate-500 flex items-center justify-between gap-2 border-t border-slate-900 pt-2">
+                    <span className="truncate min-w-0 text-cyan-400">{getProjectWebsiteUrl(proj)}</span>
+                    <span className="text-slate-600 text-[10px] shrink-0">Updated Today</span>
                   </div>
 
                   {/* Direct Action Buttons */}

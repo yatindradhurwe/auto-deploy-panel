@@ -200,7 +200,7 @@ export default function SaaSAuthPages({ apiBaseUrl = '', initialView = 'login' }
         <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
 
         {view === 'login' && (
-          <div className="w-full max-w-md bg-slate-900/80 border border-slate-800 rounded-2xl p-8 shadow-2xl backdrop-blur-xl relative z-10">
+          <div className="w-full max-w-md bg-slate-900/80 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl backdrop-blur-xl relative z-10">
             <div className="text-center mb-8">
               <h2 className="text-2xl font-bold text-white mb-2">Welcome Back</h2>
               <p className="text-sm text-slate-400">Sign in to your AutoDeploy Organization Workspace</p>
@@ -277,7 +277,7 @@ export default function SaaSAuthPages({ apiBaseUrl = '', initialView = 'login' }
         )}
 
         {view === 'signup' && signupsOpen && (
-          <div className="w-full max-w-md bg-slate-900/80 border border-slate-800 rounded-2xl p-8 shadow-2xl backdrop-blur-xl relative z-10">
+          <div className="w-full max-w-md bg-slate-900/80 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl backdrop-blur-xl relative z-10">
             <div className="text-center mb-8">
               <h2 className="text-2xl font-bold text-white mb-2">Create Workspace</h2>
               <p className="text-sm text-slate-400">Deploy applications on your own servers in minutes</p>
@@ -363,7 +363,7 @@ export default function SaaSAuthPages({ apiBaseUrl = '', initialView = 'login' }
 
         {/* Onboarding Wizard */}
         {view === 'onboarding' && (
-          <div className="w-full max-w-3xl bg-slate-900/90 border border-slate-800 rounded-2xl p-8 shadow-2xl backdrop-blur-xl relative z-10">
+          <div className="w-full max-w-3xl bg-slate-900/90 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl backdrop-blur-xl relative z-10">
             {/* Step Indicators */}
             <div className="flex items-center justify-between mb-8 pb-6 border-b border-slate-800">
               <div className={`flex items-center space-x-3 ${onboardingStep >= 1 ? 'text-cyan-400' : 'text-slate-600'}`}>

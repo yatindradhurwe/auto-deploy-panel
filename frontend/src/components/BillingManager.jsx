@@ -161,16 +161,16 @@ export default function BillingManager({ apiBaseUrl = '' }) {
   const { subscription, plan, plans, usage } = summary || {}
 
   return (
-    <div className="p-6 space-y-8 max-w-7xl mx-auto">
+    <div className="sm:p-6 space-y-8 max-w-7xl mx-auto">
       {/* Header Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-900/90 to-cyan-950/40 border border-slate-800 rounded-3xl p-8 relative overflow-hidden backdrop-blur-xl">
+      <div className="bg-gradient-to-r from-slate-900 via-slate-900/90 to-cyan-950/40 border border-slate-800 rounded-3xl p-5 sm:p-8 relative overflow-hidden backdrop-blur-xl">
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
             <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs font-semibold mb-3">
               <Sparkles className="w-3.5 h-3.5" />
               <span>Current Subscription: {plan?.name || 'Starter'} Plan</span>
             </div>
-            <h1 className="text-3xl font-black text-white tracking-tight">Billing & Quota Entitlements</h1>
+            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">Billing & Quota Entitlements</h1>
             <p className="text-slate-400 text-sm mt-1">Manage your organization's subscription tier, server limits, and deployment quotas.</p>
           </div>
 

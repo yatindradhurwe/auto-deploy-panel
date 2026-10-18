@@ -69,15 +69,15 @@ export default function ServerSelectorDropdown({ activeServerId: activeOverride,
       >
         <div className={`w-2 h-2 rounded-full ${currentServer.status === 'offline' ? 'bg-rose-400' : 'bg-emerald-400 animate-pulse'}`} title={currentServer.error || currentServer.status || ''} />
         {getTypeIcon(currentServer.serverType)}
-        <span className="max-w-[140px] truncate">{currentServer.name}</span>
-        <span className="font-mono text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">
+        <span className="max-w-[90px] sm:max-w-[140px] truncate">{currentServer.name}</span>
+        <span className="hidden md:inline font-mono text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">
           {currentServer.ipAddress || currentServer.ftpHost || currentServer.hostname || '0.0.0.0'}
         </span>
         <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 mt-2 w-72 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden backdrop-blur-xl">
+        <div className="absolute right-0 mt-2 w-72 max-w-[calc(100vw-1.5rem)] bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden backdrop-blur-xl">
           <div className="p-2.5 border-b border-slate-800 flex items-center justify-between text-[11px] font-bold text-slate-400 uppercase tracking-wider">
             <span>Your Connected Servers ({servers.length})</span>
             <button onClick={fetchServers} className="hover:text-cyan-400 cursor-pointer">

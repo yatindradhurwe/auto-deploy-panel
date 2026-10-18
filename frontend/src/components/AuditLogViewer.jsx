@@ -37,9 +37,9 @@ export default function AuditLogViewer({ apiBaseUrl = '' }) {
   )
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
+    <div className="sm:p-6 max-w-6xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/60 border border-slate-800 rounded-3xl p-6 backdrop-blur-xl">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/60 border border-slate-800 rounded-3xl p-4 sm:p-6 backdrop-blur-xl">
         <div>
           <div className="flex items-center space-x-2 text-cyan-400 text-xs font-semibold uppercase tracking-wider mb-1">
             <ShieldCheck className="w-4 h-4" />
@@ -49,15 +49,15 @@ export default function AuditLogViewer({ apiBaseUrl = '' }) {
           <p className="text-xs text-slate-400 mt-1">Real-time immutable history of all security events and deployment actions</p>
         </div>
 
-        <div className="flex items-center space-x-3">
-          <div className="relative">
+        <div className="flex items-center space-x-3 w-full md:w-auto">
+          <div className="relative flex-1 md:flex-none">
             <Search className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
             <input
               type="text"
               placeholder="Search audit trail..."
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              className="bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 w-56"
+              className="bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 w-full md:w-56"
             />
           </div>
           <button
@@ -71,8 +71,8 @@ export default function AuditLogViewer({ apiBaseUrl = '' }) {
       </div>
 
       {/* Logs Table */}
-      <div className="bg-slate-900/80 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl backdrop-blur-xl">
-        <table className="w-full text-left border-collapse">
+      <div className="bg-slate-900/80 border border-slate-800 rounded-3xl overflow-x-auto shadow-2xl backdrop-blur-xl">
+        <table className="w-full min-w-[640px] text-left border-collapse">
           <thead>
             <tr className="border-b border-slate-800 bg-slate-950/60 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
               <th className="py-4 px-6">Timestamp</th>

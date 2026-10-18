@@ -102,7 +102,7 @@ export default function SuperAdminDashboardLayout({ apiBaseUrl = '' }) {
             </div>
           </div>
 
-          <div className="flex items-center space-x-1.5 sm:space-x-3 overflow-x-auto no-scrollbar">
+          <div className="flex items-center space-x-1.5 sm:space-x-3 min-w-0">
             {buildInfo?.lastCodeUpdateFormatted && (
               <div className="hidden xl:flex items-center space-x-1.5 bg-slate-900/90 border border-purple-500/30 text-purple-300 px-3 py-1 rounded-xl text-[11px] font-mono shadow-inner" title={`Full Commit Timestamp: ${buildInfo.lastCodeUpdate}`}>
                 <Clock className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
@@ -137,7 +137,7 @@ export default function SuperAdminDashboardLayout({ apiBaseUrl = '' }) {
       </header>
 
       {/* Main Admin Area */}
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="flex-1 flex relative">
         {/* Mobile Backdrop Overlay */}
         {mobileMenuOpen && (
           <div
@@ -147,10 +147,10 @@ export default function SuperAdminDashboardLayout({ apiBaseUrl = '' }) {
         )}
 
         {/* Sidebar */}
-        <aside className={`fixed lg:relative inset-y-0 left-0 bg-slate-950/95 border-r border-purple-500/20 backdrop-blur-2xl flex flex-col justify-between transition-all duration-300 z-40 select-none ${
+        <aside className={`fixed lg:sticky top-14 bottom-0 lg:h-[calc(100vh-3.5rem)] left-0 bg-slate-950/95 border-r border-purple-500/20 backdrop-blur-2xl flex flex-col justify-between transition-all duration-300 z-40 select-none ${
           mobileMenuOpen ? 'translate-x-0 w-64' : '-translate-x-full lg:translate-x-0'
-        } ${sidebarCollapsed ? 'lg:w-16' : 'lg:w-64'}`}>
-          <div className="p-3 space-y-6 overflow-y-auto">
+        } ${sidebarCollapsed ? 'lg:w-16' : 'lg:w-64'} shrink-0`}>
+          <div className="p-3 space-y-6 overflow-y-auto min-h-0 flex-1">
             {adminNavSections.map((section, idx) => (
               <div key={idx} className="space-y-1">
                 {(!sidebarCollapsed || mobileMenuOpen) && (
@@ -187,7 +187,7 @@ export default function SuperAdminDashboardLayout({ apiBaseUrl = '' }) {
         </aside>
 
         {/* Central Super Admin View */}
-        <main className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-6 w-full">
+        <main className="flex-1 min-w-0 p-3 sm:p-6 space-y-6 w-full">
           {activeTab === 'idempotency' ? (
             <AdminIdempotencyPanel apiBaseUrl={apiBaseUrl} />
           ) : (

@@ -367,7 +367,7 @@ export default function ProjectSettingsModal({ isOpen, project, onClose }) {
       <header className="h-14 bg-slate-900/90 border-b border-white/10 px-4 sm:px-6 flex items-center justify-between shrink-0 z-20 shadow-md">
         <button onClick={onClose} className="flex items-center space-x-2 text-slate-400 hover:text-white font-mono text-xs font-bold transition cursor-pointer">
           <ArrowLeft className="w-4 h-4 text-cyan-400" />
-          <span>Back to project</span>
+          <span className="hidden sm:inline">Back to project</span>
         </button>
         <div className="font-extrabold text-white text-sm tracking-tight truncate px-2">Settings · {project?.name}</div>
         <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-white rounded-lg transition cursor-pointer"><X className="w-5 h-5" /></button>
