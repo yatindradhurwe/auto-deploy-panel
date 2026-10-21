@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { X, Search, AlertCircle, CheckCircle2, Copy, Check, Loader2 } from 'lucide-react'
 
 export function Card({ title, subtitle, icon: Icon, actions, children, className = '' }) {
@@ -209,24 +210,33 @@ export function Modal({ open, title, onClose, children, footer, wide = false }) 
     if (!open) return
     const onKey = (e) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    // Keep the page behind the modal from scrolling
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevOverflow
+    }
   }, [open, onClose])
 
   if (!open) return null
-  return (
+  // Rendered into <body>: cards use backdrop-filter, which would otherwise make this `fixed`
+  // overlay position itself inside the card instead of the viewport (half off-screen).
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={onClose} />
-      <div className={`relative w-full ${wide ? 'sm:max-w-3xl' : 'sm:max-w-lg'} max-h-[92vh] flex flex-col bg-slate-900 border border-slate-700 rounded-t-3xl sm:rounded-3xl shadow-2xl`}>
-        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-800">
+      <div className={`relative w-full ${wide ? 'sm:max-w-3xl' : 'sm:max-w-lg'} max-h-[92vh] max-h-[92dvh] flex flex-col bg-slate-900 border border-slate-700 rounded-t-3xl sm:rounded-3xl shadow-2xl`}>
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-800 shrink-0">
           <h3 className="text-sm font-bold text-white truncate">{title}</h3>
           <button onClick={onClose} className="p-1 text-slate-400 hover:text-white cursor-pointer" aria-label="Close">
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="px-5 py-4 overflow-y-auto space-y-4">{children}</div>
-        {footer && <div className="px-5 py-4 border-t border-slate-800 flex flex-wrap justify-end gap-2">{footer}</div>}
+        <div className="px-5 py-4 overflow-y-auto min-h-0 space-y-4">{children}</div>
+        {footer && <div className="px-5 py-4 border-t border-slate-800 flex flex-wrap justify-end gap-2 shrink-0">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 

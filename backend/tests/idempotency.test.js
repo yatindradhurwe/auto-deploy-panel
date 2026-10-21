@@ -1,6 +1,18 @@
 import assert from 'assert'
 import crypto from 'crypto'
-import {
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
+
+// Run against a throwaway database, never the live data/db.json. Static imports would load
+// db.service before this line runs, so the services are imported dynamically below.
+const TEST_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'autodeploy-test-'))
+process.env.AUTODEPLOY_DB_PATH = path.join(TEST_DIR, 'db.json')
+process.env.AUTODEPLOY_INTEGRATIONS_PATH = path.join(TEST_DIR, 'integrations.json')
+process.env.AUTODEPLOY_DNS_PROVIDERS_PATH = path.join(TEST_DIR, 'dns-providers.json')
+process.on('exit', () => fs.rmSync(TEST_DIR, { recursive: true, force: true }))
+
+const {
   readDb,
   writeDb,
   createIdempotencyRecord,
@@ -10,10 +22,10 @@ import {
   getWebhookEvent,
   getDomainByNormalizedName,
   getEmailAccountByAddress
-} from '../services/db.service.js'
-import { calculateRequestHash } from '../middleware/idempotency.middleware.js'
-import { makeDeploymentLockKey, acquireLock, releaseLock, isLocked } from '../services/lock.service.js'
-import { registerAgentServer } from '../services/agent.service.js'
+} = await import('../services/db.service.js')
+const { calculateRequestHash } = await import('../middleware/idempotency.middleware.js')
+const { makeDeploymentLockKey, acquireLock, releaseLock, isLocked } = await import('../services/lock.service.js')
+const { registerAgentServer } = await import('../services/agent.service.js')
 
 async function runAutomatedIdempotencyTests() {
   console.log('==============================================================================')
@@ -156,6 +168,10 @@ async function runAutomatedIdempotencyTests() {
   test('07. Agent Registration Retry - Returns existing server node on retry', () => {
     const uniqueIp = `192.168.${Math.floor(Math.random() * 100) + 1}.${Math.floor(Math.random() * 200) + 1}`
     const token = `agent_token_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`
+    // Registration only accepts tokens issued to an existing organization
+    const db = readDb()
+    db.organizations['org-test-agent'] = { id: 'org-test-agent', name: 'Agent Test Org', ownerId: 'admin-001', planId: 'FREE', agentTokens: [token] }
+    writeDb(db)
     const reg1 = registerAgentServer({
       organizationId: 'org-test-agent',
       token,
