@@ -4,6 +4,8 @@ import { authenticateToken } from '../middleware/auth.middleware.js'
 import { requireTenant, validateResourceOwnership } from '../middleware/tenant.middleware.js'
 import { getServersByOrgId, getServerById, createServer, updateServer, deleteServer } from '../services/db.service.js'
 import { publicServer, testServerConnection, forgetHost, isLocalServer } from '../services/host.service.js'
+import { checkEntitlement } from '../services/subscription.service.js'
+import { isSystemAdminUser } from '../config/secrets.js'
 
 const router = express.Router()
 
@@ -110,6 +112,11 @@ router.post('/servers', authenticateToken, requireTenant, async (req, res) => {
     const host = ipAddress || ftpHost || hostname || cpanelUrl
     if (!host && serverType !== 'cloud') {
       return res.status(400).json({ error: 'Server IP Address, Hostname, or FTP/cPanel host is required.' })
+    }
+
+    if (!(isSystemAdminUser(req.user) && !req.user.impersonatedBy)) {
+      const entitlement = checkEntitlement(req.tenant.organizationId, 'servers')
+      if (!entitlement.allowed) return res.status(402).json({ error: entitlement.reason, code: 'PLAN_LIMIT_REACHED' })
     }
 
     const typeLabel = serverType === 'shared' ? 'Shared Server' : serverType === 'cloud' ? 'Cloud Instance' : 'VPS Node'

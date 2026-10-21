@@ -132,6 +132,29 @@ router.post('/cancel', authenticateToken, requireTenant, requireRole(['OWNER']),
   }
 })
 
+/**
+ * POST /api/billing/resume — keeps a subscription that was set to cancel at period end.
+ */
+router.post('/resume', authenticateToken, requireTenant, requireRole(['OWNER']), (req, res) => {
+  try {
+    const current = getSubscriptionSummary(req.tenant.organizationId).subscription
+    if (!['active', 'trialing', 'past_due'].includes(current.status)) {
+      return res.status(400).json({ error: 'This subscription has already ended. Choose a plan to start a new one.' })
+    }
+    const updatedSub = saveSubscription(req.tenant.organizationId, { cancelAtPeriodEnd: false })
+    recordAuditLog({
+      organizationId: req.tenant.organizationId,
+      userId: req.user.id,
+      action: 'SUBSCRIPTION_RESUMED',
+      resourceType: 'subscription',
+      resourceId: req.tenant.organizationId
+    })
+    res.json({ success: true, message: 'Your subscription will renew as normal.', subscription: updatedSub })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 import { recordWebhookEvent } from '../services/db.service.js'
 
 /**

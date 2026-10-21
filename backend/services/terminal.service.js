@@ -2,7 +2,7 @@ import crypto from 'crypto'
 import { spawn } from 'child_process'
 import { Client } from 'ssh2'
 import { WebSocketServer } from 'ws'
-import { isLocalServer, connectConfigFor, q } from './host.service.js'
+import { isLocalServer, connectConfigFor, q, assertServerUsable } from './host.service.js'
 import { recordAuditLog } from './db.service.js'
 
 /**
@@ -30,6 +30,7 @@ const openByUser = new Map() // userId -> count
 
 /** Issues a one-time ticket for a console on `server` (null = the panel's own machine) starting in `cwd`. */
 export function issueTerminalTicket({ userId, orgId = null, server = null, cwd = '', label = '' }) {
+  assertServerUsable(server)
   const now = Date.now()
   for (const [t, v] of tickets) if (v.expires < now) tickets.delete(t)
   if ((openByUser.get(userId) || 0) >= MAX_PER_USER) {

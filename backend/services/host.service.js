@@ -365,8 +365,18 @@ const pool = new Map() // server id -> { fingerprint, host }
 
 const fingerprint = (s) => crypto.createHash('sha1').update(JSON.stringify([s.ipAddress, s.hostname, s.port, s.username, s.password, s.sshKey])).digest('hex')
 
+/**
+ * Throws when a super admin has blocked this server: nothing may connect to it until it is unblocked.
+ */
+export function assertServerUsable(server) {
+  if (server && server.blocked) {
+    throw Object.assign(new Error(`${server.name || 'This server'} has been blocked by the platform administrator.${server.blockedReason ? ` Reason: ${server.blockedReason}` : ''} Contact support to restore access.`), { status: 403, code: 'SERVER_BLOCKED' })
+  }
+}
+
 /** Executor for a server record (null/undefined = the panel's own machine). */
 export function getHost(server) {
+  assertServerUsable(server)
   if (isLocalServer(server)) {
     const key = `local:${server?.id || 'local'}`
     if (!pool.has(key)) pool.set(key, { host: new LocalHost(server) })

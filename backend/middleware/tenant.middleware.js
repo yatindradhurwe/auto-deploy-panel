@@ -69,7 +69,7 @@ export const requireTenant = (req, res, next) => {
     }
 
     if (!server && !serverMissing) {
-      const orgServers = getServersByOrgId(orgId)
+      const orgServers = getServersByOrgId(orgId).filter(s => !s.blocked)
       if (orgServers.length > 0) {
         server = orgServers[0]
         serverId = server.id

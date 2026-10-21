@@ -6,6 +6,7 @@ import { authenticateToken } from '../middleware/auth.middleware.js'
 import { isSystemAdminUser } from '../config/secrets.js'
 import { hostFor, getHost, publicServer, isLocalServer, forgetHost, testServerConnection, q, runGit, GIT_AS_OWNER } from '../services/host.service.js'
 import { discoverProjects } from '../services/project-discovery.service.js'
+import { assertEntitlement } from '../services/subscription.service.js'
 import { issueTerminalTicket } from '../services/terminal.service.js'
 import { updateProject, deleteProject } from '../services/project-ops.service.js'
 import { validateResourceOwnership } from '../middleware/tenant.middleware.js'
@@ -69,7 +70,7 @@ const PANEL_PM2_NAME = process.env.PANEL_PM2_NAME || 'auto-deploy-panel'
  */
 const withHost = (fn) => async (req, res) => {
   try {
-    await fn(req, res, hostFor(req))
+    await fn(req, res, fn.length >= 3 ? hostFor(req) : undefined)
   } catch (err) {
     if (!res.headersSent) res.status(err.status || 500).json({ success: false, error: err.message })
   }
@@ -247,6 +248,7 @@ router.post('/servers/add', withHost(async (req, res) => {
   if (getServersByOrgId(orgId).some(s => s.ipAddress === input.ipAddress && Number(s.port || 22) === input.port)) {
     throw Object.assign(new Error(`${input.ipAddress} is already connected.`), { status: 409 })
   }
+  if (!isSuperAdminUser(req)) assertEntitlement(orgId, 'servers')
   const info = await testServerConnection(input)
   const created = createServer({
     ...input,

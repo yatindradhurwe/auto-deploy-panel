@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { authenticateToken, requireSystemAdmin, signSessionToken } from '../middleware/auth.middleware.js'
 import {
   readDb,
+  writeDb,
   getUserById,
   getUserByEmail,
   createUser,
@@ -14,8 +15,14 @@ import {
   getAllPlans,
   recordAuditLog,
   getIdempotencyStats,
-  getAllIdempotencyRecords
+  getAllIdempotencyRecords,
+  getServerById,
+  updateServer,
+  deleteServer
 } from '../services/db.service.js'
+import { isLocalServer, forgetHost } from '../services/host.service.js'
+import { sweepSubscriptions, checkSubscriptionHealth, GRACE_DAYS } from '../services/subscription.service.js'
+import { getPaymentConfig } from '../services/payments.service.js'
 import {
   PRIMARY_ADMIN_ID,
   PLATFORM_ROLES,
@@ -30,6 +37,7 @@ import {
   listOrganizationsForAdmin,
   getOrganizationDetailForAdmin,
   listServersForAdmin,
+  getServerDetailForAdmin,
   listSubscriptionsForAdmin,
   deleteUserCascade,
   deleteOrganizationCascade,
@@ -102,7 +110,7 @@ function assertNotProtected(req, user, action) {
 // Overview
 // ============================================================================
 
-router.get('/overview', handle(() => getPlatformOverview()))
+router.get('/overview', handle(() => ({ ...getPlatformOverview(), currency: getPaymentConfig().currency })))
 
 // ============================================================================
 // Users
@@ -157,9 +165,24 @@ router.post('/users', handle((req) => {
  */
 router.patch('/users/:id', handle((req) => {
   const user = requireUser(req.params.id)
-  const { fullName, email, platformRole } = req.body || {}
+  const { fullName, email, platformRole, phone, jobTitle, isVerified } = req.body || {}
   const updates = {}
   const changes = {}
+
+  if (phone !== undefined) {
+    const clean = String(phone).trim().slice(0, 30)
+    if (clean && !/^\+?[0-9 ()-]{6,30}$/.test(clean)) throw httpError(400, 'Enter a valid phone number.')
+    updates.phone = clean
+    changes.phone = clean
+  }
+  if (jobTitle !== undefined) {
+    updates.jobTitle = String(jobTitle).trim().slice(0, 80)
+    changes.jobTitle = updates.jobTitle
+  }
+  if (isVerified !== undefined && !!isVerified !== !!user.isVerified) {
+    updates.isVerified = !!isVerified
+    changes.isVerified = !!isVerified
+  }
 
   if (fullName !== undefined) {
     const name = String(fullName).trim()
@@ -256,6 +279,47 @@ router.post('/users/delete', handle((req) => {
   return { success: true, message: `User ${user.id} deleted successfully.`, ...result }
 }))
 
+/**
+ * POST /api/admin/users/bulk { ids: [], action: 'suspend' | 'activate' | 'revoke-sessions' | 'delete', reason }
+ * Applies one action to many users. Protected accounts (primary admin, yourself) are skipped, not failed.
+ */
+router.post('/users/bulk', handle((req) => {
+  const { ids, action, reason = '' } = req.body || {}
+  if (!Array.isArray(ids) || ids.length === 0) throw httpError(400, 'Select at least one user.')
+  if (ids.length > 200) throw httpError(400, 'At most 200 users at a time.')
+  if (!['suspend', 'activate', 'revoke-sessions', 'delete'].includes(action)) throw httpError(400, 'Unknown bulk action.')
+  const cleanReason = String(reason).trim().slice(0, 300)
+  const done = []
+  const skipped = []
+
+  for (const id of [...new Set(ids.map(String))]) {
+    const user = getUserById(id)
+    if (!user) { skipped.push({ id, reason: 'not found' }); continue }
+    try {
+      if (action !== 'revoke-sessions' && action !== 'activate') assertNotProtected(req, user, action === 'delete' ? 'deleted' : 'suspended')
+      if (action === 'suspend') {
+        updateUser(user.id, { status: 'suspended', suspendedReason: cleanReason || null, suspendedAt: new Date().toISOString(), suspendedBy: req.user.id })
+        audit(req, 'ADMIN_USER_SUSPENDED', 'user', user.id, { email: user.email, reason: cleanReason, bulk: true })
+      } else if (action === 'activate') {
+        updateUser(user.id, { status: 'active', suspendedReason: null, suspendedAt: null, suspendedBy: null })
+        audit(req, 'ADMIN_USER_ACTIVATED', 'user', user.id, { email: user.email, bulk: true })
+      } else if (action === 'revoke-sessions') {
+        updateUser(user.id, { tokenVersion: (user.tokenVersion || 0) + 1 })
+        revokeUserSessions(user.id)
+        audit(req, 'ADMIN_USER_SESSIONS_REVOKED', 'user', user.id, { email: user.email, bulk: true })
+      } else {
+        const result = deleteUserCascade(user.id)
+        audit(req, 'ADMIN_USER_DELETED', 'user', user.id, { email: user.email, bulk: true, ...result })
+      }
+      done.push(user.id)
+    } catch (err) {
+      skipped.push({ id, email: user.email, reason: err.message })
+    }
+  }
+  const verb = { suspend: 'blocked', activate: 'unblocked', 'revoke-sessions': 'signed out', delete: 'deleted' }[action]
+  return { success: true, done, skipped, message: `${done.length} user${done.length === 1 ? '' : 's'} ${verb}${skipped.length ? `, ${skipped.length} skipped` : ''}.` }
+}))
+
 // ============================================================================
 // Organizations
 // ============================================================================
@@ -301,6 +365,7 @@ router.post('/organizations/:id/plan', handle((req) => {
     currentPeriodStart: new Date().toISOString(),
     currentPeriodEnd: new Date(Date.now() + days * 86400000).toISOString(),
     cancelAtPeriodEnd: status === 'canceled',
+    endedAt: status === 'canceled' ? new Date().toISOString() : null,
     assignedBy: req.user.id
   })
   audit(req, 'ADMIN_ORG_PLAN_CHANGED', 'subscription', org.id, { from: org.planId, to: planId, status, periodDays: days }, org.id)
@@ -344,9 +409,171 @@ router.post('/organizations/:id/members/:userId/role', handle((req) => {
 // Servers & subscriptions
 // ============================================================================
 
-router.get('/servers', handle(() => ({ servers: listServersForAdmin() })))
+router.get('/servers', handle(() => ({ servers: listServersForAdmin(), organizations: listOrganizationsForAdmin().map((o) => ({ id: o.id, name: o.name })) })))
 
-router.get('/subscriptions', handle(() => ({ subscriptions: listSubscriptionsForAdmin() })))
+function requireServer(serverId) {
+  const server = getServerById(serverId)
+  if (!server) throw httpError(404, 'Server not found.')
+  return server
+}
+
+router.get('/servers/:id', handle((req) => {
+  const detail = getServerDetailForAdmin(req.params.id)
+  if (!detail) throw httpError(404, 'Server not found.')
+  return detail
+}))
+
+/**
+ * PATCH /api/admin/servers/:id { name, organizationId, notes }
+ * Renames a server, moves it (and its project records) to another organization, or keeps an admin note.
+ */
+router.patch('/servers/:id', handle((req) => {
+  const server = requireServer(req.params.id)
+  const { name, organizationId, notes } = req.body || {}
+  const updates = {}
+  const changes = {}
+  if (name !== undefined) {
+    const clean = String(name).trim().slice(0, 80)
+    if (!clean) throw httpError(400, 'Server name cannot be empty.')
+    updates.name = clean
+    changes.name = { from: server.name, to: clean }
+  }
+  if (notes !== undefined) {
+    updates.adminNotes = String(notes).trim().slice(0, 1000)
+    changes.notes = true
+  }
+  let moved = 0
+  if (organizationId !== undefined && organizationId !== server.organizationId) {
+    if (!getOrganizationById(organizationId)) throw httpError(400, 'Target organization not found.')
+    if (isLocalServer(server)) throw httpError(400, 'The platform host stays with the platform organization.')
+    updates.organizationId = organizationId
+    changes.organizationId = { from: server.organizationId, to: organizationId }
+  }
+  if (Object.keys(updates).length === 0) throw httpError(400, 'Nothing to update.')
+  const saved = updateServer(server.id, updates)
+  if (updates.organizationId) {
+    const db = readDb()
+    for (const p of Object.values(db.projects || {})) {
+      if (p.serverId === server.id) { p.organizationId = updates.organizationId; moved++ }
+    }
+    if (moved) writeDb(db)
+    forgetHost(server.id)
+  }
+  audit(req, 'ADMIN_SERVER_UPDATED', 'server', server.id, { ...changes, projectsMoved: moved }, saved.organizationId)
+  return { success: true, server: getServerDetailForAdmin(server.id).server, message: moved ? `Server updated; ${moved} project record(s) moved with it.` : 'Server updated.' }
+}))
+
+/**
+ * Blocks a server: every connection to it (studio, SSH console, deploys, auto-updates, the agent) is refused until unblocked.
+ */
+router.post('/servers/:id/block', handle((req) => {
+  const server = requireServer(req.params.id)
+  if (isLocalServer(server)) throw httpError(400, 'The platform host cannot be blocked; the panel runs on it.')
+  const reason = String((req.body || {}).reason || '').trim().slice(0, 300)
+  updateServer(server.id, { blocked: true, blockedReason: reason || null, blockedAt: new Date().toISOString(), blockedBy: req.user.id })
+  forgetHost(server.id)
+  audit(req, 'ADMIN_SERVER_BLOCKED', 'server', server.id, { name: server.name, ipAddress: server.ipAddress, reason }, server.organizationId)
+  return { success: true, server: getServerDetailForAdmin(server.id).server, message: `${server.name || 'Server'} blocked.` }
+}))
+
+router.post('/servers/:id/unblock', handle((req) => {
+  const server = requireServer(req.params.id)
+  updateServer(server.id, { blocked: false, blockedReason: null, blockedAt: null, blockedBy: null })
+  audit(req, 'ADMIN_SERVER_UNBLOCKED', 'server', server.id, { name: server.name, ipAddress: server.ipAddress }, server.organizationId)
+  return { success: true, server: getServerDetailForAdmin(server.id).server, message: `${server.name || 'Server'} unblocked.` }
+}))
+
+/**
+ * Removes a server from the platform with its project records. Nothing on the machine itself is changed.
+ */
+router.delete('/servers/:id', handle((req) => {
+  const server = requireServer(req.params.id)
+  if (isLocalServer(server) && server.ipAddress) throw httpError(400, 'The platform host cannot be removed; the panel runs on it.')
+  const db = readDb()
+  let removedProjects = 0
+  for (const [id, p] of Object.entries(db.projects || {})) {
+    if (p.serverId === server.id) { delete db.projects[id]; removedProjects++ }
+  }
+  if (removedProjects) writeDb(db)
+  deleteServer(server.id)
+  forgetHost(server.id)
+  audit(req, 'ADMIN_SERVER_DELETED', 'server', server.id, { name: server.name, ipAddress: server.ipAddress, removedProjects }, server.organizationId)
+  return { success: true, message: `${server.name || server.id} removed${removedProjects ? ` with ${removedProjects} project record(s)` : ''}. Nothing on the server itself was changed.` }
+}))
+
+router.get('/subscriptions', handle(() => ({
+  subscriptions: listSubscriptionsForAdmin(),
+  plans: Object.values(getAllPlans()).map((p) => ({ id: p.id, name: p.name, priceMonthly: p.priceMonthly })),
+  currency: getPaymentConfig().currency,
+  graceDays: GRACE_DAYS
+})))
+
+/** GET /api/admin/subscriptions/health — finds broken, stale and orphaned subscription data (read-only). */
+router.get('/subscriptions/health', handle(() => ({ success: true, ...checkSubscriptionHealth() })))
+
+/** POST /api/admin/subscriptions/health/fix — repairs every fixable issue, then applies expiries. */
+router.post('/subscriptions/health/fix', handle((req) => {
+  const result = checkSubscriptionHealth({ fix: true })
+  const changes = sweepSubscriptions()
+  audit(req, 'ADMIN_SUBSCRIPTIONS_REPAIRED', 'platform', 'subscriptions', { fixed: result.fixed, types: [...new Set(result.issues.filter((i) => i.fixable).map((i) => i.type))], statusChanges: changes.length })
+  return { success: true, ...checkSubscriptionHealth(), fixed: result.fixed, message: `Fixed ${result.fixed} issue${result.fixed === 1 ? '' : 's'}.` }
+}))
+
+function requireSubscription(orgId) {
+  requireOrg(orgId)
+  const sub = (readDb().subscriptions || {})[orgId]
+  if (!sub) throw httpError(404, 'This organization has no subscription record. Assign a plan first.')
+  return sub
+}
+
+/**
+ * POST /api/admin/subscriptions/:orgId/extend { days }
+ * Adds days to the billing period (from today if it already ended) and makes it active again.
+ */
+router.post('/subscriptions/:orgId/extend', handle((req) => {
+  const sub = requireSubscription(req.params.orgId)
+  const days = parseInt((req.body || {}).days, 10)
+  if (!Number.isFinite(days) || days < 1 || days > 3650) throw httpError(400, 'Days must be between 1 and 3650.')
+  const end = new Date(sub.currentPeriodEnd || 0).getTime()
+  const from = end > Date.now() ? end : Date.now()
+  const saved = saveSubscription(sub.organizationId, {
+    status: 'active',
+    currentPeriodStart: end > Date.now() ? sub.currentPeriodStart : new Date().toISOString(),
+    currentPeriodEnd: new Date(from + days * 86400000).toISOString(),
+    endedAt: null,
+    assignedBy: req.user.id
+  })
+  audit(req, 'ADMIN_SUBSCRIPTION_EXTENDED', 'subscription', sub.organizationId, { days, from: sub.currentPeriodEnd, to: saved.currentPeriodEnd }, sub.organizationId)
+  return { success: true, subscription: saved, message: `Extended by ${days} day${days === 1 ? '' : 's'} to ${saved.currentPeriodEnd.slice(0, 10)}.` }
+}))
+
+/**
+ * POST /api/admin/subscriptions/:orgId/cancel { immediately }
+ * At period end (default) or right away, in which case Free limits apply immediately.
+ */
+router.post('/subscriptions/:orgId/cancel', handle((req) => {
+  const sub = requireSubscription(req.params.orgId)
+  const immediately = !!(req.body || {}).immediately
+  const saved = saveSubscription(sub.organizationId, immediately
+    ? { status: 'canceled', cancelAtPeriodEnd: true, endedAt: new Date().toISOString(), currentPeriodEnd: new Date().toISOString() }
+    : { cancelAtPeriodEnd: true })
+  audit(req, 'ADMIN_SUBSCRIPTION_CANCELED', 'subscription', sub.organizationId, { immediately, planId: sub.planId }, sub.organizationId)
+  return { success: true, subscription: saved, message: immediately ? 'Subscription canceled; Free plan limits apply now.' : `Subscription will end on ${String(sub.currentPeriodEnd).slice(0, 10)}.` }
+}))
+
+/** POST /api/admin/subscriptions/:orgId/reactivate — undoes a pending or completed cancellation. */
+router.post('/subscriptions/:orgId/reactivate', handle((req) => {
+  const sub = requireSubscription(req.params.orgId)
+  const ended = new Date(sub.currentPeriodEnd || 0).getTime() <= Date.now()
+  const saved = saveSubscription(sub.organizationId, {
+    status: 'active',
+    cancelAtPeriodEnd: false,
+    endedAt: null,
+    ...(ended ? { currentPeriodStart: new Date().toISOString(), currentPeriodEnd: new Date(Date.now() + 30 * 86400000).toISOString() } : {})
+  })
+  audit(req, 'ADMIN_SUBSCRIPTION_REACTIVATED', 'subscription', sub.organizationId, { planId: sub.planId, newPeriod: ended }, sub.organizationId)
+  return { success: true, subscription: saved, message: ended ? 'Reactivated with a new 30-day period.' : 'Cancellation removed; the subscription renews as normal.' }
+}))
 
 // ============================================================================
 // Plans

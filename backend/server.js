@@ -17,6 +17,7 @@ import { authenticateToken } from './middleware/auth.middleware.js'
 import { requireStudioAccess, requireDeployAccess } from './middleware/studioAccess.middleware.js'
 import { initAutoUpdateService, executeProjectAutoUpdate } from './services/autoupdate.service.js'
 import { initMailService } from './services/mail.service.js'
+import { initSubscriptionSweeper } from './services/subscription.service.js'
 import { attachTerminalServer } from './services/terminal.service.js'
 
 const app = express()
@@ -122,6 +123,7 @@ const httpServer = app.listen(PORT, HOST, () => {
   console.log(`[AUTODEPLOY-STUDIO-BACKEND] Multi-Tenant Engine Listening on http://${HOST}:${PORT}`)
   initAutoUpdateService()
   initMailService()
+  initSubscriptionSweeper()
 })
 
 // Interactive SSH consoles (WebSocket upgrades on /api/studio/terminal/ws)

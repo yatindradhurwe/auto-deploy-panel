@@ -181,10 +181,18 @@ export default function BillingManager({ apiBaseUrl = '' }) {
             <div>
               <div className="text-xs text-slate-400 uppercase font-semibold">Active Tier</div>
               <div className="text-xl font-bold text-white">{plan?.name} ({formatMoney(plan?.priceMonthly, summary?.currency)}/mo)</div>
-              <div className="text-[11px] text-emerald-400 flex items-center space-x-1 mt-0.5">
-                <CheckCircle2 className="w-3 h-3" />
-                <span>Renews on {new Date(subscription?.currentPeriodEnd || Date.now()).toLocaleDateString()}</span>
-              </div>
+              {(() => {
+                const end = new Date(subscription?.currentPeriodEnd || Date.now()).toLocaleDateString()
+                const status = subscription?.status || 'active'
+                if (status === 'past_due') return <div className="text-[11px] text-amber-300 flex items-center space-x-1 mt-0.5"><AlertCircle className="w-3 h-3" /><span>Ended {end} · renew within {subscription?.graceDays || 7} days of that to keep this plan</span></div>
+                if (status === 'expired' || status === 'canceled') return <div className="text-[11px] text-rose-300 flex items-center space-x-1 mt-0.5"><AlertCircle className="w-3 h-3" /><span>{status === 'expired' ? 'Expired' : 'Canceled'} {end} · Free plan limits apply</span></div>
+                return (
+                  <div className="text-[11px] text-emerald-400 flex items-center space-x-1 mt-0.5">
+                    <CheckCircle2 className="w-3 h-3" />
+                    <span>{subscription?.cancelAtPeriodEnd ? 'Ends' : 'Renews'} on {end}</span>
+                  </div>
+                )
+              })()}
             </div>
           </div>
         </div>

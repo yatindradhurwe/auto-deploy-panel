@@ -1,7 +1,42 @@
 import React, { useState } from 'react'
-import { Users, Building, Server, CreditCard, UserX, UserPlus, Activity, FolderGit2, DollarSign, ShieldCheck, Megaphone, Wrench, LifeBuoy } from 'lucide-react'
-import { adminApi, timeAgo } from './adminApi'
-import { Card, StatCard, Badge, StatusBadge, Loading, Alert, EmptyState, Button, useAdminData } from './AdminUI'
+import { Users, Building, Server, CreditCard, UserX, UserPlus, Activity, FolderGit2, DollarSign, ShieldCheck, Megaphone, Wrench, LifeBuoy, AlertTriangle, CheckCircle2, ChevronRight, Ban, Clock, RefreshCw } from 'lucide-react'
+import { adminApi, timeAgo, formatDate } from './adminApi'
+import { Card, StatCard, Badge, StatusBadge, Loading, Alert, EmptyState, Button, Avatar, useAdminData } from './AdminUI'
+import { formatMoney } from '../../utils/razorpay'
+
+/**
+ * Things a super admin should act on, each linking to the screen that fixes it.
+ */
+function NeedsAttention({ data, onNavigate }) {
+  const m = data.metrics
+  const items = [
+    m.pastDueSubscriptions > 0 && { tone: 'amber', icon: Clock, text: `${m.pastDueSubscriptions} subscription${m.pastDueSubscriptions === 1 ? ' is' : 's are'} past due`, tab: 'subscriptions' },
+    m.lapsedSubscriptions > 0 && { tone: 'rose', icon: CreditCard, text: `${m.lapsedSubscriptions} subscription${m.lapsedSubscriptions === 1 ? ' has' : 's have'} expired or been canceled`, tab: 'subscriptions' },
+    ...data.expiringSoon.map((s) => ({ tone: 'amber', icon: CreditCard, text: `${s.organizationName} (${s.planId}) ${s.cancelAtPeriodEnd ? 'cancels' : 'renews'} ${s.daysLeft <= 0 ? 'today' : `in ${s.daysLeft}d`} · ${formatDate(s.currentPeriodEnd)}`, tab: 'subscriptions' })),
+    m.openSupportTickets > 0 && { tone: 'cyan', icon: LifeBuoy, text: `${m.openSupportTickets} open support ticket${m.openSupportTickets === 1 ? '' : 's'}`, tab: 'support' },
+    m.suspendedUsers > 0 && { tone: 'slate', icon: UserX, text: `${m.suspendedUsers} blocked user${m.suspendedUsers === 1 ? '' : 's'}`, tab: 'users' },
+    m.blockedServers > 0 && { tone: 'slate', icon: Ban, text: `${m.blockedServers} blocked server${m.blockedServers === 1 ? '' : 's'}`, tab: 'servers' }
+  ].filter(Boolean)
+  const tones = { amber: 'text-amber-300 bg-amber-500/10 border-amber-500/30', rose: 'text-rose-300 bg-rose-500/10 border-rose-500/30', cyan: 'text-cyan-300 bg-cyan-500/10 border-cyan-500/30', slate: 'text-slate-300 bg-slate-800 border-slate-700' }
+
+  return (
+    <Card title="Needs attention" subtitle={items.length ? `${items.length} item${items.length === 1 ? '' : 's'}` : 'Nothing waiting on you'} icon={AlertTriangle}>
+      {items.length === 0 ? (
+        <div className="flex items-center gap-2 text-xs text-emerald-300"><CheckCircle2 className="w-4 h-4" />All subscriptions are current and no tickets are open.</div>
+      ) : (
+        <div className="space-y-2">
+          {items.map((it, i) => (
+            <button key={i} onClick={() => onNavigate(it.tab)} className="w-full flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/50 hover:border-purple-500/40 px-3 py-2.5 text-left text-xs cursor-pointer transition">
+              <span className={`p-1.5 rounded-lg border ${tones[it.tone]}`}><it.icon className="w-3.5 h-3.5" /></span>
+              <span className="flex-1 min-w-0 text-slate-200 truncate">{it.text}</span>
+              <ChevronRight className="w-4 h-4 text-slate-600 shrink-0" />
+            </button>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
 
 /**
  * Daily signups for the last 14 days: single-series bars with a hover tooltip.
@@ -102,37 +137,42 @@ export default function AdminOverview({ apiBaseUrl, onNavigate }) {
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard label="Total users" value={m.totalUsers} hint={`${m.newUsersLast7Days} new this week`} icon={Users} />
-        <StatCard label="Active last 7 days" value={m.activeLast7Days} hint={`${m.platformAdmins} super admin${m.platformAdmins === 1 ? '' : 's'}`} icon={Activity} tone="text-emerald-400" />
-        <StatCard label="Organizations" value={m.totalOrganizations} hint={m.suspendedOrganizations ? `${m.suspendedOrganizations} suspended` : 'All active'} icon={Building} tone="text-purple-400" />
-        <StatCard label="Est. monthly revenue" value={`$${m.estimatedMrr.toLocaleString()}`} hint={`${m.activeSubscriptions} active subscriptions · list price`} icon={DollarSign} tone="text-amber-400" />
-        <StatCard label="Suspended users" value={m.suspendedUsers} icon={UserX} tone="text-rose-400" />
-        <StatCard label="Servers" value={m.totalServers} icon={Server} tone="text-cyan-400" />
+        <StatCard label="Total users" value={m.totalUsers} hint={`${m.newUsersLast7Days} new this week`} icon={Users} onClick={() => onNavigate('users')} />
+        <StatCard label="Active last 7 days" value={m.activeLast7Days} hint={`${m.platformAdmins} super admin${m.platformAdmins === 1 ? '' : 's'}`} icon={Activity} tone="text-emerald-400" onClick={() => onNavigate('users')} />
+        <StatCard label="Organizations" value={m.totalOrganizations} hint={m.suspendedOrganizations ? `${m.suspendedOrganizations} suspended` : 'All active'} icon={Building} tone="text-purple-400" onClick={() => onNavigate('organizations')} />
+        <StatCard label="Est. monthly revenue" value={formatMoney(m.estimatedMrr, data.currency)} hint={`${m.activeSubscriptions} active subscriptions · list price`} icon={DollarSign} tone="text-amber-400" onClick={() => onNavigate('subscriptions')} />
+        <StatCard label="Blocked users" value={m.suspendedUsers} icon={UserX} tone="text-rose-400" onClick={() => onNavigate('users')} />
+        <StatCard label="Servers" value={m.totalServers} hint={m.blockedServers ? `${m.blockedServers} blocked` : 'None blocked'} icon={Server} tone="text-cyan-400" onClick={() => onNavigate('servers')} />
         <StatCard label="Projects" value={m.totalProjects} icon={FolderGit2} tone="text-cyan-400" />
-        <StatCard label="Open support tickets" value={m.openSupportTickets || 0} hint={`${m.totalSubscriptions} subscriptions`} icon={LifeBuoy} tone="text-amber-400" />
+        <StatCard label="Open support tickets" value={m.openSupportTickets || 0} hint={`${m.totalSubscriptions} subscriptions`} icon={LifeBuoy} tone="text-amber-400" alert={m.openSupportTickets > 0} onClick={() => onNavigate('support')} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card title="Signups" icon={UserPlus} className="lg:col-span-2">
           <SignupChart trend={data.signupTrend} />
         </Card>
-        <Card title="Active subscriptions by plan" icon={CreditCard}>
-          <PlanBreakdown breakdown={data.planBreakdown} />
-        </Card>
+        <NeedsAttention data={data} onNavigate={onNavigate} />
       </div>
+
+      <Card title="Active subscriptions by plan" icon={CreditCard} actions={<Button size="sm" onClick={() => onNavigate('subscriptions')}>Manage</Button>}>
+        <PlanBreakdown breakdown={data.planBreakdown} />
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card title="Newest users" icon={Users} actions={<Button size="sm" onClick={() => onNavigate('users')}>View all</Button>}>
           <div className="divide-y divide-slate-800/70">
             {data.recentUsers.map((u) => (
               <div key={u.id} className="py-2.5 flex items-center justify-between gap-3 text-xs">
-                <div className="min-w-0">
-                  <div className="font-bold text-white truncate">{u.fullName || u.email}</div>
-                  <div className="text-slate-500 truncate">{u.email}</div>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Avatar name={u.fullName || u.email} size="sm" />
+                  <div className="min-w-0">
+                    <div className="font-bold text-white truncate">{u.fullName || u.email}</div>
+                    <div className="text-slate-500 truncate">{u.email}</div>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {u.platformRole === 'superadmin' && <Badge tone="purple">Super admin</Badge>}
-                  <StatusBadge status={u.status} />
+                  <StatusBadge status={u.status} suspendedLabel="Blocked" />
                   <span className="text-slate-500 hidden sm:inline">{timeAgo(u.createdAt)}</span>
                 </div>
               </div>
@@ -160,7 +200,7 @@ export default function AdminOverview({ apiBaseUrl, onNavigate }) {
       </div>
 
       <div className="flex justify-end">
-        <Button size="sm" onClick={reload} loading={loading}>Refresh</Button>
+        <Button size="sm" onClick={reload} loading={loading}><RefreshCw className="w-3.5 h-3.5" />Refresh</Button>
       </div>
     </div>
   )

@@ -19,7 +19,8 @@ export const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD', 'AUD', 'CAD
 export const NOTIFICATION_EVENTS = {
   paymentReceipt: 'Payment receipt (plan upgrade or AI token purchase)',
   welcome: 'Welcome message after signup',
-  supportReply: 'Support team replied to a ticket'
+  supportReply: 'Support team replied to a ticket',
+  subscriptionStatus: 'Subscription went past due, expired or was canceled'
 }
 
 const DEFAULTS = {
@@ -42,7 +43,8 @@ const DEFAULTS = {
     events: {
       paymentReceipt: { email: true, sms: false, whatsapp: false },
       welcome: { email: true, sms: false, whatsapp: false },
-      supportReply: { email: true, sms: false, whatsapp: false }
+      supportReply: { email: true, sms: false, whatsapp: false },
+      subscriptionStatus: { email: true, sms: false, whatsapp: false }
     }
   }
 }

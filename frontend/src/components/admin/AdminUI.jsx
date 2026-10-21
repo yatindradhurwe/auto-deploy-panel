@@ -1,16 +1,23 @@
 import React, { useEffect, useState } from 'react'
 import { X, Search, AlertCircle, CheckCircle2, Copy, Check, Loader2 } from 'lucide-react'
 
-export function Card({ title, icon: Icon, actions, children, className = '' }) {
+export function Card({ title, subtitle, icon: Icon, actions, children, className = '' }) {
   return (
-    <section className={`bg-slate-900/80 border border-slate-800 rounded-3xl p-4 sm:p-6 backdrop-blur-xl space-y-4 ${className}`}>
+    <section className={`relative bg-slate-900/80 border border-slate-800 rounded-3xl p-4 sm:p-6 backdrop-blur-xl space-y-4 shadow-xl shadow-slate-950/20 ${className}`}>
       {(title || actions) && (
         <div className="flex flex-wrap items-center justify-between gap-3">
           {title && (
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              {Icon && <Icon className="w-4 h-4 text-purple-400" />}
-              <span>{title}</span>
-            </h3>
+            <div className="flex items-center gap-2.5 min-w-0">
+              {Icon && (
+                <span className="p-2 rounded-xl bg-purple-500/10 border border-purple-500/20 shrink-0">
+                  <Icon className="w-4 h-4 text-purple-400" />
+                </span>
+              )}
+              <div className="min-w-0">
+                <h3 className="text-base font-bold text-white truncate">{title}</h3>
+                {subtitle && <p className="text-[11px] text-slate-500 truncate">{subtitle}</p>}
+              </div>
+            </div>
           )}
           {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
         </div>
@@ -20,20 +27,71 @@ export function Card({ title, icon: Icon, actions, children, className = '' }) {
   )
 }
 
-export function StatCard({ label, value, hint, icon: Icon, tone = 'text-cyan-400' }) {
+export function StatCard({ label, value, hint, icon: Icon, tone = 'text-cyan-400', onClick, alert = false }) {
+  const Tag = onClick ? 'button' : 'div'
   return (
-    <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 flex items-center justify-between gap-3 shadow-lg">
+    <Tag
+      onClick={onClick}
+      className={`group relative overflow-hidden text-left w-full bg-slate-900/80 border rounded-2xl p-5 flex items-center justify-between gap-3 shadow-lg transition ${alert ? 'border-amber-500/40' : 'border-slate-800'} ${onClick ? 'cursor-pointer hover:border-purple-500/40 hover:-translate-y-0.5' : ''}`}
+    >
+      <span className={`absolute inset-x-0 top-0 h-0.5 bg-current opacity-60 ${tone}`} aria-hidden="true" />
       <div className="min-w-0">
         <div className="text-[11px] text-slate-400 font-semibold uppercase tracking-wide">{label}</div>
         <div className="text-2xl sm:text-3xl font-black text-white mt-1.5 tabular-nums">{value}</div>
         {hint && <div className="text-[11px] text-slate-500 mt-1 truncate">{hint}</div>}
       </div>
       {Icon && (
-        <div className={`p-3 bg-slate-950 border border-slate-800 rounded-xl shrink-0 ${tone}`}>
+        <div className={`p-3 bg-slate-950 border border-slate-800 rounded-xl shrink-0 transition group-hover:scale-105 ${tone}`}>
           <Icon className="w-5 h-5" />
         </div>
       )}
+    </Tag>
+  )
+}
+
+const AVATAR_TONES = ['from-purple-500 to-indigo-500', 'from-cyan-500 to-blue-500', 'from-emerald-500 to-teal-500', 'from-amber-500 to-orange-500', 'from-rose-500 to-pink-500']
+
+/** Initials in a colored circle; the color is stable per name. */
+export function Avatar({ name = '', size = 'md' }) {
+  const initials = String(name).trim().split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?'
+  const tone = AVATAR_TONES[[...String(name)].reduce((n, c) => n + c.charCodeAt(0), 0) % AVATAR_TONES.length]
+  const sizes = { sm: 'w-7 h-7 text-[10px]', md: 'w-9 h-9 text-xs', lg: 'w-12 h-12 text-sm' }
+  return (
+    <span className={`inline-flex items-center justify-center rounded-full bg-gradient-to-br ${tone} text-onaccent font-black shrink-0 ${sizes[size] || sizes.md}`} aria-hidden="true">
+      {initials}
+    </span>
+  )
+}
+
+/** used/max as a thin bar; turns amber near the limit and red over it. */
+export function UsageBar({ label, current = 0, max = 0 }) {
+  const pct = max > 0 ? Math.min(100, Math.round((current / max) * 100)) : current > 0 ? 100 : 0
+  const over = current > max
+  const color = over ? 'bg-rose-500' : pct >= 80 ? 'bg-amber-400' : 'bg-purple-500'
+  return (
+    <div className="space-y-1 min-w-0">
+      <div className="flex justify-between gap-2 text-[10px]">
+        <span className="text-slate-500 truncate">{label}</span>
+        <span className={`tabular-nums font-bold ${over ? 'text-rose-300' : 'text-slate-300'}`}>{current}/{max}</span>
+      </div>
+      <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+      </div>
     </div>
+  )
+}
+
+export function Checkbox({ checked, onChange, label, indeterminate = false }) {
+  return (
+    <input
+      type="checkbox"
+      aria-label={label}
+      checked={checked}
+      ref={(el) => { if (el) el.indeterminate = indeterminate }}
+      onChange={(e) => onChange(e.target.checked)}
+      onClick={(e) => e.stopPropagation()}
+      className="w-4 h-4 accent-purple-500 cursor-pointer"
+    />
   )
 }
 
@@ -54,8 +112,8 @@ export function Badge({ tone = 'slate', children }) {
   )
 }
 
-export function StatusBadge({ status }) {
-  return status === 'suspended' ? <Badge tone="red">Suspended</Badge> : <Badge tone="green">Active</Badge>
+export function StatusBadge({ status, suspendedLabel = 'Suspended' }) {
+  return status === 'suspended' ? <Badge tone="red">{suspendedLabel}</Badge> : <Badge tone="green">Active</Badge>
 }
 
 export function Button({ variant = 'secondary', size = 'md', loading = false, children, className = '', ...props }) {
@@ -271,8 +329,13 @@ export function SecretReveal({ label, value }) {
   )
 }
 
-export function EmptyState({ children }) {
-  return <div className="py-10 text-center text-xs text-slate-500">{children}</div>
+export function EmptyState({ children, icon: Icon }) {
+  return (
+    <div className="py-10 flex flex-col items-center gap-2 text-center text-xs text-slate-500">
+      {Icon && <span className="p-3 rounded-2xl bg-slate-950 border border-slate-800"><Icon className="w-5 h-5 text-slate-600" /></span>}
+      <div>{children}</div>
+    </div>
+  )
 }
 
 export function Loading() {

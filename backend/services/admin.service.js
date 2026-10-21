@@ -1,5 +1,7 @@
 import crypto from 'crypto'
 import { readDb, writeDb } from './db.service.js'
+import { resolveSubscriptionStatus, daysLeft } from './subscription.service.js'
+import { isLocalServer } from './host.service.js'
 
 export const PRIMARY_ADMIN_ID = 'admin-001'
 
@@ -126,7 +128,7 @@ function summarizeOrg(org, db, idx) {
     ...org,
     status: org.status === 'suspended' ? 'suspended' : 'active',
     planId: (sub && sub.planId) || org.planId || 'FREE',
-    subscriptionStatus: sub ? sub.status : 'none',
+    subscriptionStatus: sub ? resolveSubscriptionStatus(sub) : 'none',
     currentPeriodEnd: sub ? sub.currentPeriodEnd : null,
     ownerName: owner ? owner.fullName : null,
     ownerEmail: owner ? owner.email : null,
@@ -145,12 +147,13 @@ export function getPlatformOverview() {
   const now = Date.now()
   const dayMs = 86400000
 
-  const activeSubs = subs.filter((s) => s.status === 'active')
+  const activeSubs = subs.filter((s) => resolveSubscriptionStatus(s) === 'active')
   const planBreakdown = {}
   let mrr = 0
   for (const s of activeSubs) {
     planBreakdown[s.planId] = (planBreakdown[s.planId] || 0) + 1
-    mrr += Number((plans[s.planId] || {}).priceMonthly || 0)
+    // The platform's own organization isn't a paying customer
+    if (s.organizationId !== 'org-default') mrr += Number((plans[s.planId] || {}).priceMonthly || 0)
   }
 
   // Signups per day for the last 14 days (oldest first)
@@ -186,8 +189,17 @@ export function getPlatformOverview() {
       totalSubscriptions: subs.length,
       activeSubscriptions: activeSubs.length,
       estimatedMrr: mrr,
-      openSupportTickets: (db.supportTickets || []).filter((t) => t.status === 'open').length
+      openSupportTickets: (db.supportTickets || []).filter((t) => t.status === 'open').length,
+      blockedServers: Object.values(db.servers || {}).filter((s) => s.blocked).length,
+      pastDueSubscriptions: subs.filter((s) => resolveSubscriptionStatus(s) === 'past_due').length,
+      lapsedSubscriptions: subs.filter((s) => ['expired', 'canceled'].includes(resolveSubscriptionStatus(s))).length
     },
+    // Paid subscriptions ending within 7 days (soonest first), so renewals can be chased
+    expiringSoon: subs
+      .filter((s) => s.planId !== 'FREE' && s.organizationId !== 'org-default' && ['active', 'trialing'].includes(resolveSubscriptionStatus(s)))
+      .map((s) => ({ organizationId: s.organizationId, organizationName: ((db.organizations || {})[s.organizationId] || {}).name || s.organizationId, planId: s.planId, currentPeriodEnd: s.currentPeriodEnd, cancelAtPeriodEnd: !!s.cancelAtPeriodEnd, daysLeft: daysLeft(s) }))
+      .filter((s) => s.daysLeft !== null && s.daysLeft <= 7)
+      .sort((a, b) => a.daysLeft - b.daysLeft),
     planBreakdown,
     signupTrend,
     recentUsers: [...users].sort(byNewest).slice(0, 6).map(sanitizeUser),
@@ -259,12 +271,32 @@ export function getOrganizationDetailForAdmin(orgId) {
   }
 }
 
+function summarizeServer(s, db) {
+  const org = (db.organizations || {})[s.organizationId]
+  return {
+    ...sanitizeServer(s),
+    blocked: !!s.blocked,
+    isLocal: isLocalServer(s),
+    organizationName: org ? org.name : s.organizationId || '—',
+    orphaned: !org,
+    projectCount: Object.values(db.projects || {}).filter((p) => p.serverId === s.id).length
+  }
+}
+
 export function listServersForAdmin() {
   const db = readDb()
-  return Object.values(db.servers || {}).map((s) => ({
-    ...sanitizeServer(s),
-    organizationName: ((db.organizations || {})[s.organizationId] || {}).name || s.organizationId
-  }))
+  return Object.values(db.servers || {}).map((s) => summarizeServer(s, db))
+}
+
+export function getServerDetailForAdmin(serverId) {
+  const db = readDb()
+  const server = (db.servers || {})[serverId]
+  if (!server) return null
+  return {
+    server: summarizeServer(server, db),
+    projects: Object.values(db.projects || {}).filter((p) => p.serverId === serverId).map((p) => ({ id: p.id, name: p.name, domain: p.domain, path: p.path, status: p.status, framework: p.framework })),
+    activity: (db.auditLogs || []).filter((l) => l.resourceId === serverId).slice(0, 25)
+  }
 }
 
 export function listSubscriptionsForAdmin() {
@@ -272,7 +304,23 @@ export function listSubscriptionsForAdmin() {
   return Object.values(db.subscriptions || {}).map((s) => {
     const org = (db.organizations || {})[s.organizationId]
     const plan = (db.plans || {})[s.planId]
-    return { ...s, organizationName: org ? org.name : s.organizationId, planName: plan ? plan.name : s.planId, priceMonthly: plan ? plan.priceMonthly : 0 }
+    const count = (coll) => Object.values(db[coll] || {}).filter((r) => r.organizationId === s.organizationId).length
+    return {
+      ...s,
+      storedStatus: s.status,
+      status: resolveSubscriptionStatus(s),
+      daysLeft: daysLeft(s),
+      organizationName: org ? org.name : s.organizationId,
+      organizationStatus: org ? (org.status === 'suspended' ? 'suspended' : 'active') : 'deleted',
+      ownerEmail: org ? (((db.users || {})[org.ownerId] || {}).email || null) : null,
+      planName: plan ? plan.name : s.planId,
+      priceMonthly: plan ? plan.priceMonthly : 0,
+      usage: {
+        servers: { current: count('servers'), max: plan ? plan.maxServers : 0 },
+        projects: { current: count('projects'), max: plan ? plan.maxProjects : 0 },
+        teamMembers: { current: (db.organizationMembers || []).filter((m) => m.organizationId === s.organizationId).length, max: plan ? plan.maxTeamMembers : 0 }
+      }
+    }
   })
 }
 

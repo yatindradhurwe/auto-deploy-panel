@@ -80,12 +80,18 @@ function savePayment(record) {
 
 function applyItem(record) {
   if (record.kind === 'plan') {
+    // Renewing the same plan before it runs out adds a month to the current period instead of
+    // restarting it, so the days already paid for aren't lost
+    const current = (readDb().subscriptions || {})[record.organizationId]
+    const currentEnd = new Date(current?.currentPeriodEnd || 0).getTime()
+    const renewing = current && current.planId === record.itemId && currentEnd > Date.now()
     saveSubscription(record.organizationId, {
       planId: record.itemId,
       status: 'active',
-      currentPeriodStart: new Date().toISOString(),
-      currentPeriodEnd: new Date(Date.now() + 30 * 86400000).toISOString(),
-      cancelAtPeriodEnd: false
+      currentPeriodStart: renewing ? current.currentPeriodStart : new Date().toISOString(),
+      currentPeriodEnd: new Date((renewing ? currentEnd : Date.now()) + 30 * 86400000).toISOString(),
+      cancelAtPeriodEnd: false,
+      endedAt: null
     })
   } else {
     // Credit what was paid for, even if the pack was edited after the order was created

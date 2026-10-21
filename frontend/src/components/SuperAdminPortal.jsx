@@ -1,4 +1,5 @@
 import React from 'react'
+import { BarChart3, Users, Building, Server, CreditCard, LifeBuoy, Tags, Bot, Plug, ShoppingBag, ShieldCheck, Settings, UserCircle, Crown } from 'lucide-react'
 import AdminOverview from './admin/AdminOverview'
 import AdminUsers from './admin/AdminUsers'
 import AdminOrganizations from './admin/AdminOrganizations'
@@ -13,10 +14,10 @@ import AdminIntegrations from './admin/AdminIntegrations'
 
 const PAGE_TITLES = {
   dashboard: ['Platform overview', 'Users, revenue and activity across every tenant'],
-  users: ['Users', 'Create admin accounts, manage roles, suspend access and reset passwords'],
+  users: ['Users', 'Create, edit, block and delete accounts, manage roles and reset passwords'],
   organizations: ['Organizations', 'Tenant workspaces, their plans, members and resources'],
-  servers: ['Servers', 'Every server connected to the platform'],
-  subscriptions: ['Subscriptions', 'Plan assignments and billing periods'],
+  servers: ['Servers', 'Every server connected to the platform: edit, move, block or remove them'],
+  subscriptions: ['Subscriptions', 'Plans, billing periods, renewals and a health check that repairs broken billing data'],
   support: ['Support tickets', 'Questions and issues raised by admins from their panel'],
   plans: ['Plans & pricing', 'Limits and prices offered to customers'],
   ai: ['AI models & tokens', 'Claude, ChatGPT and Gemini keys for the project agent, token packs and organization balances'],
@@ -27,15 +28,27 @@ const PAGE_TITLES = {
   profile: ['My profile', 'Your account details, sign-in email, password and company details']
 }
 
+const PAGE_ICONS = {
+  dashboard: BarChart3, users: Users, organizations: Building, servers: Server, subscriptions: CreditCard, support: LifeBuoy,
+  plans: Tags, ai: Bot, integrations: Plug, marketplace: ShoppingBag, 'audit-logs': ShieldCheck, settings: Settings, profile: UserCircle
+}
+
 export default function SuperAdminPortal({ activeTab = 'dashboard', apiBaseUrl = '', currentUser, onNavigate = () => {} }) {
   const [title, subtitle] = PAGE_TITLES[activeTab] || PAGE_TITLES.dashboard
   const props = { apiBaseUrl, currentUser, onNavigate }
+  const Icon = PAGE_ICONS[activeTab] || Crown
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 font-sans">
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">{title}</h1>
-        <p className="text-slate-400 text-sm mt-1">{subtitle}</p>
+      <div className="flex items-start gap-4">
+        <div className="hidden sm:flex w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-600 via-indigo-600 to-amber-500 items-center justify-center shadow-lg shadow-purple-500/20 shrink-0">
+          <Icon className="w-6 h-6 text-onaccent" />
+        </div>
+        <div className="min-w-0">
+          <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-purple-400/80">Super admin console</div>
+          <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">{title}</h1>
+          <p className="text-slate-400 text-sm mt-1">{subtitle}</p>
+        </div>
       </div>
       {activeTab === 'dashboard' && <AdminOverview {...props} />}
       {activeTab === 'users' && <AdminUsers {...props} />}

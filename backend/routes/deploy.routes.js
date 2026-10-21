@@ -7,6 +7,7 @@ import { initUpload, appendChunk, completeUpload, analyzeGitRepo, listGitBranche
 import { diagnoseDeploymentError, executeSshPatch } from '../services/ai.service.js'
 import { recordTemplateDeploy } from '../services/template.service.js'
 import { isSuperSession } from '../services/project-access.service.js'
+import { checkEntitlement } from '../services/subscription.service.js'
 
 const router = express.Router()
 
@@ -202,7 +203,7 @@ router.post('/ai-execute-fix', async (req, res) => {
   }
 })
 
-import { getUserSettings, saveUserSettings, createProject, saveProjectAutoUpdateConfig, getProjectAutoUpdateConfig } from '../services/db.service.js'
+import { getUserSettings, saveUserSettings, createProject, saveProjectAutoUpdateConfig, getProjectAutoUpdateConfig, getProjectsByOrgId } from '../services/db.service.js'
 
 /**
  * GET /api/deploy/get-github-token
@@ -373,6 +374,12 @@ router.post('/deploy', async (req, res) => {
   }
 
   const orgId = req.tenant?.organizationId || 'org-default'
+  // Redeploying an app that is already registered doesn't add a project
+  const isRedeploy = getProjectsByOrgId(orgId).some(p => p.path === cfg.remoteDir || p.name === cfg.appName)
+  if (!isSuperSession(req) && !isRedeploy) {
+    const entitlement = checkEntitlement(orgId, 'projects')
+    if (!entitlement.allowed) return res.status(402).json({ success: false, error: entitlement.reason, code: 'PLAN_LIMIT_REACHED' })
+  }
   const lockKey = makeDeploymentLockKey(orgId, cfg.appName, 'production')
   const lockResult = acquireLock(lockKey, 45 * 60 * 1000)
   if (!lockResult.acquired) {
