@@ -5,6 +5,7 @@ import { recordAuditLog, getOrganizationMembers, getServersByOrgId } from '../se
 import {
   ORG_ADMIN_ROLES,
   isOrgAdmin,
+  isPlatformHost,
   sharesForProject,
   sharesForUser,
   grantShare,
@@ -66,7 +67,7 @@ router.get('/shares', handle((req) => {
     fullAccess: ORG_ADMIN_ROLES.includes(String(m.role).toUpperCase()),
     shared: sharedIds.has(m.userId)
   }))
-  return { success: true, shares, members }
+  return { success: true, shares, members, shareable: !isPlatformHost(req.tenant.server) }
 }))
 
 router.post('/shares', handle((req) => {

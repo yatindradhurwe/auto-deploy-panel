@@ -42,11 +42,15 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
     return jwtToken
   }
 
-  const [useProxy, setUseProxy] = useState(false)
+  // null = choose automatically from the preview check, true/false = the user's choice
+  const [proxyChoice, setProxyChoice] = useState(null)
+  const [previewInfo, setPreviewInfo] = useState(null) // result of /api/studio/preview-check
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const previewServerId = project?.serverId || activeServer?.id || ''
 
-  // Determine Live Web URL for Preview
+  // Determine Live Web URL for Preview (null when the project has no domain and no port)
   const getDirectPreviewUrl = () => {
-    if (!project) return 'https://automate-deployment.yjtechnosoft.com'
+    if (!project) return null
 
     // 1. Explicit domain property on project
     if (project.domain && project.domain.trim()) {
@@ -69,18 +73,41 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
     }
 
     // 3. Direct server IP and port fallback
-    const host = activeServer ? (activeServer.ipAddress || activeServer.host) : '187.127.165.128'
-    const port = project.backendPort || project.port || 5050
+    const port = project.backendPort || project.port
+    const host = activeServer ? (activeServer.ipAddress || activeServer.host) : null
+    if (!port || !host) return null
     return `http://${host}:${port}`
   }
 
+  const directUrl = getDirectPreviewUrl()
+
+  // Ask the panel where the URL ends up and whether it can be framed directly
+  useEffect(() => {
+    if (activeCanvasTab !== 'preview' || !directUrl) return
+    let cancelled = false
+    setPreviewLoading(true)
+    const token = getEffectiveToken()
+    fetch(`/api/studio/preview-check?url=${encodeURIComponent(directUrl)}&serverId=${encodeURIComponent(previewServerId)}`, {
+      headers: { 'Authorization': token ? `Bearer ${token}` : '' }
+    })
+      .then((r) => r.json())
+      .then((data) => { if (!cancelled) setPreviewInfo(data) })
+      .catch(() => { if (!cancelled) setPreviewInfo(null) })
+      .finally(() => { if (!cancelled) setPreviewLoading(false) })
+    return () => { cancelled = true }
+  }, [directUrl, previewServerId, iframeKey, activeCanvasTab === 'preview'])
+
+  // Plain-http sites can't be framed on the https panel, nor can sites that forbid framing
+  const mixedContent = typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:/i.test(directUrl || '')
+  const autoProxy = mixedContent || (previewInfo?.reachable && !previewInfo.embeddable)
+  const useProxy = proxyChoice ?? !!autoProxy
+
   const getIframeSrc = () => {
-    const directUrl = getDirectPreviewUrl()
     if (useProxy) {
       const tok = getEffectiveToken()
-      return `/api/studio/preview-proxy?url=${encodeURIComponent(directUrl)}&token=${encodeURIComponent(tok)}`
+      return `/api/studio/preview-proxy?url=${encodeURIComponent(directUrl)}&serverId=${encodeURIComponent(previewServerId)}&token=${encodeURIComponent(tok)}`
     }
-    return directUrl
+    return previewInfo?.finalUrl && previewInfo.embeddable ? previewInfo.finalUrl : directUrl
   }
 
   // One-Click Server Publish & Deploy Update
@@ -298,10 +325,11 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
           </button>
 
           <a
-            href={getDirectPreviewUrl()}
+            href={directUrl || undefined}
             target="_blank"
             rel="noreferrer"
-            className="h-8.5 px-2.5 bg-slate-900/90 hover:bg-slate-800 text-cyan-300 border border-white/10 hover:border-cyan-500/40 rounded-xl text-xs font-bold font-mono inline-flex items-center justify-center space-x-1.5 transition shadow-md whitespace-nowrap shrink-0"
+            aria-disabled={!directUrl}
+            className="aria-disabled:opacity-40 aria-disabled:pointer-events-none h-8.5 px-2.5 bg-slate-900/90 hover:bg-slate-800 text-cyan-300 border border-white/10 hover:border-cyan-500/40 rounded-xl text-xs font-bold font-mono inline-flex items-center justify-center space-x-1.5 transition shadow-md whitespace-nowrap shrink-0"
             title="Open Live Website ↗"
           >
             <ExternalLink className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
@@ -339,15 +367,15 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
           } bg-slate-950 transition-all duration-300 flex flex-col z-20 shrink-0 absolute md:relative inset-y-0 left-0 overflow-hidden`}
         >
           {/* AI Sidebar Header */}
-          <div className="p-3.5 border-b border-slate-800 bg-slate-950 flex items-center justify-between font-mono text-xs">
-            <div className="flex items-center space-x-2">
+          <div className="p-3.5 border-b border-slate-800 bg-slate-950 flex items-center justify-between gap-2 font-mono text-xs shrink-0">
+            <div className="flex items-center space-x-2 min-w-0">
               <div className="p-1.5 rounded-lg bg-gradient-to-tr from-cyan-500 to-purple-600 text-slate-950 font-bold">
                 <Bot className="w-4 h-4" />
               </div>
-              <span className="font-extrabold text-white">AI Project Agent</span>
+              <span className="font-extrabold text-white whitespace-nowrap">AI Project Agent</span>
             </div>
 
-<span className="text-[10px] text-slate-500 font-bold">Claude · ChatGPT · Gemini</span>
+            <span className="text-[10px] text-slate-500 font-bold hidden sm:inline truncate">Claude · ChatGPT · Gemini</span>
 
             <button
               onClick={() => setSidebarHidden(true)}
@@ -358,22 +386,6 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
             </button>
           </div>
 
-          {/* Error Banner */}
-          {errorMsg && (
-            <div className="p-3 bg-rose-950/80 border-b border-rose-500/40 text-rose-300 font-mono text-[11px] flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">{safeText(errorMsg)}</div>
-            </div>
-          )}
-
-          {/* Success Banner */}
-          {publishSuccessMsg && (
-            <div className="p-3 bg-emerald-950/80 border-b border-emerald-500/40 text-emerald-300 font-mono text-[11px] flex items-start gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">{safeText(publishSuccessMsg)}</div>
-            </div>
-          )}
-
           <ProjectAgentPanel
             projectPath={project?.path}
             projectName={project?.name}
@@ -381,73 +393,140 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
           />
         </aside>
 
-        {/* Restore Sidebar Toggle Button (if hidden) */}
+        {/* Mobile: tap outside the open agent panel to close it */}
+        {!sidebarHidden && (
+          <div
+            className="md:hidden absolute inset-0 z-10 bg-slate-950/60 backdrop-blur-sm"
+            onClick={() => setSidebarHidden(true)}
+          />
+        )}
+
+        {/* Collapsed agent rail (keeps the reopen button from covering the canvas) */}
         {sidebarHidden && (
-          <button
-            onClick={() => setSidebarHidden(false)}
-            className="absolute left-2 top-2 z-30 p-2 bg-slate-900 border border-slate-800 text-cyan-400 rounded-xl shadow-lg hover:bg-slate-800 transition cursor-pointer flex items-center gap-1 font-mono text-xs"
-          >
-            <Bot className="w-4 h-4" />
-            <span>Open AI Agent</span>
-          </button>
+          <div className="w-11 shrink-0 border-r border-white/10 bg-slate-950 flex flex-col items-center py-2">
+            <button
+              onClick={() => setSidebarHidden(false)}
+              title="Open AI Agent"
+              className="h-8.5 w-8.5 bg-slate-900 border border-slate-800 text-cyan-400 rounded-xl shadow-lg hover:bg-slate-800 transition cursor-pointer inline-flex items-center justify-center"
+            >
+              <Bot className="w-4 h-4" />
+            </button>
+          </div>
         )}
 
         {/* Center Main Workspace Canvas Area */}
-        <main className="flex-1 bg-slate-950 flex flex-col relative overflow-hidden">
+        <main className="flex-1 min-w-0 bg-slate-950 flex flex-col relative overflow-hidden">
+
+          {/* Publish result banners (visible whether or not the agent panel is open) */}
+          {(errorMsg || publishSuccessMsg) && (
+            <div className={`px-3 py-2 border-b font-mono text-[11px] flex items-start gap-2 shrink-0 ${
+              errorMsg ? 'bg-rose-950/80 border-rose-500/40 text-rose-300' : 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
+            }`}>
+              {errorMsg
+                ? <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                : <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />}
+              <div className="flex-1 min-w-0 break-words">{safeText(errorMsg || publishSuccessMsg)}</div>
+              <button
+                onClick={() => { setErrorMsg(null); setPublishSuccessMsg(null) }}
+                title="Dismiss"
+                className="p-0.5 rounded hover:bg-white/10 shrink-0"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
           
           {/* Mode 1: Live Interactive Preview */}
           {activeCanvasTab === 'preview' && (
-            <div className="flex-1 flex items-center justify-center p-4 overflow-auto bg-slate-950/60">
+            <div className="flex-1 min-h-0 flex items-center justify-center p-2 sm:p-4 overflow-auto bg-slate-950/60">
               <div
                 className={`transition-all duration-300 bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden flex flex-col ${
                   deviceMode === 'mobile' ? 'w-[375px] max-w-full h-[667px] max-h-full' : 'w-full h-full'
                 }`}
               >
                 {/* Frame Header Address Bar */}
-                <div className="h-8 bg-slate-950 border-b border-slate-800 px-3 flex items-center justify-between font-mono text-[11px] text-slate-400 shrink-0">
-                  <div className="flex items-center space-x-1.5">
+                <div className="h-9 bg-slate-950 border-b border-slate-800 px-3 flex items-center gap-2 font-mono text-[11px] text-slate-400 shrink-0">
+                  <div className="hidden sm:flex items-center space-x-1.5 shrink-0">
                     <span className="w-2.5 h-2.5 rounded-full bg-rose-500/80"></span>
                     <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80"></span>
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80"></span>
                   </div>
 
-                  <div className="flex items-center space-x-2">
-                    <div className="bg-slate-900 px-3 py-0.5 rounded-full border border-slate-800 text-cyan-400 font-bold flex items-center gap-1 text-[10px] truncate max-w-xs">
+                  <div className="flex-1 min-w-0 flex items-center justify-center gap-2">
+                    <div className="min-w-0 max-w-md bg-slate-900 px-3 py-0.5 rounded-full border border-slate-800 text-cyan-400 font-bold flex items-center gap-1 text-[10px]">
                       <Globe className="w-3 h-3 text-cyan-400 shrink-0" />
-                      <span className="truncate">{getDirectPreviewUrl()}</span>
+                      <span className="truncate" title={previewInfo?.finalUrl || directUrl || ''}>{previewInfo?.finalUrl || directUrl || 'No URL'}</span>
                     </div>
 
-                    <button
-                      onClick={() => setUseProxy(!useProxy)}
-                      className={`px-2 py-0.5 rounded text-[9px] font-bold border transition ${
-                        useProxy ? 'bg-cyan-950 text-cyan-300 border-cyan-800' : 'bg-slate-800 text-slate-400 border-slate-700'
-                      }`}
-                      title="Toggle Proxy Mode (Bypasses HTTPS Mixed-Content Iframe Block)"
-                    >
-                      {useProxy ? 'Proxy Stream' : 'Direct URL'}
-                    </button>
+                    {directUrl && (
+                      <button
+                        onClick={() => setProxyChoice(!useProxy)}
+                        className={`px-2 py-0.5 rounded text-[9px] font-bold border transition whitespace-nowrap shrink-0 ${
+                          useProxy ? 'bg-cyan-950 text-cyan-300 border-cyan-800' : 'bg-slate-800 text-slate-400 border-slate-700'
+                        }`}
+                        title={proxyChoice === null ? 'Chosen automatically. Click to switch between the proxy and the direct URL.' : 'Switch between the proxy and the direct URL'}
+                      >
+                        {useProxy ? 'Proxy' : 'Direct'}{proxyChoice === null ? ' · auto' : ''}
+                      </button>
+                    )}
                   </div>
 
-                  <div className="flex items-center space-x-2">
-                    <a
-                      href={getDirectPreviewUrl()}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[10px] text-slate-400 hover:text-cyan-300 flex items-center gap-0.5"
-                    >
-                      <span>Open ↗</span>
-                    </a>
-                    <span className="text-[10px] uppercase font-bold text-slate-500">{deviceMode}</span>
+                  <div className="flex items-center space-x-2 shrink-0">
+                    {directUrl && (
+                      <a
+                        href={directUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[10px] text-slate-400 hover:text-cyan-300 flex items-center gap-0.5 whitespace-nowrap"
+                      >
+                        <span>Open ↗</span>
+                      </a>
+                    )}
+                    <span className="text-[10px] uppercase font-bold text-slate-500 hidden md:inline">{deviceMode}</span>
                   </div>
                 </div>
 
+                {/* Why the preview is proxied, or why it may not load */}
+                {directUrl && !previewLoading && previewInfo && (!previewInfo.reachable || (useProxy && previewInfo.blockReason)) && (
+                  <div className={`px-3 py-1.5 border-b text-[10px] font-mono flex items-center gap-1.5 shrink-0 ${
+                    previewInfo.reachable ? 'bg-amber-950/40 border-amber-900/50 text-amber-300' : 'bg-rose-950/40 border-rose-900/50 text-rose-300'
+                  }`}>
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span className="min-w-0 truncate" title={previewInfo.reachable ? previewInfo.blockReason : previewInfo.error}>
+                      {previewInfo.reachable
+                        ? `${previewInfo.blockReason}, so it is shown through the panel proxy. Some scripts may not run here; use Open ↗ for the full site.`
+                        : `The site did not respond: ${previewInfo.error}`}
+                    </span>
+                  </div>
+                )}
+
                 {/* Interactive Preview Frame */}
-                <iframe
-                  key={`${iframeKey}-${useProxy ? 'proxy' : 'direct'}`}
-                  src={getIframeSrc()}
-                  title="Project Live Preview"
-                  className="flex-1 w-full h-full border-0 bg-onaccent"
-                />
+                {directUrl && previewLoading && !previewInfo && proxyChoice === null ? (
+                  <div className="flex-1 flex items-center justify-center gap-2 text-xs font-mono text-slate-400">
+                    <RefreshCw className="w-4 h-4 animate-spin text-cyan-400" /> Checking the site...
+                  </div>
+                ) : directUrl ? (
+                  <iframe
+                    key={`${iframeKey}-${useProxy ? 'proxy' : 'direct'}`}
+                    src={getIframeSrc()}
+                    title="Project Live Preview"
+                    className="flex-1 w-full h-full border-0 bg-onaccent"
+                  />
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center font-mono">
+                    <Globe className="w-8 h-8 text-slate-600" />
+                    <p className="text-sm font-bold text-slate-200">No preview URL for this project</p>
+                    <p className="text-xs text-slate-400 max-w-sm">
+                      It has no domain and no app port yet. Add a domain in Project settings, or set PORT in its .env, to see it here.
+                    </p>
+                    <button
+                      onClick={() => setShowSettingsModal(true)}
+                      className="mt-1 h-8 px-3 bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-white/10 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Settings className="w-3.5 h-3.5" /> Project settings
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}

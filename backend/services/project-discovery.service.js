@@ -21,6 +21,7 @@ for d in /var/www/*/ /home/*/htdocs/*/ $CWDS; do
   d="\${d%/}"
   [ -d "$d" ] || continue
   echo "@@DIR $d"
+  r=$(readlink -f "$d" 2>/dev/null); [ -n "$r" ] && [ "$r" != "$d" ] && echo "real=$r"
   git -C "$d" config --get remote.origin.url 2>/dev/null | sed 's/^/git=/'
   git -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null | sed 's/^/branch=/'
   grep -m1 -E '^PORT[[:space:]]*=' "$d/.env" 2>/dev/null | sed 's/^/env/'
@@ -79,6 +80,7 @@ function parseOutput(stdout) {
     else if (k === 'envPORT') meta.get(dir).port = v.replace(/["']/g, '')
     else if (k === 'pkg') meta.get(dir).node = true
     else if (k === 'php') meta.get(dir).php = true
+    else if (k === 'real') meta.get(dir).real = v
   }
   return { pm2, byPath, byPort, meta }
 }
@@ -92,14 +94,26 @@ export async function discoverProjects(host, registered = [], { panelRoot = null
   const { stdout } = await host.exec(DISCOVERY_SCRIPT, { timeout: 30000 })
   const { pm2, byPath, byPort, meta } = parseOutput(stdout)
 
+  // A symlinked folder (e.g. /home/<ssh-user>/htdocs/site -> another user's site) is the same
+  // project as its target: list it once, under the real path
+  const aliases = new Map() // real path -> symlinked paths
+  for (const [d, m] of meta) {
+    if (m.real && meta.has(m.real)) aliases.set(m.real, [...(aliases.get(m.real) || []), d])
+  }
+  const isAlias = (d) => !!meta.get(d)?.real && meta.has(meta.get(d).real)
+  const pathsOf = (d) => [d, ...(aliases.get(d) || [])]
+
   // Candidate project folders: /var/www/*, /home/*/htdocs/*, PM2 working dirs, registered paths
   const candidates = new Map()
   for (const d of meta.keys()) {
-    if (d === '/var/www/html' || d === '/var/www') continue
+    if (d === '/var/www/html' || d === '/var/www' || isAlias(d)) continue
     candidates.set(d, { name: path.basename(d) })
   }
-  for (const p of pm2) if (p.cwd && !candidates.has(p.cwd) && meta.has(p.cwd)) candidates.set(p.cwd, { name: p.name })
-  for (const r of registered) if (r.path && !candidates.has(r.path)) candidates.set(r.path, { name: r.name, registered: r })
+  for (const p of pm2) if (p.cwd && !candidates.has(p.cwd) && meta.has(p.cwd) && !isAlias(p.cwd)) candidates.set(p.cwd, { name: p.name })
+  for (const r of registered) {
+    const d = isAlias(r.path) ? meta.get(r.path).real : r.path
+    if (d && !candidates.has(d)) candidates.set(d, { name: r.name, registered: r })
+  }
 
   // Fold sub-folders (an app's backend/ run by PM2) into their project folder
   for (const d of [...candidates.keys()]) {
@@ -114,11 +128,12 @@ export async function discoverProjects(host, registered = [], { panelRoot = null
   const projects = []
   for (const [dir, c] of candidates) {
     const m = meta.get(dir) || {}
-    const reg = c.registered || registered.find(r => r.path === dir)
-    const procs = pm2.filter(p => p.cwd === dir || p.cwd.startsWith(dir + '/'))
+    const dirs = pathsOf(dir)
+    const reg = c.registered || registered.find(r => dirs.includes(r.path))
+    const procs = pm2.filter(p => dirs.some(d => p.cwd === d || p.cwd.startsWith(d + '/')))
     const folder = path.basename(dir)
-    let domain = reg?.domain || byPath.get(dir.toLowerCase()) || null
-    if (!domain) for (const [p, dom] of byPath) if (p.startsWith(dir.toLowerCase() + '/')) { domain = dom; break }
+    let domain = reg?.domain || dirs.map(d => byPath.get(d.toLowerCase())).find(Boolean) || null
+    if (!domain) for (const [p, dom] of byPath) if (dirs.some(d => p.startsWith(d.toLowerCase() + '/'))) { domain = dom; break }
     const port = m.port || procs.find(p => p.port)?.port || reg?.port || null
     if (!domain && port && byPort.has(String(port))) domain = byPort.get(String(port))
     const running = procs.some(p => p.status === 'online')

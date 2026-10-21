@@ -97,7 +97,8 @@ export function grantShare(req, { projectPath, appNames = [], projectName, userI
   if (!isOrgAdmin(req)) throw httpError(403, 'Only organization owners and admins can share projects.')
   const server = req.tenant?.server
   if (!server) throw httpError(400, 'Select a server first.')
-  if (isPlatformHost(server) && !isSuperSession(req)) throw httpError(403, 'Projects on the platform host cannot be shared.')
+  // Organization members never reach the platform host, so a share there would grant nothing
+  if (isPlatformHost(server)) throw httpError(403, 'Projects on the platform host cannot be shared. Share projects on an organization\'s own server.')
   const dir = normalizeProjectPath(projectPath)
   if (!dir) throw httpError(400, 'A valid absolute projectPath is required.')
   if (!SHARE_ROLES.includes(role)) throw httpError(400, 'role must be "manager" or "viewer".')

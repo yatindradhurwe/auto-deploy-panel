@@ -1,8 +1,6 @@
 import express from 'express'
 import fs from 'fs'
 import path from 'path'
-import http from 'http'
-import https from 'https'
 import { fileURLToPath } from 'url'
 import { authenticateToken } from '../middleware/auth.middleware.js'
 import { isSystemAdminUser } from '../config/secrets.js'
@@ -13,6 +11,7 @@ import { updateProject, deleteProject } from '../services/project-ops.service.js
 import { validateResourceOwnership } from '../middleware/tenant.middleware.js'
 import { filterProjectsForUser, sharesForUser, projectLevel, hasLevel, isSuperSession } from '../services/project-access.service.js'
 import { loadSettings, saveSection, checkPwa } from '../services/project-settings.service.js'
+import { fetchPreview, frameBlockReason, injectBaseHref, escapeHtml } from '../services/preview-proxy.service.js'
 import {
   readDb,
   getProjectsByOrgId,
@@ -367,78 +366,54 @@ router.all('/logs/telemetry', (req, res) => {
   })
 })
 
+const previewErrorPage = (url, message) => `<!doctype html><meta charset="utf-8">
+<div style="font-family: system-ui, sans-serif; padding: 30px; background: #07090E; color: #38BDF8; min-height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
+  <h2 style="color: #F43F5E; margin: 0 0 10px 0;">Preview unavailable</h2>
+  <p style="color: #94A3B8; max-width: 480px; font-size: 13px; line-height: 1.6;">
+    Could not load <strong style="color: #E2E8F0;">${escapeHtml(url)}</strong>: ${escapeHtml(message)}.
+    If the app was just deployed or restarted, give it a moment and refresh.
+  </p>
+  <a href="${escapeHtml(url)}" target="_blank" rel="noreferrer" style="margin-top: 20px; padding: 10px 22px; background: linear-gradient(to right, #06B6D4, #4F46E5); color: white; border-radius: 12px; text-decoration: none; font-weight: bold; font-size: 12px;">
+    Open website in a new tab ↗
+  </a>
+</div>`
+
 /**
- * GET /api/studio/preview-proxy
- * Bypasses mixed content, HTTPS/HTTP iframe blocking, and X-Frame-Options
+ * GET /api/studio/preview-check?url=
+ * Where a project URL ends up and whether the browser can show it in an iframe directly
  */
-router.get('/preview-proxy', (req, res) => {
-  let targetUrl = req.query.url
-  if (!targetUrl) return res.status(400).send('Target URL query parameter required')
-
-  if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
-    targetUrl = 'http://' + targetUrl
-  }
-
+router.get('/preview-check', async (req, res) => {
+  const panelHost = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim()
   try {
-    const isHttps = targetUrl.startsWith('https://')
-    const clientModule = isHttps ? https : http
-    const parsedUrl = new URL(targetUrl)
-
-    const requestOptions = {
-      hostname: parsedUrl.hostname,
-      port: parsedUrl.port || (isHttps ? 443 : 80),
-      path: parsedUrl.pathname + parsedUrl.search,
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AutoDeployStudioPreview/1.0',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-      },
-      rejectUnauthorized: false
-    }
-
-    const proxyReq = clientModule.request(requestOptions, (proxyRes) => {
-      res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'text/html; charset=utf-8')
-      res.setHeader('Access-Control-Allow-Origin', '*')
-
-      let rawData = ''
-      proxyRes.on('data', (chunk) => {
-        rawData += chunk.toString('utf-8')
-      })
-
-      proxyRes.on('end', () => {
-        const contentType = (proxyRes.headers['content-type'] || '').toLowerCase()
-        if (contentType.includes('text/html')) {
-          const baseTag = `<base href="${targetUrl}">`
-          if (rawData.includes('<head>')) {
-            rawData = rawData.replace('<head>', `<head>${baseTag}`)
-          } else if (rawData.includes('<html>')) {
-            rawData = rawData.replace('<html>', `<html><head>${baseTag}</head>`)
-          } else {
-            rawData = baseTag + rawData
-          }
-        }
-        res.send(rawData)
-      })
-    })
-
-    proxyReq.on('error', (err) => {
-      res.status(502).send(`
-        <div style="font-family: system-ui, sans-serif; padding: 30px; background: #07090E; color: #38BDF8; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
-          <div style="font-size: 40px; margin-bottom: 15px;">⚡</div>
-          <h2 style="color: #F43F5E; margin: 0 0 10px 0;">Live Preview Connecting</h2>
-          <p style="color: #94A3B8; max-width: 480px; font-size: 13px; line-height: 1.6;">
-            Target service at <strong style="color: #E2E8F0;">${targetUrl}</strong> is initiating or starting PM2 reload.
-          </p>
-          <a href="${targetUrl}" target="_blank" style="margin-top: 20px; padding: 10px 22px; background: linear-gradient(to right, #06B6D4, #4F46E5); color: white; border-radius: 12px; text-decoration: none; font-weight: bold; font-size: 12px; box-shadow: 0 10px 25px -5px rgba(6, 182, 212, 0.4);">
-            Open Direct Website in New Tab ↗
-          </a>
-        </div>
-      `)
-    })
-
-    proxyReq.end()
+    const r = await fetchPreview(req.query.url, { allowPrivate: isSuperSession(req), readBody: false })
+    const blockReason = frameBlockReason(r.headers, panelHost)
+    res.json({ success: true, reachable: true, status: r.status, finalUrl: r.finalUrl, embeddable: !blockReason, blockReason })
   } catch (err) {
-    res.status(500).send(`Proxy error: ${err.message}`)
+    res.json({ success: true, reachable: false, embeddable: false, error: err.message })
+  }
+})
+
+/**
+ * GET /api/studio/preview-proxy?url=
+ * Serves a project page from the panel's origin, for sites that can't be framed directly
+ * (plain-http sites on the https panel, X-Frame-Options / frame-ancestors).
+ * The page runs sandboxed in an opaque origin so it can never touch the panel's session.
+ */
+router.get('/preview-proxy', async (req, res) => {
+  const target = String(req.query.url || '')
+  res.setHeader('Content-Security-Policy', 'sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals')
+  // The URL carries the session token: never send it on to the previewed site's assets
+  res.setHeader('Referrer-Policy', 'no-referrer')
+  res.setHeader('Cache-Control', 'no-store')
+  try {
+    const r = await fetchPreview(target, { allowPrivate: isSuperSession(req) })
+    const contentType = r.headers['content-type'] || 'text/html; charset=utf-8'
+    res.status(r.status || 200).setHeader('Content-Type', contentType)
+    if (contentType.toLowerCase().includes('text/html')) return res.send(injectBaseHref(r.body.toString('utf-8'), r.finalUrl))
+    res.send(r.body)
+  } catch (err) {
+    res.status(502).setHeader('Content-Type', 'text/html; charset=utf-8')
+    res.send(previewErrorPage(target, err.message))
   }
 })
 

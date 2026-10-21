@@ -31,7 +31,7 @@ export default function ShareProjectModal({ project, onClose }) {
     }
   }, [project?.path])
 
-  const run = async (key, fn, message) => {
+  const run = async (key, fn, message, onDone) => {
     setBusy(key)
     setError('')
     setNotice('')
@@ -39,6 +39,7 @@ export default function ShareProjectModal({ project, onClose }) {
       await fn()
       await load()
       if (message) setNotice(message)
+      onDone?.()
     } catch (err) {
       setError(err.message)
     } finally {
@@ -89,7 +90,9 @@ export default function ShareProjectModal({ project, onClose }) {
 
           <div className="space-y-2">
             <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Add a team member</h4>
-            {candidates.length === 0 ? (
+            {data?.shareable === false ? (
+              <EmptyState>Projects on the platform host can't be shared. Team members can only work on projects on their organization's own servers.</EmptyState>
+            ) : candidates.length === 0 ? (
               <EmptyState>Everyone on your team already has access. Invite more people from Team Members first.</EmptyState>
             ) : (
               <div className="flex flex-col sm:flex-row gap-2">
@@ -104,7 +107,7 @@ export default function ShareProjectModal({ project, onClose }) {
                   variant="primary"
                   disabled={!form.userId}
                   loading={busy === 'add'}
-                  onClick={() => run('add', () => shareProject(project, form.userId, form.role), 'Project shared.').then(() => setForm({ userId: '', role: 'manager' }))}
+                  onClick={() => run('add', () => shareProject(project, form.userId, form.role), 'Project shared.', () => setForm({ userId: '', role: 'manager' }))}
                 >
                   <Users className="w-3.5 h-3.5" /> Share
                 </Button>

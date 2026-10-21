@@ -26,6 +26,7 @@ import { sendServerNotFound } from './tenant.middleware.js'
 const POLICIES = [
   [/^\/servers$/, 'list', { needsServer: false }],
   [/^\/(projects|projects\/realtime-fetch|server-metrics|logs\/telemetry)$/, 'list'],
+  [/^\/preview-(check|proxy)$/, 'list'],
   [/^\/(pm2\/logs|git\/status|git\/history)$/, 'project:viewer'],
   [/^\/(git\/(pull|push|pull-and-update|rollback)|pm2\/control|env\/(get|save)|files\/(tree|read|save|create|delete|upload)|project-settings\/(get|save|pwa-check|email-auto))$/, 'project:manager'],
   [/^\/servers\/(test|add|update|delete)$/, 'org-admin', { needsServer: false }],
