@@ -37,7 +37,10 @@ export async function updateProject(host, { projectPath, appName, branch, gitRep
   step(`Pulling ${branch} from Git`)
   if (!await host.exists(`${dir}/.git`)) {
     if (!gitRepoUrl) throw httpError(400, `${dir} is not a Git repository.`)
-    await host.exec(`git clone --branch ${q(branch)} ${q(gitRepoUrl)} ${q(dir)}`, { timeout: 600000, onData: onLog })
+    const clean = gitRepoUrl.replace(/^https:\/\/[^@/]+@/, 'https://')
+    const url = githubToken && /^https:\/\/github\.com\//.test(clean) ? clean.replace(/^https:\/\//, `https://x-access-token:${githubToken}@`) : clean
+    const r = await host.exec(`git -c credential.helper= clone --branch ${q(branch)} ${q(url)} ${q(dir)} && git -C ${q(dir)} remote set-url origin ${q(clean)}`, { timeout: 600000, onData: (d, isErr) => onLog(d.replace(/(https:\/\/)[^@\s/]+@/g, '$1***@'), isErr) })
+    if (r.code !== 0) throw new Error(`Could not clone ${clean}. If the repository is private, connect your GitHub account first.`)
   } else {
     await run(`
 set -e

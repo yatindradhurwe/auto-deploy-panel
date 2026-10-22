@@ -251,21 +251,25 @@ export async function runDeployPipeline(cfg, emit, { host }) {
     stage('source', 'running', cfg.source.type === 'git' ? `${redactUrl(cfg.source.gitUrl)} (${cfg.source.branch})` : cfg.source.name)
     const backup = `${dir}.previous-${Date.now()}`
     if (cfg.source.type === 'git') {
+      // The deployer's GitHub token is only used for this fetch; origin is saved without credentials,
+      // so every later pull uses the GitHub account of whoever runs it
       const url = withGithubToken(cfg.source.gitUrl, cfg.githubToken)
+      const cleanUrl = cfg.source.gitUrl.replace(/^https:\/\/[^@/]+@/, 'https://')
       await sh(`
 set -e
 export GIT_TERMINAL_PROMPT=0
 if [ -d ${q(dir)}/.git ]; then
   echo "Updating existing checkout in ${dir}"
   cd ${q(dir)}
-  git remote set-url origin ${q(url)}
-  git fetch --prune origin ${q(cfg.source.branch)}
+  git remote set-url origin ${q(cleanUrl)}
+  git -c credential.helper= fetch --prune ${q(url)} ${q(cfg.source.branch)}
   git checkout -B ${q(cfg.source.branch)} FETCH_HEAD
   git reset --hard FETCH_HEAD
 else
   if [ -e ${q(dir)} ]; then echo "Keeping the existing folder as ${backup}"; mv ${q(dir)} ${q(backup)}; fi
   mkdir -p /var/www
   git -c protocol.ext.allow=never clone --branch ${q(cfg.source.branch)} ${q(url)} ${q(dir)}
+  git -C ${q(dir)} remote set-url origin ${q(cleanUrl)}
   if [ -f ${q(backup)}/.env ] && [ ! -f ${q(dir)}/.env ]; then cp ${q(backup)}/.env ${q(dir)}/.env; echo "Kept the previous .env"; fi
 fi
 git -C ${q(dir)} log -1 --format='Deploying commit %h — %s (%an)'

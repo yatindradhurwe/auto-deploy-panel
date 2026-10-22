@@ -478,12 +478,10 @@ async function saveGit(host, server, dir, values, githubToken = '') {
   if (!GIT_BRANCH_RE.test(branch)) throw httpError(400, 'Branch name is not valid.')
   const isRepo = await host.exists(`${dir}/.git`)
 
-  // Keep the credentials of the current remote when the new repo is on the same host (private repos keep working)
+  // Reached with the caller's own GitHub account; origin is saved without credentials, so each user
+  // pulls with their own connected account (never with someone else's token left in .git/config)
   const cur = isRepo ? await gitIn(host, dir, ['remote', 'get-url', 'origin']) : { code: 1 }
-  const creds = cur.code === 0 ? (cur.stdout.trim().match(/^https:\/\/([^@\/]+)@([^\/]+)\//) || []) : []
-  const newHost = (repoUrl.match(/^https:\/\/([^\/]+)\//) || [])[1]
-  const authed = creds[1] && creds[2] === newHost ? repoUrl.replace(/^https:\/\//, `https://${creds[1]}@`) : repoUrl
-  const reach = authed === repoUrl ? withToken(repoUrl, githubToken) : authed
+  const reach = withToken(repoUrl, githubToken)
 
   const check = await gitIn(host, dir, ['-c', 'credential.helper=', 'ls-remote', '--heads', reach, branch], { timeout: 60000 })
   if (check.code !== 0) throw httpError(400, `Can't reach ${repoUrl}. Check the URL and that your connected GitHub account can read it.`)
@@ -491,8 +489,8 @@ async function saveGit(host, server, dir, values, githubToken = '') {
 
   if (isRepo) {
     const set = cur.code === 0
-      ? await gitIn(host, dir, ['remote', 'set-url', 'origin', authed])
-      : await gitIn(host, dir, ['remote', 'add', 'origin', authed])
+      ? await gitIn(host, dir, ['remote', 'set-url', 'origin', repoUrl])
+      : await gitIn(host, dir, ['remote', 'add', 'origin', repoUrl])
     if (set.code !== 0) throw httpError(500, set.stderr || 'Could not update the Git remote.')
     await gitIn(host, dir, ['-c', 'credential.helper=', 'fetch', reach, `+refs/heads/${branch}:refs/remotes/origin/${branch}`], { timeout: 300000 })
   } else {

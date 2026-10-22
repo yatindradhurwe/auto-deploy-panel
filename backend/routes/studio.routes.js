@@ -508,16 +508,21 @@ router.post('/git/status', withHost(async (req, res, host) => {
 }))
 
 /**
- * Where pull/push talk to: origin, or origin with the user's GitHub token for a github.com remote that
- * carries no credentials of its own (e.g. a project connected from Settings → Git Repository).
+ * Where pull/push talk to: a github.com origin with the caller's own GitHub token (each user works
+ * with their own connected account, never with credentials someone left in the remote), else origin.
  */
 async function gitRemoteFor(req, host, dir) {
   const r = await runGit(host, dir, ['remote', 'get-url', 'origin'])
-  const url = r.code === 0 ? r.stdout.trim() : ''
+  const url = (r.code === 0 ? r.stdout.trim() : '').replace(/^https:\/\/[^@/]+@/, 'https://')
   const token = (getUserSettings(req.user?.id)?.githubToken || '').trim().replace(/^(bearer|token) /i, '')
   return token && /^https:\/\/github\.com\//.test(url) ? url.replace(/^https:\/\//, `https://x-access-token:${token}@`) : 'origin'
 }
-const redactGit = (t) => String(t || '').replace(/(https:\/\/)[^@\s/]+@/g, '$1***@')
+const redactGit = (t) => {
+  const text = String(t || '').replace(/(https:\/\/)[^@\s/]+@/g, '$1***@')
+  return /Authentication failed|could not read Username|Repository not found|terminal prompts disabled/i.test(text)
+    ? `${text}\nGitHub refused access. Connect your own GitHub account (Project Settings → Git Repository) with access to this repository.`
+    : text
+}
 
 /**
  * POST /api/studio/git/pull
