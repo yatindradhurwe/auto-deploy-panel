@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../store/AuthContext'
 import { useServers } from '../store/ServersContext'
+import { signInWithGithub } from '../utils/githubSignIn'
 
 /**
  * 1-click deployment: GitHub repo or uploaded archive (+ optional database file) → live site.
@@ -69,6 +70,8 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
   const [sourceType, setSourceType] = useState('github')
   const [githubToken, setGithubToken] = useState('')
   const [hasToken, setHasToken] = useState(false)
+  const [ghAccount, setGhAccount] = useState(null) // { connected, login, avatarUrl, authType, oauthAvailable }
+  const [ghBusy, setGhBusy] = useState('')
   const [repos, setRepos] = useState([])
   const [repoQuery, setRepoQuery] = useState('')
   const [loadingRepos, setLoadingRepos] = useState(false)
@@ -126,27 +129,65 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
     if (d.database && d.database !== 'none') { setDbMode('create'); setDbEngine(d.database) }
   }, [initialTemplate])
 
-  // GitHub token + repos
+  // GitHub account + repos: "Sign in with GitHub", or a personal access token for developers
   const loadRepos = async () => {
     setLoadingRepos(true)
     try {
       const data = await api('/github-repos', { method: 'POST', body: {} })
       setRepos(Array.from(new Map((data.repos || []).map(r => [r.full_name, r])).values()))
-    } catch { /* no token */ } finally {
+    } catch (e) {
+      setError(e.message)
+    } finally {
       setLoadingRepos(false)
     }
   }
-  useEffect(() => {
-    api('/get-github-token').then(d => { if (d.githubToken) { setHasToken(true); loadRepos() } }).catch(() => {})
-  }, [])
+  const loadGithubAccount = async () => {
+    try {
+      const d = await api('/github-account')
+      setGhAccount(d)
+      setHasToken(!!d.connected)
+      if (d.error) setError(d.error)
+      if (d.connected) loadRepos()
+      else setRepos([])
+    } catch {
+      setGhAccount({ connected: false })
+    }
+  }
+  useEffect(() => { loadGithubAccount() }, [])
+
+  const githubSignIn = async () => {
+    setError(null)
+    setGhBusy('oauth')
+    try {
+      await signInWithGithub(async () => (await api('/github-oauth/start')).url)
+      await loadGithubAccount()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setGhBusy('')
+    }
+  }
 
   const saveToken = async () => {
     if (!githubToken.trim()) return
+    setError(null)
+    setGhBusy('token')
     try {
       await api('/save-github-token', { method: 'POST', body: { githubToken: githubToken.trim() } })
-      setHasToken(true)
       setGithubToken('')
-      loadRepos()
+      await loadGithubAccount()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setGhBusy('')
+    }
+  }
+
+  const disconnectGithub = async () => {
+    if (!window.confirm('Disconnect your GitHub account? Projects already deployed keep working, but private repositories can no longer be pulled until you connect again.')) return
+    try {
+      await api('/github-disconnect', { method: 'POST', body: {} })
+      await loadGithubAccount()
     } catch (e) {
       setError(e.message)
     }
@@ -530,6 +571,15 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
             <div className="mt-5 space-y-4">
               {hasToken ? (
                 <div>
+                  <div className="mb-3 flex items-center gap-3 text-sm">
+                    {ghAccount?.avatarUrl ? <img src={ghAccount.avatarUrl} alt="" className="w-7 h-7 rounded-full" /> : <Github className="w-5 h-5 text-slate-400" />}
+                    <div className="flex-1 min-w-0 text-slate-300 truncate">
+                      Connected as <span className="text-white font-semibold">{ghAccount?.login}</span>
+                      <span className="text-slate-500 text-xs"> · {loadingRepos ? 'loading repositories…' : `${repos.length} repositories`}</span>
+                    </div>
+                    <button onClick={loadRepos} disabled={loadingRepos} title="Reload repositories" className="text-slate-400 hover:text-white cursor-pointer"><RefreshCw className={`w-4 h-4 ${loadingRepos ? 'animate-spin' : ''}`} /></button>
+                    <button onClick={disconnectGithub} className="text-xs text-slate-400 hover:text-white cursor-pointer">Disconnect</button>
+                  </div>
                   <div className="relative">
                     <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                     <input value={repoQuery} onChange={(e) => setRepoQuery(e.target.value)} placeholder="Search your repositories" className={`${input} pl-10`} />
@@ -549,14 +599,25 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
                     ))}
                   </div>
                 </div>
+              ) : ghAccount === null ? (
+                <div className="p-4 text-sm text-slate-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Checking your GitHub connection…</div>
               ) : (
-                <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 text-sm">
-                  <div className="text-white font-semibold">Connect GitHub (for private repos and a repo list)</div>
-                  <div className="text-xs text-slate-400 mt-1">Create a token at github.com → Settings → Developer settings → Personal access tokens with "repo" access. Public repos work without it.</div>
-                  <div className="mt-3 flex gap-2">
-                    <input type="password" value={githubToken} onChange={(e) => setGithubToken(e.target.value)} placeholder="ghp_…" className={input} />
-                    <button onClick={saveToken} className={ghost}>Connect</button>
-                  </div>
+                <div className="p-5 rounded-2xl bg-white/[0.03] border border-white/10 text-sm">
+                  <div className="text-white font-semibold">Connect GitHub to pick a repository</div>
+                  <div className="text-xs text-slate-400 mt-1">See all your repositories, including private ones and your organizations'. Public repositories also work without connecting: paste the URL below.</div>
+                  {ghAccount.oauthAvailable && (
+                    <button onClick={githubSignIn} disabled={!!ghBusy} className="mt-4 w-full sm:w-auto px-5 py-3 rounded-full bg-white hover:bg-slate-200 text-slate-900 font-bold text-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50">
+                      {ghBusy === 'oauth' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Github className="w-4 h-4" />} Sign in with GitHub
+                    </button>
+                  )}
+                  <details className="mt-4" open={!ghAccount.oauthAvailable}>
+                    <summary className="text-xs text-slate-400 cursor-pointer hover:text-slate-200">{ghAccount.oauthAvailable ? 'Developer? Use a personal access token instead' : 'Use a personal access token'}</summary>
+                    <div className="text-xs text-slate-500 mt-2">Create one at <a href="https://github.com/settings/tokens/new?scopes=repo,read:org&description=AutoDeploy" target="_blank" rel="noreferrer" className="text-cyan-300 hover:underline">github.com → Settings → Developer settings → Personal access tokens</a> with the "repo" scope (classic), or a fine-grained token with read access to Contents.</div>
+                    <div className="mt-2 flex gap-2">
+                      <input type="password" value={githubToken} onChange={(e) => setGithubToken(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && saveToken()} placeholder="ghp_… or github_pat_…" autoComplete="off" className={input} />
+                      <button onClick={saveToken} disabled={!githubToken.trim() || !!ghBusy} className={ghost}>{ghBusy === 'token' && <Loader2 className="w-4 h-4 animate-spin" />}Connect</button>
+                    </div>
+                  </details>
                 </div>
               )}
 

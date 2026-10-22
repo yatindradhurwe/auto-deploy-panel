@@ -144,7 +144,7 @@ export function requireStudioAccess(req, res, next) {
 }
 
 // Deploy helpers any organization member may use; they don't touch a server
-const DEPLOY_MEMBER_PATHS = /^\/(analyze-git|detect-stack|get-github-token|save-github-token|github-account|github-repos|ai-copilot)$/
+const DEPLOY_MEMBER_PATHS = /^\/(analyze-git|detect-stack|get-github-token|save-github-token|github-account|github-repos|github-oauth\/start|github-disconnect|ai-copilot)$/
 
 /**
  * Authorization for /api/deploy: deploying and SSH helpers are for organization owners/admins,

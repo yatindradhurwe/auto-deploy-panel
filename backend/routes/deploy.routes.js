@@ -1,5 +1,4 @@
 import express from 'express'
-import https from 'https'
 import { testSshConnection, scanPortsAndServices } from '../services/ssh.service.js'
 import { runDeployPipeline, validateDeployConfig, STAGES } from '../services/deploy-pipeline.service.js'
 import { getHost } from '../services/host.service.js'
@@ -8,6 +7,7 @@ import { diagnoseDeploymentError, executeSshPatch } from '../services/ai.service
 import { recordTemplateDeploy } from '../services/template.service.js'
 import { isSuperSession } from '../services/project-access.service.js'
 import { checkEntitlement } from '../services/subscription.service.js'
+import { bareToken, callbackUrl, githubOAuthAvailable, startGithubOAuth, finishGithubOAuth, githubUser, listGithubRepos, revokeGithubOAuth } from '../services/github.service.js'
 
 const router = express.Router()
 
@@ -206,128 +206,100 @@ router.post('/ai-execute-fix', async (req, res) => {
 import { getUserSettings, saveUserSettings, createProject, saveProjectAutoUpdateConfig, getProjectAutoUpdateConfig, getProjectsByOrgId } from '../services/db.service.js'
 
 /**
- * GET /api/deploy/get-github-token
+ * GET /api/deploy/get-github-token → whether a GitHub token is saved (the token itself never goes back to the browser)
  */
 router.get('/get-github-token', (req, res) => {
-  const userId = req.user ? req.user.id : 'admin-001'
-  const userSettings = getUserSettings(userId)
-  res.json({ success: true, githubToken: userSettings.githubToken || '' })
+  res.json({ success: true, hasToken: !!(getUserSettings(req.user?.id)?.githubToken || '').trim() })
 })
 
 /**
- * POST /api/deploy/save-github-token
+ * POST /api/deploy/save-github-token { githubToken } — personal access token, for developers
  */
-router.post('/save-github-token', (req, res) => {
-  const userId = req.user ? req.user.id : 'admin-001'
-  const token = (req.body.githubToken || '').trim()
-  if (!token) {
-    return res.status(400).json({ success: false, error: 'GitHub Personal Access Token is required' })
+router.post('/save-github-token', async (req, res) => {
+  const token = bareToken(req.body.githubToken)
+  if (!token) return res.status(400).json({ success: false, error: 'GitHub Personal Access Token is required' })
+  try {
+    const user = await githubUser(token)
+    saveUserSettings(req.user.id, { githubToken: token, githubAuthType: 'token' })
+    res.json({ success: true, message: `Connected GitHub account ${user.login}.`, login: user.login })
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.status === 401 ? 'GitHub rejected this token. Check that it is complete and not expired.' : err.message })
   }
-  saveUserSettings(userId, { githubToken: token })
-  res.json({ success: true, message: 'GitHub Token saved permanently in account settings!' })
 })
 
 /**
- * GET /api/deploy/github-account → the GitHub account behind the saved token ({ connected: false } when none)
+ * GET /api/deploy/github-oauth/start → { url } to open in a popup for "Sign in with GitHub"
+ */
+router.get('/github-oauth/start', (req, res) => {
+  try {
+    res.json({ success: true, url: startGithubOAuth(req.user.id, callbackUrl(req)) })
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, error: err.message })
+  }
+})
+
+/**
+ * POST /api/deploy/github-disconnect — forgets the saved GitHub access (and revokes a GitHub sign-in)
+ */
+router.post('/github-disconnect', async (req, res) => {
+  const settings = getUserSettings(req.user.id)
+  if (settings.githubAuthType === 'oauth') await revokeGithubOAuth(settings.githubToken)
+  saveUserSettings(req.user.id, { githubToken: '', githubAuthType: '' })
+  res.json({ success: true, message: 'GitHub disconnected.' })
+})
+
+/**
+ * GET /api/deploy/github-account → the GitHub account behind the saved token ({ connected: false } when none),
+ * plus whether "Sign in with GitHub" is available on this platform
  */
 router.get('/github-account', async (req, res) => {
-  const token = (getUserSettings(req.user?.id)?.githubToken || '').trim()
-  if (!token) return res.json({ success: true, connected: false })
+  const settings = getUserSettings(req.user?.id)
+  const token = (settings.githubToken || '').trim()
+  const base = { success: true, oauthAvailable: githubOAuthAvailable() }
+  if (!token) return res.json({ ...base, connected: false })
   try {
-    const r = await fetch('https://api.github.com/user', {
-      headers: { Authorization: `Bearer ${token.replace(/^(bearer|token) /i, '')}`, 'User-Agent': 'AutoDeploy-Console-App', Accept: 'application/vnd.github.v3+json' },
-      signal: AbortSignal.timeout(15000)
-    })
-    const u = await r.json().catch(() => ({}))
-    if (!r.ok) return res.json({ success: true, connected: false, error: `The saved GitHub token was rejected (${u.message || r.status}). Connect again with a new token.` })
-    res.json({ success: true, connected: true, login: u.login, name: u.name || '', avatarUrl: u.avatar_url || '', profileUrl: u.html_url || '' })
+    const u = await githubUser(token)
+    res.json({ ...base, connected: true, authType: settings.githubAuthType || 'token', login: u.login, name: u.name || '', avatarUrl: u.avatar_url || '', profileUrl: u.html_url || '' })
   } catch (err) {
+    if (err.status === 401) return res.json({ ...base, connected: false, error: 'Your GitHub access has expired or was revoked. Connect GitHub again.' })
     res.status(502).json({ success: false, error: `Could not reach GitHub: ${err.message}` })
   }
 })
 
 /**
- * Fetch Repositories from GitHub API using Personal Access Token
+ * POST /api/deploy/github-repos → every repository the saved GitHub account can reach
  */
 router.post('/github-repos', async (req, res) => {
-  const userId = req.user ? req.user.id : 'admin-001'
-  let tokenToUse = (req.body.githubToken || '').trim()
-
-  if (!tokenToUse) {
-    const userSettings = getUserSettings(userId)
-    tokenToUse = (userSettings.githubToken || '').trim()
+  const token = (getUserSettings(req.user?.id)?.githubToken || '').trim()
+  if (!token) return res.status(400).json({ success: false, error: 'Connect your GitHub account first.' })
+  try {
+    res.json({ success: true, repos: await listGithubRepos(token) })
+  } catch (err) {
+    res.status(err.status === 401 ? 401 : 502).json({ success: false, error: err.status === 401 ? 'Your GitHub access has expired or was revoked. Connect GitHub again.' : err.message })
   }
-
-  if (!tokenToUse) {
-    return res.status(400).json({ success: false, error: 'GitHub Personal Access Token is required' })
-  }
-
-  // Persist token in database for logged-in user
-  saveUserSettings(userId, { githubToken: tokenToUse })
-
-  const options = {
-    hostname: 'api.github.com',
-    path: '/user/repos?per_page=100&sort=updated',
-    method: 'GET',
-    headers: {
-      'Authorization': tokenToUse.startsWith('bearer ') || tokenToUse.startsWith('token ') ? tokenToUse : `Bearer ${tokenToUse}`,
-      'User-Agent': 'AutoDeploy-Console-App',
-      'Accept': 'application/vnd.github.v3+json'
-    }
-  }
-
-  const request = https.request(options, (apiRes) => {
-    let body = ''
-    apiRes.on('data', (chunk) => { body += chunk })
-    apiRes.on('end', () => {
-      if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
-        try {
-          const repos = JSON.parse(body)
-          if (!Array.isArray(repos)) {
-            return res.status(400).json({ success: false, error: repos.message || 'Invalid GitHub response format' })
-          }
-          const formatted = repos.map((repo) => {
-            const cleanUrl = repo.clone_url || ''
-            // Embed token into clone URL if repository is private
-            const authUrl = repo.private
-              ? cleanUrl.replace('https://', `https://${tokenToUse}@`)
-              : cleanUrl
-
-            return {
-              id: repo.id,
-              name: repo.name,
-              full_name: repo.full_name,
-              private: repo.private,
-              description: repo.description,
-              html_url: repo.html_url,
-              clone_url: cleanUrl,
-              authenticated_url: authUrl,
-              default_branch: repo.default_branch || 'main',
-              updated_at: repo.updated_at,
-              language: repo.language
-            }
-          })
-          res.json({ success: true, repos: formatted })
-        } catch (e) {
-          res.status(500).json({ success: false, error: `Failed to parse GitHub API response: ${e.message}` })
-        }
-      } else {
-        let errDetails = `GitHub API error: Status ${apiRes.statusCode}`
-        try {
-          const parsed = JSON.parse(body)
-          if (parsed.message) errDetails = `GitHub API: ${parsed.message}`
-        } catch (e) {}
-        res.status(apiRes.statusCode).json({ success: false, error: errDetails })
-      }
-    })
-  })
-
-  request.on('error', (err) => {
-    res.status(500).json({ success: false, error: `GitHub Request failed: ${err.message}` })
-  })
-
-  request.end()
 })
+
+/**
+ * GET /api/github/oauth/callback?code&state — GitHub redirects the sign-in popup here (no panel login:
+ * the state identifies the user). Saves the token, tells the opener window and closes the popup.
+ */
+export async function githubOAuthCallback(req, res) {
+  let result
+  try {
+    const { login } = await finishGithubOAuth(req.query)
+    result = { ok: true, login, text: `Connected GitHub account ${login}. You can close this window.` }
+  } catch (err) {
+    result = { ok: false, text: err.message }
+  }
+  const msg = JSON.stringify({ type: 'autodeploy:github-connected', ok: result.ok, login: result.login || null, error: result.ok ? null : result.text }).replace(/</g, '\\u003c')
+  const text = result.text.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+  res.set('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'")
+  res.type('html').send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GitHub</title>
+<style>body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:16px;text-align:center}p{max-width:420px}</style></head>
+<body><p>${text}</p><script>
+try { if (window.opener) { window.opener.postMessage(${msg}, location.origin); ${result.ok ? 'setTimeout(function () { window.close() }, 400)' : ''} } } catch (e) {}
+</script></body></html>`)
+}
 
 /**
  * GET /api/deploy/stream/:deployId — Server-Sent Events: replays everything so far, then live events.

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { CreditCard, Mail, MessageSquare, MessageCircle, Bell, Receipt, Send } from 'lucide-react'
+import { CreditCard, Mail, MessageSquare, MessageCircle, Bell, Receipt, Send, Github } from 'lucide-react'
 import { adminApi, formatDate } from './adminApi'
 import { Card, Badge, Button, Field, TextInput, Select, Toggle, Alert, Loading, EmptyState, useAdminData } from './AdminUI'
 import { formatMoney } from '../../utils/razorpay'
@@ -22,6 +22,16 @@ const SECTIONS = {
       { key: 'webhookSecret', label: 'Webhook secret', type: 'secret', hint: 'The secret you enter when creating the webhook in Razorpay.' },
       { key: 'currency', label: 'Currency', type: 'select', options: 'currencies', hint: 'Plan and token pack prices are charged in this currency.' },
       { key: 'businessName', label: 'Name shown in Checkout' }
+    ]
+  },
+  github: {
+    title: 'Sign in with GitHub',
+    icon: Github,
+    intro: 'Lets users connect GitHub with one click instead of creating a personal access token, then pick any of their repositories (private and organization ones included) to deploy.',
+    test: { label: 'Check credentials' },
+    fields: [
+      { key: 'clientId', label: 'Client ID', placeholder: 'Ov23li…' },
+      { key: 'clientSecret', label: 'Client secret', type: 'secret' }
     ]
   },
   email: {
@@ -250,6 +260,7 @@ export default function AdminIntegrations({ apiBaseUrl }) {
 
   const { integrations, currencies, events, payments } = data
   const webhookUrl = `${window.location.origin}/api/billing/razorpay/webhook`
+  const githubCallbackUrl = `${window.location.origin}/api/github/oauth/callback`
 
   return (
     <div className="space-y-6">
@@ -263,6 +274,21 @@ export default function AdminIntegrations({ apiBaseUrl }) {
               </div>
             </Field>
             <p className="text-[11px] text-slate-500">Select the events <span className="font-mono">order.paid</span>, <span className="font-mono">payment.captured</span> and <span className="font-mono">payment.failed</span>. The webhook confirms payments even if the customer closes the browser before returning.</p>
+          </div>
+        )} />
+      <SectionCard id="github" config={integrations.github} currencies={currencies} apiBaseUrl={apiBaseUrl} onSaved={reload}
+        extra={(
+          <div className="space-y-1.5">
+            <p className="text-[11px] text-slate-400">
+              Create an OAuth App at <a href="https://github.com/settings/applications/new" target="_blank" rel="noreferrer" className="text-purple-300 hover:underline">GitHub → Settings → Developer settings → OAuth Apps → New</a> (or under your GitHub organization's settings).
+              Use <span className="font-mono">{window.location.origin}</span> as the Homepage URL and the callback below, then generate a client secret.
+            </p>
+            <Field label="Authorization callback URL">
+              <div className="flex gap-2">
+                <TextInput readOnly value={githubCallbackUrl} onFocus={(e) => e.target.select()} className="font-mono" />
+                <Button size="sm" onClick={() => navigator.clipboard?.writeText(githubCallbackUrl).catch(() => {})}>Copy</Button>
+              </div>
+            </Field>
           </div>
         )} />
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">

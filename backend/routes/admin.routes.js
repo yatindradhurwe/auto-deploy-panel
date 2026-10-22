@@ -51,6 +51,7 @@ import { listTemplates, getTemplate, createTemplate, updateTemplate, deleteTempl
 import { getUserSettings } from '../services/db.service.js'
 import * as projectAgent from '../services/project-agent.service.js'
 import { getPublicIntegrations, saveIntegrationSection, CURRENCIES, NOTIFICATION_EVENTS } from '../services/integrations.service.js'
+import { testGithubApp } from '../services/github.service.js'
 import { sendEmail, sendSms, sendWhatsApp, notifyUser } from '../services/notify.service.js'
 import { testRazorpay, listPayments } from '../services/payments.service.js'
 import { getAiBilling, saveAiBilling, getOrganizationTokenSummary, getLedger, adjustBalance } from '../services/ai-credits.service.js'
@@ -745,7 +746,7 @@ router.get('/idempotency/stats', handle(() => ({ success: true, stats: getIdempo
 router.get('/idempotency/records', handle(() => ({ success: true, records: getAllIdempotencyRecords() })))
 
 // ============================================================================
-// Integrations: payments (Razorpay), email, SMS, WhatsApp, notifications
+// Integrations: payments (Razorpay), GitHub sign-in, email, SMS, WhatsApp, notifications
 // ============================================================================
 
 router.get('/integrations', handle(() => ({
@@ -768,6 +769,7 @@ router.post('/integrations/:section/test', handleAsync(async (req) => {
   const section = req.params.section
   let result
   if (section === 'razorpay') return { success: true, ...(await testRazorpay()) }
+  if (section === 'github') return { success: true, ...(await testGithubApp()) }
   if (!to) throw httpError(400, section === 'email' ? 'Enter an email address to send the test to.' : 'Enter a phone number to send the test to.')
   const text = 'This is a test message from your AutoDeploy platform. If you received it, this channel is set up correctly.'
   if (section === 'email') result = await sendEmail({ to, subject: 'AutoDeploy test email', text })

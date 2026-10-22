@@ -3,7 +3,7 @@ import cors from 'cors'
 import crypto from 'crypto'
 import { execSync } from 'child_process'
 import authRoutes from './routes/auth.routes.js'
-import deployRoutes from './routes/deploy.routes.js'
+import deployRoutes, { githubOAuthCallback } from './routes/deploy.routes.js'
 import studioRoutes from './routes/studio.routes.js'
 import billingRoutes from './routes/billing.routes.js'
 import agentRoutes from './routes/agent.routes.js'
@@ -99,6 +99,8 @@ app.post('/api/webhooks/github/:appName', (req, res) => {
 
 // Public Authentication & Onboarding Routes
 app.use('/api/auth', authRoutes)
+// GitHub redirects the "Sign in with GitHub" popup here; the OAuth state identifies the user
+app.get('/api/github/oauth/callback', githubOAuthCallback)
 
 import { requireTenant } from './middleware/tenant.middleware.js'
 import { requireIdempotency } from './middleware/idempotency.middleware.js'

@@ -3,7 +3,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 
 /**
- * Platform integrations configured by the super admin: Razorpay payments, email (SMTP),
+ * Platform integrations configured by the super admin: Razorpay payments, GitHub sign-in, email (SMTP),
  * SMS (Twilio / MSG91), WhatsApp (Meta Cloud API / Twilio) and which notifications to send.
  *
  * Stored in data/integrations.json (mode 0600) rather than db.json, because it holds secrets.
@@ -25,6 +25,7 @@ export const NOTIFICATION_EVENTS = {
 
 const DEFAULTS = {
   razorpay: { enabled: false, keyId: '', keySecret: '', webhookSecret: '', currency: 'INR', businessName: 'AutoDeploy' },
+  github: { enabled: false, clientId: '', clientSecret: '' },
   email: { enabled: false, host: 'smtp.hostinger.com', port: 465, secure: true, user: '', pass: '', fromName: 'AutoDeploy', fromEmail: '' },
   sms: {
     enabled: false,
@@ -52,6 +53,7 @@ const DEFAULTS = {
 // Paths (section.key or section.sub.key) that hold secrets
 const SECRETS = new Set([
   'razorpay.keySecret', 'razorpay.webhookSecret',
+  'github.clientSecret',
   'email.pass',
   'sms.twilio.authToken', 'sms.msg91.authKey',
   'whatsapp.meta.accessToken', 'whatsapp.twilio.authToken'
@@ -150,6 +152,10 @@ export function saveIntegrationSection(section, update) {
     if (!CURRENCIES.includes(next.currency)) throw httpError(400, `Currency must be one of ${CURRENCIES.join(', ')}.`)
     if (next.keyId && !/^rzp_(test|live)_[A-Za-z0-9]{8,}$/.test(next.keyId)) throw httpError(400, 'Key ID should look like rzp_live_… or rzp_test_….')
     if (next.enabled && (!next.keyId || !next.keySecret)) throw httpError(400, 'Enter the Key ID and Key Secret before enabling Razorpay.')
+  }
+  if (section === 'github') {
+    if (next.clientId && !/^[A-Za-z0-9._-]{8,64}$/.test(next.clientId)) throw httpError(400, 'Client ID should look like Ov23li… or Iv1.….')
+    if (next.enabled && (!next.clientId || !next.clientSecret)) throw httpError(400, 'Enter the Client ID and Client secret before enabling Sign in with GitHub.')
   }
   if (section === 'email') {
     if (next.port && (next.port < 1 || next.port > 65535)) throw httpError(400, 'Port must be between 1 and 65535.')

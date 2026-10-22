@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
 import PwaSettings from './PwaSettings'
+import { signInWithGithub } from '../utils/githubSignIn'
 
 /**
  * Project settings, applied to the real app on its server (see backend project-settings.service):
@@ -108,7 +109,8 @@ function Field({ label, children, hint }) {
 }
 
 /**
- * GitHub account behind the user's saved token, plus a picker for its repositories and branches.
+ * GitHub account behind the user's saved token ("Sign in with GitHub" or a personal access token),
+ * plus a picker for its repositories and branches.
  * Picking a repository fills the URL and branch fields of the Git section.
  */
 function GitHubConnect({ api, locked, gitUrl, onPick, onBranches }) {
@@ -125,6 +127,7 @@ function GitHubConnect({ api, locked, gitUrl, onPick, onBranches }) {
     try {
       const d = await api('/api/deploy/github-repos', { method: 'POST', body: {} })
       setRepos(d.repos || [])
+      setError('')
     } catch (err) {
       setError(err.message)
     } finally {
@@ -164,6 +167,33 @@ function GitHubConnect({ api, locked, gitUrl, onPick, onBranches }) {
     }
   }
 
+  const githubSignIn = async () => {
+    setBusy('oauth')
+    setError('')
+    try {
+      await signInWithGithub(async () => (await api('/api/deploy/github-oauth/start')).url)
+      setChanging(false)
+      setRepos([])
+      await loadAccount()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const disconnect = async () => {
+    if (!window.confirm('Disconnect your GitHub account? Private repositories can no longer be pulled until you connect again.')) return
+    setError('')
+    try {
+      await api('/api/deploy/github-disconnect', { method: 'POST', body: {} })
+      setRepos([])
+      await loadAccount()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   const pick = async (repo) => {
     onPick(repo.clone_url, repo.default_branch || 'main')
     setBusy('branches')
@@ -193,10 +223,20 @@ function GitHubConnect({ api, locked, gitUrl, onPick, onBranches }) {
             <div className="text-[11px] text-slate-500">Private repositories of this account can be connected and pulled.</div>
           </div>
           <button disabled={locked} onClick={() => setChanging(true)} className="px-3 py-1.5 text-[11px] text-slate-300 bg-slate-800 rounded-lg cursor-pointer disabled:opacity-50">Use another account</button>
+          <button disabled={locked} onClick={disconnect} className="px-3 py-1.5 text-[11px] text-slate-400 hover:text-white cursor-pointer disabled:opacity-50">Disconnect</button>
         </div>
       ) : (
         <div className="space-y-2">
-          <p className="text-slate-400">Connect a GitHub account with a Personal Access Token (classic with the <span className="font-mono">repo</span> scope, or fine-grained with read access to Contents). <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer" className="text-cyan-300 hover:underline">Create a token</a></p>
+          {account.oauthAvailable && (
+            <>
+              <p className="text-slate-400">Connect your GitHub account to pick from all your repositories, including private ones and your organizations'.</p>
+              <button disabled={locked || !!busy} onClick={githubSignIn} className="px-4 py-2.5 bg-white hover:bg-slate-200 text-slate-900 font-bold rounded-xl flex items-center gap-2 cursor-pointer disabled:opacity-50">
+                {busy === 'oauth' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <GitBranch className="w-3.5 h-3.5" />}Sign in with GitHub
+              </button>
+              {changing && <p className="text-[11px] text-slate-500">To switch accounts, sign out of github.com in this browser first, or use a token from the other account below.</p>}
+            </>
+          )}
+          <p className="text-slate-400 pt-1">{account.oauthAvailable ? 'Developer? Use a ' : 'Connect a GitHub account with a '}Personal Access Token (classic with the <span className="font-mono">repo</span> scope, or fine-grained with read access to Contents). <a href="https://github.com/settings/tokens/new?scopes=repo,read:org&description=AutoDeploy" target="_blank" rel="noreferrer" className="text-cyan-300 hover:underline">Create a token</a></p>
           <div className="flex gap-2">
             <input type="password" disabled={locked} value={token} onChange={(e) => setToken(e.target.value)} placeholder="ghp_… or github_pat_…" autoComplete="off" className={inputCls} />
             <button disabled={locked || !token.trim() || busy === 'connect'} onClick={connect} className="px-3 py-2 bg-cyan-500/20 border border-cyan-500/40 text-cyan-200 font-bold rounded-xl whitespace-nowrap flex items-center gap-1.5 cursor-pointer disabled:opacity-50">
