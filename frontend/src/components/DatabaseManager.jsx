@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import {
   Database, Table, Play, RefreshCw, Search, Code, Layers, Plus, Trash2, Download, X,
-  AlertTriangle, ChevronRight, ChevronDown, ChevronLeft, FolderGit2, Key, Upload, UserCog, Eye, EyeOff
+  AlertTriangle, ChevronRight, ChevronDown, ChevronLeft, FolderGit2, Key, Upload, UserCog, Eye, EyeOff, Link2, ArrowRightLeft
 } from 'lucide-react'
 import { useAuth } from '../store/AuthContext'
 import { useServers } from '../store/ServersContext'
@@ -13,6 +13,8 @@ const ENGINES = {
   redis: { label: 'Redis', icon: '🔴', badge: 'bg-rose-500/10 text-rose-300 border-rose-500/30', sample: 'KEYS *' },
   sqlite: { label: 'SQLite', icon: '📁', badge: 'bg-purple-500/10 text-purple-300 border-purple-500/30', sample: 'SELECT * FROM "{table}" LIMIT 20;' }
 }
+
+const SUPABASE_BADGE = 'bg-green-500/10 text-green-300 border-green-500/30'
 
 const PAGE_SIZE = 50
 const SYSTEM_DB_USERS = ['root', 'mysql', 'debian-sys-maint', 'postgres', 'admin']
@@ -95,6 +97,16 @@ export default function DatabaseManager({ project }) {
   const [dropDbBusy, setDropDbBusy] = useState(false)
   const [dropDbError, setDropDbError] = useState(null)
 
+  // Connect Supabase / migrate to this server
+  const [showConnect, setShowConnect] = useState(false)
+  const [connectForm, setConnectForm] = useState({ projectPath: '', url: '', envKey: 'DATABASE_URL', replace: false, restart: true })
+  const [connectBusy, setConnectBusy] = useState(false)
+  const [connectResult, setConnectResult] = useState(null) // { ok, message }
+  const [showMigrate, setShowMigrate] = useState(false)
+  const [migrateForm, setMigrateForm] = useState({ name: '', user: '', password: '', targetProjectPath: '', includeAuth: true, restart: true })
+  const [migrateBusy, setMigrateBusy] = useState(false)
+  const [migrateResult, setMigrateResult] = useState(null) // { ok, message, errors, dump, connection }
+
   const getToken = () => jwtToken
 
   const api = async (endpoint, body = {}) => {
@@ -160,6 +172,15 @@ export default function DatabaseManager({ project }) {
       .map(g => ({ ...g, databases: g.title.toLowerCase().includes(q) ? g.databases : g.databases.filter(d => d.database.toLowerCase().includes(q) || d.engine.includes(q)) }))
       .filter(g => g.databases.length)
   }, [discovery, project, sidebarSearch])
+
+  // Projects a database can be connected to (just this one inside the project studio)
+  const scopedProjects = useMemo(() => {
+    const projects = discovery?.projects || []
+    if (!project) return projects
+    const p = (project.path || '').replace(/\/+$/, '')
+    const names = [project.name, project.repoName, project.appName].filter(Boolean).map(n => n.toLowerCase())
+    return projects.filter(x => (p && x.path === p) || names.includes(x.name.toLowerCase()) || names.includes(x.path.split('/').pop().toLowerCase()))
+  }, [discovery, project])
 
   const totalDatabases = useMemo(() => {
     const ids = new Set()
@@ -463,6 +484,62 @@ export default function DatabaseManager({ project }) {
     }
   }
 
+  const refreshAndSelect = async (match) => {
+    const fresh = await api('', { refresh: true })
+    setDiscovery(fresh)
+    const found = [...(fresh.projects || []).flatMap(p => p.databases), ...(fresh.unassigned || [])].find(match)
+    if (found) selectConnection(found)
+  }
+
+  const openConnect = () => {
+    setConnectForm({ projectPath: scopedProjects[0]?.path || '', url: '', envKey: 'DATABASE_URL', replace: false, restart: true })
+    setConnectResult(null)
+    setShowPw(false)
+    setShowConnect(true)
+  }
+
+  const handleConnect = async (e) => {
+    e.preventDefault()
+    setConnectBusy(true)
+    setConnectResult(null)
+    try {
+      const data = await api('/connect-external', connectForm)
+      setConnectResult({ ok: true, message: data.message })
+      flash('Database connected')
+      const host = (() => { try { const u = new URL(connectForm.url.trim()); return `${u.hostname}:${u.port || 5432}` } catch { return null } })()
+      await refreshAndSelect(d => d.host === host && d.projects?.length)
+    } catch (err) {
+      setConnectResult({ ok: false, message: err.message })
+    } finally {
+      setConnectBusy(false)
+    }
+  }
+
+  const openMigrate = () => {
+    const linked = scopedProjects.find(p => p.databases.some(d => d.id === selectedConn.id)) || scopedProjects[0]
+    const base = (linked?.name || selectedConn.database).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24) || 'app'
+    setMigrateForm({ name: `${base}_db`, user: `${base}_user`, password: randomPassword(), targetProjectPath: linked?.path || '', includeAuth: true, restart: true })
+    setMigrateResult(null)
+    setShowPw(false)
+    setShowMigrate(true)
+  }
+
+  const handleMigrate = async (e) => {
+    e.preventDefault()
+    setMigrateBusy(true)
+    setMigrateResult(null)
+    try {
+      const data = await api('/migrate', { connectionId: selectedConn.id, ...migrateForm })
+      setMigrateResult({ ok: true, ...data })
+      flash('Migration finished')
+      await refreshAndSelect(d => d.database === migrateForm.name && !d.external)
+    } catch (err) {
+      setMigrateResult({ ok: false, message: err.message })
+    } finally {
+      setMigrateBusy(false)
+    }
+  }
+
   const handleExport = () => {
     if (!tableData) return
     const blob = new Blob([JSON.stringify(tableData.rows, null, 2)], { type: 'application/json' })
@@ -475,8 +552,10 @@ export default function DatabaseManager({ project }) {
   }
 
   // ---------------------------------------------------------------- render helpers
-  const engineBadge = (engine) => {
-    const e = ENGINES[engine] || { label: engine, icon: '🗄️', badge: 'bg-slate-500/10 text-slate-300 border-slate-500/30' }
+  const engineBadge = (engine, provider) => {
+    const e = provider === 'supabase'
+      ? { label: 'Supabase', icon: '⚡', badge: SUPABASE_BADGE }
+      : ENGINES[engine] || { label: engine, icon: '🗄️', badge: 'bg-slate-500/10 text-slate-300 border-slate-500/30' }
     return (
       <span className={`text-[10px] px-1.5 py-0.5 rounded-md border font-mono font-bold uppercase whitespace-nowrap ${e.badge}`}>
         {e.icon} {e.label}
@@ -523,6 +602,15 @@ export default function DatabaseManager({ project }) {
               ))}
             </div>
           )}
+          <button
+            onClick={openConnect}
+            disabled={!scopedProjects.length}
+            title={scopedProjects.length ? 'Connect a Supabase (or other external PostgreSQL) database to a project' : 'No project found on this server'}
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-green-300 border border-green-500/30 rounded-xl transition cursor-pointer flex items-center space-x-2 text-xs font-bold shadow-sm disabled:opacity-40 disabled:cursor-default"
+          >
+            <Link2 className="w-3.5 h-3.5" />
+            <span>Connect Supabase</span>
+          </button>
           <button
             onClick={openNewDb}
             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-onaccent rounded-xl transition cursor-pointer flex items-center space-x-2 text-xs font-bold shadow-sm"
@@ -614,7 +702,7 @@ export default function DatabaseManager({ project }) {
                         const active = selectedConn?.id === db.id
                         return (
                           <div key={db.id} className="relative group">
-                            {['mysql', 'postgresql', 'sqlite', 'mongodb', 'redis'].includes(db.engine) && (
+                            {['mysql', 'postgresql', 'sqlite', 'mongodb', 'redis'].includes(db.engine) && !(db.engine === 'postgresql' && db.external) && (
                               <button
                                 onClick={() => { if (!active) selectConnection(db); openDropDb() }}
                                 title={`Delete ${db.database} (a backup is taken first)`}
@@ -632,7 +720,7 @@ export default function DatabaseManager({ project }) {
                                 <span className={`text-xs font-mono truncate flex-1 ${active ? 'text-emerald-200 font-bold' : 'text-slate-300'}`}>{db.database}</span>
                               </div>
                               <div className="flex items-center gap-1.5 mt-1 ml-5">
-                                {engineBadge(db.engine)}
+                                {engineBadge(db.engine, db.provider)}
                                 <span className="text-[10px] text-slate-500 font-mono">{db.engine === 'redis' ? `${formatCount(db.keys)} keys` : formatBytes(db.bytes)}</span>
                               </div>
                             </button>
@@ -678,7 +766,7 @@ export default function DatabaseManager({ project }) {
               {/* Connection bar */}
               <div className="px-5 py-3.5 border-b border-white/10 flex flex-wrap items-center gap-x-4 gap-y-2">
                 <div className="flex items-center gap-2 min-w-0">
-                  {engineBadge(selectedConn.engine)}
+                  {engineBadge(selectedConn.engine, selectedConn.provider)}
                   <span className="text-sm font-bold text-white font-mono truncate">{selectedConn.database}</span>
                   {selectedTable && <><ChevronRight className="w-3.5 h-3.5 text-slate-600" /><span className="text-sm font-mono text-cyan-300 truncate">{selectedTable.name}</span></>}
                 </div>
@@ -696,6 +784,11 @@ export default function DatabaseManager({ project }) {
                     <button onClick={openImport} title="Import a .sql / .sql.gz / .dump file" className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-200 flex items-center gap-1.5 cursor-pointer">
                       <Upload className="w-3.5 h-3.5" /> Import
                     </button>
+                    {selectedConn.engine === 'postgresql' && selectedConn.external && (
+                      <button onClick={openMigrate} title="Copy this database into a new PostgreSQL database on this server" className="px-3 py-1.5 rounded-lg bg-green-600/80 hover:bg-green-500 text-onaccent flex items-center gap-1.5 cursor-pointer">
+                        <ArrowRightLeft className="w-3.5 h-3.5" /> Migrate to this server
+                      </button>
+                    )}
                     {selectedConn.engine !== 'sqlite' && (
                       <button onClick={openCreds} title="Change the database username or password" className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-200 flex items-center gap-1.5 cursor-pointer">
                         <UserCog className="w-3.5 h-3.5" /> Credentials
@@ -703,9 +796,9 @@ export default function DatabaseManager({ project }) {
                     )}
                   </div>
                 )}
-                <button onClick={openDropDb} title="Delete this database (a backup is taken first)" className={`${['mysql', 'postgresql', 'sqlite'].includes(selectedConn.engine) ? '' : 'ml-auto '}px-3 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900/60 border border-rose-700/40 text-rose-200 flex items-center gap-1.5 cursor-pointer text-xs font-semibold`}>
+                {!(selectedConn.engine === 'postgresql' && selectedConn.external) && <button onClick={openDropDb} title="Delete this database (a backup is taken first)" className={`${['mysql', 'postgresql', 'sqlite'].includes(selectedConn.engine) ? '' : 'ml-auto '}px-3 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900/60 border border-rose-700/40 text-rose-200 flex items-center gap-1.5 cursor-pointer text-xs font-semibold`}>
                   <Trash2 className="w-3.5 h-3.5" /> Delete
-                </button>
+                </button>}
               </div>
 
               {selectedConn.credsError && (
@@ -1187,6 +1280,144 @@ export default function DatabaseManager({ project }) {
               {!newDbResult?.ok && (
                 <button type="submit" disabled={newDbBusy || !newDb.name.trim()} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-onaccent text-xs font-bold cursor-pointer disabled:opacity-50 flex items-center gap-1.5">
                   {newDbBusy && <RefreshCw className="w-3.5 h-3.5 animate-spin" />} Create database
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Connect Supabase modal */}
+      {showConnect && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <form onSubmit={handleConnect} autoComplete="off" className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+            <div className="px-5 py-3.5 border-b border-white/10 flex items-center justify-between">
+              <span className="text-sm font-bold text-white flex items-center gap-2"><Link2 className="w-4 h-4 text-green-400" /> Connect a Supabase database</span>
+              <button type="button" disabled={connectBusy} onClick={() => setShowConnect(false)} className="text-slate-400 hover:text-white cursor-pointer disabled:opacity-40"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-5 space-y-3 overflow-y-auto">
+              <p className="text-[11px] text-slate-400">The connection is tested from {activeServer?.name || 'this server'}, then saved in the project's .env (a .env.bak copy is kept) so you can browse it here and migrate it onto this server later. Any external PostgreSQL works too.</p>
+              <label className="block">
+                <span className="text-[11px] text-slate-400">Project</span>
+                <select required value={connectForm.projectPath} onChange={(e) => setConnectForm(f => ({ ...f, projectPath: e.target.value }))} className={`mt-1 ${inputCls}`}>
+                  {scopedProjects.map(p => <option key={p.path} value={p.path}>{p.name} — {p.path}</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-[11px] text-slate-400">Connection string <span className="text-slate-600">(Supabase → Connect → Session pooler; the direct db.&lt;ref&gt;.supabase.co host is IPv6 only)</span></span>
+                <div className="relative mt-1">
+                  <input required type={showPw ? 'text' : 'password'} value={connectForm.url} onChange={(e) => setConnectForm(f => ({ ...f, url: e.target.value }))} placeholder="postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres" autoComplete="off" className={`${inputCls} pr-9`} />
+                  <button type="button" onClick={() => setShowPw(v => !v)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-200 cursor-pointer">{showPw ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}</button>
+                </div>
+              </label>
+              <label className="block">
+                <span className="text-[11px] text-slate-400">.env variable</span>
+                <input required value={connectForm.envKey} onChange={(e) => setConnectForm(f => ({ ...f, envKey: e.target.value }))} className={`mt-1 ${inputCls}`} />
+              </label>
+              <label className="flex items-center gap-2 text-[11px] text-slate-300">
+                <input type="checkbox" checked={connectForm.replace} onChange={(e) => setConnectForm(f => ({ ...f, replace: e.target.checked }))} />
+                Replace the existing value if {connectForm.envKey || 'the variable'} is already set
+              </label>
+              <label className="flex items-center gap-2 text-[11px] text-slate-300">
+                <input type="checkbox" checked={connectForm.restart} onChange={(e) => setConnectForm(f => ({ ...f, restart: e.target.checked }))} />
+                Restart the project's app afterwards
+              </label>
+              {connectResult && (
+                <div className={`p-3 rounded-lg text-xs border whitespace-pre-wrap break-all ${connectResult.ok ? 'bg-emerald-950/60 border-emerald-700/50 text-emerald-200' : 'bg-rose-950/60 border-rose-700/50 text-rose-200'}`}>{connectResult.message}</div>
+              )}
+            </div>
+            <div className="px-5 py-3.5 border-t border-white/10 flex justify-end gap-2">
+              <button type="button" disabled={connectBusy} onClick={() => setShowConnect(false)} className="px-4 py-2 rounded-lg bg-slate-800 text-slate-200 text-xs cursor-pointer disabled:opacity-40">{connectResult?.ok ? 'Close' : 'Cancel'}</button>
+              {!connectResult?.ok && (
+                <button type="submit" disabled={connectBusy || !connectForm.url.trim() || !connectForm.projectPath} className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-onaccent text-xs font-bold cursor-pointer disabled:opacity-50 flex items-center gap-1.5">
+                  {connectBusy && <RefreshCw className="w-3.5 h-3.5 animate-spin" />} Test &amp; connect
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Migrate to this server modal */}
+      {showMigrate && selectedConn && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <form onSubmit={handleMigrate} autoComplete="off" className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+            <div className="px-5 py-3.5 border-b border-white/10 flex items-center justify-between">
+              <span className="text-sm font-bold text-white flex items-center gap-2"><ArrowRightLeft className="w-4 h-4 text-green-400" /> Migrate {selectedConn.database} to {activeServer?.name || 'this server'}</span>
+              <button type="button" disabled={migrateBusy} onClick={() => setShowMigrate(false)} className="text-slate-400 hover:text-white cursor-pointer disabled:opacity-40"><X className="w-4 h-4" /></button>
+            </div>
+            {migrateResult?.ok ? (
+              <div className="p-5 space-y-3 overflow-y-auto">
+                <div className="p-3 rounded-lg text-xs border bg-emerald-950/60 border-emerald-700/50 text-emerald-200">{migrateResult.message}</div>
+                {migrateResult.connection?.url && (
+                  <div>
+                    <div className="text-[11px] text-slate-400 mb-1">New connection string:</div>
+                    <div className="flex gap-2">
+                      <code className="flex-1 bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-[11px] text-emerald-200 font-mono break-all">DATABASE_URL={migrateResult.connection.url}</code>
+                      <button type="button" onClick={() => { navigator.clipboard.writeText(`DATABASE_URL=${migrateResult.connection.url}`); flash('Copied') }} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-200 text-xs cursor-pointer">Copy</button>
+                    </div>
+                  </div>
+                )}
+                {migrateResult.errors?.length > 0 && (
+                  <details className="text-[11px] text-amber-200 bg-amber-950/40 border border-amber-700/40 rounded-lg p-2.5">
+                    <summary className="cursor-pointer">{migrateResult.errors.length} statement(s) could not be restored</summary>
+                    <pre className="mt-2 whitespace-pre-wrap break-all font-mono text-amber-200/80">{migrateResult.errors.join('\n')}</pre>
+                  </details>
+                )}
+                <p className="text-[11px] text-slate-500">The source database is unchanged. Its dump is kept on the server at <span className="font-mono break-all">{migrateResult.dump}</span>. Supabase Auth logins, Storage files and the REST/Realtime APIs (supabase-js) still run on Supabase — only the PostgreSQL data was copied.</p>
+              </div>
+            ) : (
+              <div className="p-5 space-y-3 overflow-y-auto">
+                <p className="text-[11px] text-slate-400">Creates a new PostgreSQL database on this server and copies the tables, data, functions and policies of <span className="font-mono text-slate-200">{selectedConn.database}</span> ({selectedConn.host}) into it. The source is only read.</p>
+                {discovery?.engines && !discovery.engines.postgresql && (
+                  <p className="text-[11px] text-amber-200 bg-amber-950/40 border border-amber-700/40 rounded-lg p-2.5">PostgreSQL does not seem to be running on this server. Install it first (apt-get install -y postgresql).</p>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <label className="block">
+                    <span className="text-[11px] text-slate-400">New database name</span>
+                    <input required value={migrateForm.name} onChange={(e) => setMigrateForm(f => ({ ...f, name: e.target.value }))} className={`mt-1 ${inputCls}`} />
+                  </label>
+                  <label className="block">
+                    <span className="text-[11px] text-slate-400">Username</span>
+                    <input required value={migrateForm.user} onChange={(e) => setMigrateForm(f => ({ ...f, user: e.target.value }))} autoComplete="off" className={`mt-1 ${inputCls}`} />
+                  </label>
+                </div>
+                <label className="block">
+                  <span className="text-[11px] text-slate-400">Password <span className="text-slate-600">(new user: 8+ characters, no quotes, backslashes, backticks or $; leave empty for an existing user)</span></span>
+                  <div className="mt-1 flex gap-2">
+                    <div className="relative flex-1">
+                      <input type={showPw ? 'text' : 'password'} value={migrateForm.password} onChange={(e) => setMigrateForm(f => ({ ...f, password: e.target.value }))} autoComplete="new-password" className={`${inputCls} pr-9`} />
+                      <button type="button" onClick={() => setShowPw(v => !v)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-200 cursor-pointer">{showPw ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}</button>
+                    </div>
+                    <button type="button" onClick={() => { setMigrateForm(f => ({ ...f, password: randomPassword() })); setShowPw(true) }} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-200 text-xs cursor-pointer">Generate</button>
+                  </div>
+                </label>
+                <label className="block">
+                  <span className="text-[11px] text-slate-400">Use it in project <span className="text-slate-600">(its .env is pointed at the new database)</span></span>
+                  <select value={migrateForm.targetProjectPath} onChange={(e) => setMigrateForm(f => ({ ...f, targetProjectPath: e.target.value }))} className={`mt-1 ${inputCls}`}>
+                    <option value="">Don't change any project</option>
+                    {(project ? scopedProjects : discovery?.projects || []).map(p => <option key={p.path} value={p.path}>{p.name} — {p.path}</option>)}
+                  </select>
+                </label>
+                <label className="flex items-center gap-2 text-[11px] text-slate-300">
+                  <input type="checkbox" checked={migrateForm.includeAuth} onChange={(e) => setMigrateForm(f => ({ ...f, includeAuth: e.target.checked }))} />
+                  Include Supabase Auth users (the auth schema, often referenced by your tables)
+                </label>
+                {migrateForm.targetProjectPath && (
+                  <label className="flex items-center gap-2 text-[11px] text-slate-300">
+                    <input type="checkbox" checked={migrateForm.restart} onChange={(e) => setMigrateForm(f => ({ ...f, restart: e.target.checked }))} />
+                    Restart the project's app afterwards
+                  </label>
+                )}
+                {migrateBusy && <div className="text-xs text-slate-300 flex items-center gap-2"><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Dumping and restoring… this can take a while for big databases.</div>}
+                {migrateResult && !migrateResult.ok && <div className="p-3 rounded-lg text-xs border bg-rose-950/60 border-rose-700/50 text-rose-200 whitespace-pre-wrap break-all">{migrateResult.message}</div>}
+              </div>
+            )}
+            <div className="px-5 py-3.5 border-t border-white/10 flex justify-end gap-2">
+              <button type="button" disabled={migrateBusy} onClick={() => setShowMigrate(false)} className="px-4 py-2 rounded-lg bg-slate-800 text-slate-200 text-xs cursor-pointer disabled:opacity-40">{migrateResult?.ok ? 'Close' : 'Cancel'}</button>
+              {!migrateResult?.ok && (
+                <button type="submit" disabled={migrateBusy || !migrateForm.name.trim() || !migrateForm.user.trim()} className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-onaccent text-xs font-bold cursor-pointer disabled:opacity-50 flex items-center gap-1.5">
+                  {migrateBusy ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <ArrowRightLeft className="w-3.5 h-3.5" />} Migrate
                 </button>
               )}
             </div>

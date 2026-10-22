@@ -509,6 +509,8 @@ export async function discoverDatabases(host, { force = false, registered = [] }
     engine: e.engine,
     database: e.engine === 'redis' ? `db${e.database}` : e.database,
     host: e.engine === 'sqlite' ? e.file : `${e.host}:${e.port}`,
+    provider: e.engine === 'postgresql' && isSupabaseHost(e.host) ? 'supabase' : null,
+    external: e.engine !== 'sqlite' && !isLocalHost(e.host),
     user: e.engine === 'sqlite' ? null : (e.user || null),
     appUser: e.engine === 'sqlite' ? null : (e.appUser || e.user || null),
     auth: e.peer ? 'peer (postgres)' : e.useAdmin ? 'server admin login' : (e.password ? 'password' : 'none'),
@@ -1051,7 +1053,8 @@ export async function importDatabase(host, connectionId, upload) {
 
   const remote = `/tmp/autodeploy-import-${rand()}${upload.ext}`
   await host.putFile(upload.file, remote)
-  const cat = upload.ext === '.sql.gz' ? `gunzip -c ${q(remote)}` : `cat ${q(remote)}`
+  // pg_dump 17+ writes `SET transaction_timeout = 0;`, which older servers reject (0 is the default anyway)
+  const cat = `${upload.ext === '.sql.gz' ? `gunzip -c ${q(remote)}` : `cat ${q(remote)}`}${entry.engine === 'postgresql' ? " | sed -e '/^SET transaction_timeout = 0;$/d'" : ''}`
   let cmd
   if (entry.engine === 'mysql') {
     cmd = `${cat} | ${mysqlShell(entry)} ${q(entry.database)}`
@@ -1421,4 +1424,291 @@ export async function dropDatabase(host, connectionId, { confirm, dropUser = fal
 
   discoveryCache.delete(host.id)
   return { message: `Deleted ${entry.database}${notes.length ? `; ${notes.join('; ')}` : ''}. A backup is at ${backup}.`, backup }
+}
+
+// ---------------------------------------------------------------------------------------------
+// External (Supabase) databases: connect to a project, migrate onto this server
+// ---------------------------------------------------------------------------------------------
+
+/** Supabase hosts: db.<ref>.supabase.co (direct) and *.pooler.supabase.com (Supavisor). */
+export const isSupabaseHost = (h) => /(^|\.)supabase\.(co|com|net)$/i.test(String(h || ''))
+
+// Schemas Supabase manages itself; they hold platform internals that a plain PostgreSQL can't restore
+const SUPABASE_INTERNAL_SCHEMAS = ['auth', 'storage', 'realtime', '_realtime', 'supabase_functions', 'supabase_migrations',
+  'extensions', 'graphql', 'graphql_public', 'pgbouncer', 'pgsodium', 'pgsodium_masks', 'vault', 'net', 'cron', '_analytics', 'pgtle', 'tiger', 'topology']
+// Roles Supabase row level security policies and grants refer to
+const SUPABASE_ROLES = ['anon', 'authenticated', 'service_role']
+const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/
+const HOST_KEYS = new Set(['DB_HOST', 'PGHOST', 'POSTGRES_HOST', 'DATABASE_HOST'])
+const PORT_KEYS = new Set(['DB_PORT', 'PGPORT', 'POSTGRES_PORT', 'DATABASE_PORT'])
+const NAME_KEYS = new Set(['DB_NAME', 'DB_DATABASE', 'PGDATABASE', 'POSTGRES_DB', 'DATABASE_NAME'])
+
+/** Parses a postgres:// connection string into an entry the psql helpers accept. */
+function parsePgUrl(url) {
+  url = String(url || '').trim()
+  let u
+  try { u = new URL(url) } catch { throw httpErr(400, 'Enter a connection string like postgresql://user:password@host:5432/postgres') }
+  if (engineFromScheme(u.protocol.replace(/:$/, '')) !== 'postgresql') throw httpErr(400, 'Only PostgreSQL connection strings (postgres:// or postgresql://) are supported.')
+  if (!u.hostname) throw httpErr(400, 'The connection string has no host.')
+  if (/[\s'"`$\\]/.test(url)) throw httpErr(400, 'The connection string cannot contain spaces, quotes, backticks, backslashes or $ (URL-encode them).')
+  return {
+    engine: 'postgresql',
+    host: decodeURIComponent(u.hostname).replace(/^\[|\]$/g, ''),
+    port: Number(u.port) || 5432,
+    user: decodeURIComponent(u.username || 'postgres'),
+    password: decodeURIComponent(u.password || ''),
+    database: decodeURIComponent(u.pathname.replace(/^\//, '').split('/')[0] || 'postgres'),
+    url
+  }
+}
+
+const pgErrorHint = (msg) => {
+  if (/Network is unreachable|could not translate host|No route to host/i.test(msg)) return `${msg}\nSupabase's direct connection (db.<ref>.supabase.co) is IPv6 only. Use the Session pooler connection string (…pooler.supabase.com:5432) from Supabase → Connect.`
+  if (/password authentication failed/i.test(msg)) return `${msg}\nCheck the database password (Supabase → Project Settings → Database). Pooler logins look like postgres.<project-ref>.`
+  return msg
+}
+
+/** Checks that this server can log in with the connection string. Returns the server's major version. */
+async function probePg(host, spec) {
+  if (!(await host.exec('command -v psql >/dev/null && echo ok', { timeout: 15000 })).stdout.includes('ok')) {
+    throw httpErr(400, 'The PostgreSQL client (psql) is not installed on this server. Install it with: apt-get install -y postgresql-client')
+  }
+  try {
+    const out = await psql({ ...spec, _exec: host, peer: false }, 'SHOW server_version_num')
+    return Math.floor(Number(out.trim()) / 10000)
+  } catch (e) {
+    throw httpErr(400, `Could not connect: ${pgErrorHint(scrubbed(spec, e.message))}`)
+  }
+}
+
+/** Sets KEY=value in .env text (replacing the existing line). Returns { text, previous }. */
+function upsertEnvVar(text, key, value) {
+  let previous = null
+  let found = false
+  const lines = text.split('\n').map(line => {
+    const m = line.match(/^(\s*(?:export\s+)?)([A-Za-z_][A-Za-z0-9_]*)(\s*=\s*)(.*?)(\r?)$/)
+    if (!m || m[2] !== key || found) return line
+    found = true
+    previous = m[4].replace(/^(["'])(.*)\1$/, '$2')
+    return `${m[1]}${key}${m[3]}${value}${m[5]}`
+  })
+  if (!found) {
+    const at = lines[lines.length - 1] === '' ? lines.length - 1 : lines.length
+    lines.splice(at, 0, `${key}=${value}`)
+  }
+  return { text: lines.join('\n'), previous }
+}
+
+/** The project's main .env: the first existing .env file in the project folder (or backend/, server/, api/), else <project>/.env. */
+async function primaryEnvFile(host, projectPath) {
+  for (const sd of ENV_SUBDIRS) {
+    for (const f of ENV_FILES) {
+      const file = sd ? `${projectPath}/${sd}/${f}` : `${projectPath}/${f}`
+      if (await host.exists(file)) return file
+    }
+  }
+  return `${projectPath}/.env`
+}
+
+async function writeEnvWithBackup(host, file, before, after) {
+  if (before !== null) await host.writeFile(`${file}.bak`, before, { mode: 0o600 })
+  await host.writeFile(file, after, { mode: 0o600 })
+}
+
+async function restartPm2(host, names) {
+  const restarted = []
+  for (const n of names) {
+    const r = await host.run('pm2', ['restart', n, '--update-env'], { timeout: 60000 })
+    if (r.code === 0) restarted.push(n)
+  }
+  return restarted
+}
+
+/** PM2 process names of one discovered project. */
+async function projectPm2(host, projectPath) {
+  const projects = await discoverHostProjects(host, [])
+  return (projects.find(p => p.path === projectPath)?.pm2Processes || []).map(x => x.name)
+}
+
+/**
+ * Connects an external PostgreSQL database (typically Supabase) to a project: checks that this
+ * server can log in, then writes the connection string to the project's .env under `envKey`, so it
+ * is discovered like any other project database. An existing different value needs `replace`.
+ */
+export async function connectExternalDatabase(host, { projectPath, url, envKey = 'DATABASE_URL', replace = false, restart = false }) {
+  if (!projectPath) throw httpErr(400, 'Choose the project to connect the database to.')
+  envKey = String(envKey || 'DATABASE_URL').trim()
+  if (!ENV_KEY_RE.test(envKey)) throw httpErr(400, 'Variable name: letters, numbers and underscores.')
+  const spec = parsePgUrl(url)
+  await probePg(host, spec)
+
+  const file = await primaryEnvFile(host, projectPath)
+  const before = (await host.exists(file)) ? await host.readFile(file) : null
+  const { text, previous } = upsertEnvVar(before ?? '', envKey, spec.url)
+  if (previous === spec.url) return { message: `${envKey} in ${file} already points at this database.`, file, restarted: [] }
+  if (previous !== null && previous !== '' && !replace) {
+    throw httpErr(409, `${envKey} is already set in ${file}. Tick "Replace the existing value" to overwrite it (a .env.bak copy is kept), or use another variable name.`)
+  }
+  await writeEnvWithBackup(host, file, before, text.endsWith('\n') ? text : `${text}\n`)
+  const restarted = restart ? await restartPm2(host, await projectPm2(host, projectPath)) : []
+  discoveryCache.delete(host.id)
+  const where = isSupabaseHost(spec.host) ? 'Supabase database' : `database on ${spec.host}`
+  return {
+    message: `Connected the ${where} ${spec.database} as ${envKey} in ${file}${restarted.length ? ` and restarted ${restarted.join(', ')}` : ''}.`,
+    file,
+    restarted
+  }
+}
+
+/** pg_dump that can dump a server of `major` (pg_dump refuses servers newer than itself), or null. */
+async function pgDumpFor(host, major) {
+  const out = (await host.exec('for b in /usr/lib/postgresql/*/bin/pg_dump $(command -v pg_dump); do [ -x "$b" ] && echo "$($b --version | grep -oE \'[0-9]+\' | head -1) $b"; done', { timeout: 15000 })).stdout
+  const bins = out.split('\n').map(l => l.trim().split(' ')).filter(([v, b]) => b && Number(v) >= major).sort((a, b) => Number(b[0]) - Number(a[0]))
+  return bins[0]?.[1] || null
+}
+
+/** Rewrites .env lines that point at `source` so they point at the new local database. */
+function repointEnv(text, dir, source, target) {
+  const sameDb = (s) => s.engine === 'postgresql' && normHost(s.host) === normHost(source.host) && s.database === source.database
+  if (!connectionsFromEnv(parseEnvText(text), dir).some(sameDb)) return null
+  const hostLine = text.split('\n').some(l => { const m = l.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*["']?([^"'\s#]*)/); return m && HOST_KEYS.has(m[1]) && normHost(m[2]) === normHost(source.host) })
+  let changed = false
+  const out = text.split('\n').map(line => {
+    const m = line.match(/^(\s*(?:export\s+)?)([A-Za-z_][A-Za-z0-9_]*)(\s*=\s*)(.*?)(\r?)$/)
+    if (!m) return line
+    const [, pre, key, eq, raw, cr] = m
+    const quote = /^(["'])(.*)\1$/.exec(raw)
+    const val = quote ? quote[2] : raw
+    let next = val
+    if (/^postgres(ql)?:\/\//i.test(val)) {
+      try {
+        const u = new URL(val)
+        if (normHost(decodeURIComponent(u.hostname)) === normHost(source.host) && decodeURIComponent(u.pathname.replace(/^\//, '').split('/')[0] || 'postgres') === source.database) next = target.url
+      } catch { /* not a URL */ }
+    } else if (hostLine) {
+      if (HOST_KEYS.has(key)) next = '127.0.0.1'
+      else if (PORT_KEYS.has(key)) next = '5432'
+      else if (NAME_KEYS.has(key)) next = target.database
+      else if (USER_KEYS.has(key)) next = target.user
+      else if (PASS_KEYS.has(key)) next = target.password
+    }
+    if (next === val) return line
+    changed = true
+    const q2 = quote ? quote[1] : ''
+    return `${pre}${key}${eq}${q2}${next}${q2}${cr}`
+  })
+  return changed ? out.join('\n') : null
+}
+
+const IGNORED_RESTORE_ERRORS = /already exists|transaction_timeout|must be owner of (extension|schema)|COMMENT ON EXTENSION|unrecognized configuration parameter|role "(postgres|supabase_\w+)" does not exist/i
+
+/**
+ * Copies an external PostgreSQL database (typically Supabase) into a new PostgreSQL database on
+ * this server: creates the database and its user, recreates Supabase's roles (anon,
+ * authenticated, service_role) and extensions, dumps the source's own schemas (plus `auth` with
+ * `includeAuth`) and restores them as the new user. With `targetProjectPath`, that project's .env
+ * is pointed at the new database (lines that referenced the source are rewritten; otherwise
+ * DATABASE_URL is set) and its PM2 apps can be restarted. The source is not changed.
+ */
+export async function migrateToLocal(host, connectionId, { name, user, password, targetProjectPath = null, includeAuth = true, restart = true }) {
+  const source = await getEntry(host, connectionId)
+  if (source.engine !== 'postgresql' || source.peer || isLocalHost(source.host)) throw httpErr(400, 'Only an external PostgreSQL database (such as Supabase) can be migrated onto this server.')
+  if (!await hasPgPeer(host)) throw httpErr(400, 'PostgreSQL is not installed on this server. Install it first (apt-get install -y postgresql), then migrate.')
+  name = String(name || '').trim()
+  user = String(user || '').trim()
+  if (!DB_NAME_RE.test(name)) throw httpErr(400, 'Database name: up to 64 letters, numbers and underscores.')
+  if (!user) throw httpErr(400, 'Enter a username for the new database.')
+  if ((await psql({ _exec: host, peer: true, database: 'postgres' }, `SELECT 1 FROM pg_database WHERE datname = ${pgLit(name)}`)).trim() === '1') throw httpErr(400, `Database "${name}" already exists on this server.`)
+  const srcSpec = { ...source, _exec: host, peer: false }
+  const major = await probePg(host, srcSpec)
+  const pgDump = await pgDumpFor(host, major)
+  if (!pgDump) throw httpErr(400, `The source runs PostgreSQL ${major}, newer than this server's pg_dump. Install a matching client first: apt-get install -y postgresql-client-${major} (from the PostgreSQL apt repository, apt.postgresql.org).`)
+
+  // The source's own schemas, without Supabase internals
+  const schemas = (await pgJson(srcSpec, `SELECT nspname AS name FROM pg_namespace WHERE nspname NOT LIKE 'pg\\_%' AND nspname <> 'information_schema' AND nspname NOT IN (${SUPABASE_INTERNAL_SCHEMAS.map(pgLit).join(', ')}) ORDER BY 1`)).map(r => r.name)
+  if (includeAuth && (await psql(srcSpec, "SELECT 1 FROM pg_namespace WHERE nspname = 'auth'")).trim() === '1') schemas.push('auth')
+  if (!schemas.length) throw httpErr(400, 'The source database has no schemas of its own to copy.')
+  const extensions = await pgJson(srcSpec, "SELECT e.extname AS name, n.nspname AS schema FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace WHERE e.extname <> 'plpgsql'")
+
+  // 1. Dump first: nothing is created on this server if the source can't be read
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)
+  const dump = `${BACKUP_DIR}/${String(source.database).replace(/[^\w.-]/g, '_')}-to-${name}-${stamp}-migration.sql.gz`
+  await host.exec(`mkdir -p ${BACKUP_DIR} && chmod 700 ${BACKUP_DIR}`)
+  const dumpCmd = `PGPASSWORD=${q(source.password || '')} PGCONNECT_TIMEOUT=10 ${q(pgDump)} --no-owner --no-privileges --no-publications --no-subscriptions --quote-all-identifiers -h ${q(source.host)} -p ${q(source.port)} -U ${q(source.user || 'postgres')} -d ${q(source.database)} ${schemas.map(s => `-n ${q(s)}`).join(' ')}`
+  const d = await host.exec(`set -o pipefail; umask 077; ${dumpCmd} | gzip > ${q(dump)}`, { timeout: 60 * 60 * 1000 })
+  if (d.code !== 0) {
+    await host.exec(`rm -f ${q(dump)}`).catch(() => {})
+    throw httpErr(500, `Could not dump the source database: ${pgErrorHint(scrubbed(source, d.stderr || d.stdout).trim().split('\n').slice(-4).join('\n'))}`)
+  }
+
+  // 2. The new database and its user
+  const created = await createDatabase(host, { engine: 'postgresql', name, user, password })
+  const peer = { _exec: host, peer: true, database: 'postgres' }
+  const peerDb = { _exec: host, peer: true, database: name }
+  for (const role of SUPABASE_ROLES) {
+    await psql(peer, `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${pgLit(role)}) THEN CREATE ROLE ${pgIdent(role)} NOLOGIN; END IF; END $$`)
+  }
+  // The app's user can act as the Supabase roles, so policies and grants that name them restore
+  await psql(peer, `GRANT ${SUPABASE_ROLES.map(pgIdent).join(', ')} TO ${pgIdent(user)}`)
+
+  // 3. Extensions the source uses (where this server has them)
+  const skippedExtensions = []
+  for (const ext of extensions) {
+    if (SUPABASE_INTERNAL_SCHEMAS.includes(ext.schema) && ext.schema !== 'extensions') continue
+    try {
+      await psql(peerDb, `CREATE SCHEMA IF NOT EXISTS ${pgIdent(ext.schema)}; GRANT USAGE ON SCHEMA ${pgIdent(ext.schema)} TO ${pgIdent(user)}, ${SUPABASE_ROLES.map(pgIdent).join(', ')}; CREATE EXTENSION IF NOT EXISTS ${pgIdent(ext.name)} WITH SCHEMA ${pgIdent(ext.schema)}`)
+    } catch {
+      skippedExtensions.push(ext.name)
+    }
+  }
+
+  // 4. Restore as the app's user, so it owns every object. Errors are collected, not fatal:
+  // Supabase dumps carry platform-specific statements that a plain PostgreSQL can't run.
+  const restore = await host.exec(`set -o pipefail; { echo ${q(`SET ROLE ${pgIdent(user)};`)}; gunzip -c ${q(dump)}; } | runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=0 -d ${q(name)} 2>&1 >/dev/null`, { timeout: 60 * 60 * 1000 })
+  if (restore.code !== 0) throw httpErr(500, `Restore into ${name} failed (the dump is kept at ${dump}): ${String(restore.stdout || restore.stderr).trim().split('\n').slice(-4).join('\n')}`)
+  const errors = String(restore.stdout || '').split('\n').filter(l => /ERROR:/.test(l) && !IGNORED_RESTORE_ERRORS.test(l)).map(l => l.replace(/^psql:[^:]*:\d+:\s*/, ''))
+  const tables = Number((await psql(peerDb, `SELECT count(*) FROM pg_tables WHERE schemaname IN (${schemas.map(pgLit).join(', ')})`)).trim())
+
+  // 5. Point the project at the new database
+  const target = { database: name, user, password, url: password ? `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@127.0.0.1:5432/${name}` : null }
+  const updatedFiles = []
+  let restarted = []
+  if (targetProjectPath && target.url) {
+    for (const sd of ENV_SUBDIRS) {
+      const dir = sd ? `${targetProjectPath}/${sd}` : targetProjectPath
+      for (const f of ENV_FILES) {
+        const file = `${dir}/${f}`
+        if (!await host.exists(file)) continue
+        const before = await host.readFile(file)
+        const after = repointEnv(before, dir, source, target)
+        if (after === null) continue
+        await writeEnvWithBackup(host, file, before, after)
+        updatedFiles.push(file)
+      }
+    }
+    if (!updatedFiles.length) {
+      const file = await primaryEnvFile(host, targetProjectPath)
+      const before = (await host.exists(file)) ? await host.readFile(file) : null
+      const { text } = upsertEnvVar(before ?? '', 'DATABASE_URL', target.url)
+      await writeEnvWithBackup(host, file, before, text.endsWith('\n') ? text : `${text}\n`)
+      updatedFiles.push(file)
+    }
+    if (restart) restarted = await restartPm2(host, await projectPm2(host, targetProjectPath))
+  }
+
+  discoveryCache.delete(host.id)
+  const notes = []
+  if (errors.length) notes.push(`${errors.length} statement(s) could not be restored`)
+  if (skippedExtensions.length) notes.push(`extensions not available on this server: ${skippedExtensions.join(', ')}`)
+  return {
+    message: `Copied ${tables} table(s) from ${source.database} on ${source.host} into ${name} on this server.${updatedFiles.length ? ` Updated ${updatedFiles.length} .env file(s)${restarted.length ? ` and restarted ${restarted.join(', ')}` : ''}.` : ''}${notes.length ? ` Note: ${notes.join('; ')}.` : ''}`,
+    tables,
+    schemas,
+    errors: errors.slice(0, 50),
+    skippedExtensions,
+    dump,
+    updatedFiles,
+    restarted,
+    connection: { ...created.connection, url: target.url || created.connection.url }
+  }
 }

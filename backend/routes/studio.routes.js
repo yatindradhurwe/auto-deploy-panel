@@ -54,7 +54,9 @@ import {
   importDatabase,
   changeCredentials,
   createDatabase,
-  dropDatabase
+  dropDatabase,
+  connectExternalDatabase,
+  migrateToLocal
 } from '../services/database.service.js'
 import { initUpload, appendChunk, completeUpload, getReadyUpload } from '../services/upload.service.js'
 
@@ -641,6 +643,30 @@ router.post('/databases/create', dbHandler((body, req, host) => createDatabase(h
 router.post('/databases/delete', dbHandler(async (body, req, host) => {
   await requireDbManager(req, host, body.connectionId)
   return dropDatabase(host, body.connectionId, body)
+}))
+
+/** A project on the selected server that the caller manages; its .env is about to be written. */
+async function requireManagedProject(req, host, projectPath) {
+  const dir = path.posix.resolve(String(projectPath || '/'))
+  const { projects } = await discoverDatabases(host, { registered: registeredProjectsFor(req.tenant?.server || null, req.tenant?.organizationId, isSuperAdminUser(req)) })
+  if (!projects.some(p => p.path === dir)) throw Object.assign(new Error(`Project not found on ${host.label}: ${projectPath || '(none)'}`), { status: 404 })
+  if (!['super', 'owner'].includes(req.studioAccess?.level) && !hasLevel(projectLevel(req, { projectPath: dir }), 'manager')) {
+    throw Object.assign(new Error('You need manager access to this project to change its database connection.'), { status: 403 })
+  }
+  return dir
+}
+
+/** POST /api/studio/databases/connect-external { projectPath, url, envKey?, replace?, restart? } — e.g. a Supabase database */
+router.post('/databases/connect-external', dbHandler(async (body, req, host) => {
+  const projectPath = await requireManagedProject(req, host, body.projectPath)
+  return connectExternalDatabase(host, { ...body, projectPath })
+}))
+
+/** POST /api/studio/databases/migrate { connectionId, name, user, password, targetProjectPath?, includeAuth?, restart? } — external PostgreSQL → this server */
+router.post('/databases/migrate', dbHandler(async (body, req, host) => {
+  await requireDbManager(req, host, body.connectionId)
+  const targetProjectPath = body.targetProjectPath ? await requireManagedProject(req, host, body.targetProjectPath) : null
+  return migrateToLocal(host, body.connectionId, { ...body, targetProjectPath })
 }))
 
 const TREE_SKIP = ['node_modules', '.git', 'dist', '.user_uploaded', 'chunks']
