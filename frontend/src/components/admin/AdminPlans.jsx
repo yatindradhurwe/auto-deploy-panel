@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { CreditCard, Plus, Pencil, Trash2, Check, X, EyeOff } from 'lucide-react'
 import { adminApi } from './adminApi'
+import { formatMoney } from '../../utils/razorpay'
 import { Card, Badge, Button, Modal, ConfirmDialog, Field, TextInput, Alert, Loading, useAdminData } from './AdminUI'
 
 const LIMITS = [
@@ -94,7 +95,7 @@ export default function AdminPlans({ apiBaseUrl }) {
                 {!p.isPublic && <Badge tone="amber"><EyeOff className="w-3 h-3 mr-1" />Hidden</Badge>}
               </div>
               <div>
-                <span className="text-3xl font-black text-white tabular-nums">${p.priceMonthly}</span>
+                <span className="text-3xl font-black text-white tabular-nums">{formatMoney(p.priceMonthly, data?.currency)}</span>
                 <span className="text-xs text-slate-500"> / month</span>
               </div>
               <ul className="space-y-1.5 text-xs">

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Building, Ban, CheckCircle2, Trash2, CreditCard, Pencil, Server, FolderGit2, Users } from 'lucide-react'
 import { adminApi, formatDate, timeAgo } from './adminApi'
+import { formatMoney } from '../../utils/razorpay'
 import {
   Card, Badge, StatusBadge, Button, SearchInput, Select, Modal, ConfirmDialog, Field, TextInput,
   Alert, EmptyState, Loading, useAdminData
@@ -8,7 +9,7 @@ import {
 
 const ORG_ROLES = ['OWNER', 'ADMIN', 'DEVELOPER', 'VIEWER']
 
-function OrgDetailModal({ orgId, plans, onClose, onChanged, apiBaseUrl }) {
+function OrgDetailModal({ orgId, plans, currency, onClose, onChanged, apiBaseUrl }) {
   const { data, loading, error, reload } = useAdminData(
     () => (orgId ? adminApi(`/organizations/${orgId}`, { apiBaseUrl }) : Promise.resolve(null)),
     [orgId]
@@ -101,7 +102,7 @@ function OrgDetailModal({ orgId, plans, onClose, onChanged, apiBaseUrl }) {
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
               <Field label="Plan">
                 <Select value={planForm.planId} onChange={(v) => setPlanForm({ ...planForm, planId: v })} className="w-full"
-                  options={plans.map((p) => ({ value: p.id, label: `${p.name} ($${p.priceMonthly})` }))} />
+                  options={plans.map((p) => ({ value: p.id, label: `${p.name} (${formatMoney(p.priceMonthly, currency)}/mo)` }))} />
               </Field>
               <Field label="Status">
                 <Select value={planForm.status} onChange={(v) => setPlanForm({ ...planForm, status: v })} className="w-full"
@@ -280,7 +281,7 @@ export default function AdminOrganizations({ apiBaseUrl }) {
           </table>
         </div>
       )}
-      <OrgDetailModal orgId={selectedId} plans={plans} onClose={() => setSelectedId(null)} onChanged={reload} apiBaseUrl={apiBaseUrl} />
+      <OrgDetailModal orgId={selectedId} plans={plans} currency={planData?.currency} onClose={() => setSelectedId(null)} onChanged={reload} apiBaseUrl={apiBaseUrl} />
     </Card>
   )
 }

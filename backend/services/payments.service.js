@@ -123,7 +123,7 @@ function fulfill(orderId, { paymentId, source }) {
     resourceId: record.itemId,
     details: { orderId, paymentId, amount: record.amount / 100, currency: record.currency, via: source }
   })
-  const amount = `${record.currency} ${(record.amount / 100).toFixed(2)}`
+  const amount = new Intl.NumberFormat(record.currency === 'INR' ? 'en-IN' : 'en-US', { style: 'currency', currency: record.currency }).format(record.amount / 100)
   notifyUser(record.userId, 'paymentReceipt', {
     subject: 'Payment received',
     text: `Thank you! We received ${amount} for ${record.description}.\nPayment ID: ${paymentId}\nOrder ID: ${orderId}`

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Bot, Coins, Plus, Trash2, History, Gift } from 'lucide-react'
 import { adminApi, formatDate, timeAgo } from './adminApi'
+import { formatMoney } from '../../utils/razorpay'
 import { Card, Badge, Button, Modal, Field, TextInput, Alert, Loading, EmptyState, StatCard, useAdminData } from './AdminUI'
 
 const PROVIDER_TONE = { claude: 'amber', openai: 'green', gemini: 'cyan' }
@@ -174,7 +175,7 @@ export default function AdminAI({ apiBaseUrl }) {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard label="Tokens used" value={fmt(totals.used)} hint="All organizations" icon={Bot} />
         <StatCard label="Outstanding balance" value={fmt(totals.balance)} hint="Tokens bought, not yet used" icon={Coins} tone="text-amber-400" />
-        <StatCard label="Token sales" value={`$${totals.revenue.toFixed(2)}`} hint="From pack purchases" icon={Gift} tone="text-emerald-400" />
+        <StatCard label="Token sales" value={formatMoney(totals.revenue, data?.currency)} hint="From pack purchases" icon={Gift} tone="text-emerald-400" />
       </div>
 
       <Card title="AI models & API keys" icon={Bot}>
@@ -242,7 +243,7 @@ export default function AdminAI({ apiBaseUrl }) {
                       <td className="px-3 py-2">{orgName[e.organizationId] || e.organizationId}</td>
                       <td className="px-3 py-2"><Badge tone={tone}>{label}</Badge></td>
                       <td className="px-3 py-2 text-slate-400 truncate max-w-[260px]">
-                        {e.type === 'usage' ? `${e.projectName || ''} · ${e.model || e.provider}` : e.type === 'purchase' ? `${e.packName} · $${e.amount}` : e.note || ''}
+                        {e.type === 'usage' ? `${e.projectName || ''} · ${e.model || e.provider}` : e.type === 'purchase' ? `${e.packName} · ${formatMoney(e.amount, e.currency || data?.currency)}` : e.note || ''}
                       </td>
                       <td className={`px-3 py-2 text-right tabular-nums font-semibold ${e.delta > 0 ? 'text-emerald-300' : 'text-slate-300'}`}>{e.delta > 0 ? '+' : ''}{fmt(e.delta)}</td>
                     </tr>

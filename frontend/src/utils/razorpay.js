@@ -60,10 +60,13 @@ export async function purchase({ apiBaseUrl = '', token, startUrl, body }) {
   return verified.message
 }
 
+/** Formats money the same way on every screen: INR in Indian grouping (₹1,00,000), other currencies in en-US style. */
 export function formatMoney(amount, currency = 'INR') {
+  const value = Number(amount) || 0
+  const digits = value % 1 ? 2 : 0
   try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: Number(amount) % 1 ? 2 : 0 }).format(Number(amount) || 0)
+    return new Intl.NumberFormat(currency === 'INR' ? 'en-IN' : 'en-US', { style: 'currency', currency, minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value)
   } catch {
-    return `${currency} ${amount}`
+    return `${currency} ${value.toFixed(digits)}`
   }
 }

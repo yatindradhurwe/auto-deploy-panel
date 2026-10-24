@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react'
 import { Users, UserPlus, KeyRound, LogOut, Ban, CheckCircle2, Trash2, Eye, Crown, Pencil, Building, UserX, ShieldCheck, Activity, X } from 'lucide-react'
 import { adminApi, formatDate, timeAgo, startImpersonation } from './adminApi'
+import { formatMoney } from '../../utils/razorpay'
 import {
   Card, Badge, StatusBadge, Button, SearchInput, Select, Modal, ConfirmDialog, Field, TextInput,
   Alert, SecretReveal, EmptyState, Loading, useAdminData, Avatar, Checkbox, StatCard, Toggle
 } from './AdminUI'
 
-function CreateUserModal({ open, onClose, onCreated, plans, apiBaseUrl }) {
+function CreateUserModal({ open, onClose, onCreated, plans, currency, apiBaseUrl }) {
   const empty = { fullName: '', email: '', password: '', platformRole: 'admin', createOrganization: true, organizationName: '', planId: 'FREE' }
   const [form, setForm] = useState(empty)
   const [busy, setBusy] = useState(false)
@@ -79,7 +80,7 @@ function CreateUserModal({ open, onClose, onCreated, plans, apiBaseUrl }) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Organization name"><TextInput value={form.organizationName} onChange={set('organizationName')} placeholder="Defaults to “<name>'s Workspace”" /></Field>
               <Field label="Plan">
-                <Select value={form.planId} onChange={set('planId')} className="w-full" options={plans.map((p) => ({ value: p.id, label: `${p.name} ($${p.priceMonthly}/mo)` }))} />
+                <Select value={form.planId} onChange={set('planId')} className="w-full" options={plans.map((p) => ({ value: p.id, label: `${p.name} (${formatMoney(p.priceMonthly, currency)}/mo)` }))} />
               </Field>
             </div>
           )}
@@ -487,7 +488,7 @@ export default function AdminUsers({ apiBaseUrl, currentUser }) {
           </div>
         )}
 
-        <CreateUserModal open={creating} onClose={() => setCreating(false)} onCreated={refresh} plans={planData?.plans || []} apiBaseUrl={apiBaseUrl} />
+        <CreateUserModal open={creating} onClose={() => setCreating(false)} onCreated={refresh} plans={planData?.plans || []} currency={planData?.currency} apiBaseUrl={apiBaseUrl} />
         <UserDetailModal userId={selectedId} onClose={() => setSelectedId(null)} onChanged={refresh} currentUser={currentUser} apiBaseUrl={apiBaseUrl} />
         <ConfirmDialog open={!!confirm} {...(confirm || {})} onClose={() => setConfirm(null)} />
       </Card>

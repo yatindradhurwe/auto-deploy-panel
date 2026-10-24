@@ -584,7 +584,7 @@ router.get('/plans', handle(() => {
   const db = readDb()
   const usage = {}
   for (const s of Object.values(db.subscriptions || {})) usage[s.planId] = (usage[s.planId] || 0) + 1
-  return { plans: Object.values(getAllPlans()).map((p) => ({ ...p, isPublic: p.isPublic !== false, subscriberCount: usage[p.id] || 0 })) }
+  return { plans: Object.values(getAllPlans()).map((p) => ({ ...p, isPublic: p.isPublic !== false, subscriberCount: usage[p.id] || 0 })), currency: getPaymentConfig().currency }
 }))
 
 router.post('/plans', handle((req) => {
@@ -628,7 +628,8 @@ router.get('/ai', handle(() => ({
   status: projectAgent.getAgentStatus(),
   billing: getAiBilling(),
   organizations: getOrganizationTokenSummary(),
-  ledger: getLedger({ limit: 200 })
+  ledger: getLedger({ limit: 200 }),
+  currency: getPaymentConfig().currency
 })))
 
 router.put('/ai/providers/:id', handle((req) => {

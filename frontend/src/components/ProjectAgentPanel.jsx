@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../store/AuthContext'
 import { useServers } from '../store/ServersContext'
+import { formatMoney } from '../utils/razorpay'
 
 /**
  * Claude Code-style project agent: chat → Claude explores, edits and verifies the project
@@ -346,7 +347,7 @@ export default function ProjectAgentPanel({ projectPath, projectName, onFilesCha
         <span className="flex-1 truncate text-slate-300">{session?.title || 'New conversation'}</span>
         {session?.usage && (
           <span className="text-[10px] text-slate-500 shrink-0" title={`${session.usage.input + session.usage.cacheRead} input / ${session.usage.output} output tokens`}>
-            {session.metered ? `${formatTokens(session.usage.tokensCharged || 0)} used` : session.usage.costUsd != null ? `$${session.usage.costUsd.toFixed(2)}` : `${Math.round((session.usage.input + session.usage.cacheRead + session.usage.output) / 1000)}k tok`}
+            {session.metered ? `${formatTokens(session.usage.tokensCharged || 0)} used` : session.usage.costUsd != null ? formatMoney(session.usage.costUsd, 'USD') : `${Math.round((session.usage.input + session.usage.cacheRead + session.usage.output) / 1000)}k tok`}
           </span>
         )}
         {status?.metered && (
