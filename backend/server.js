@@ -13,6 +13,7 @@ import supportRoutes from './routes/support.routes.js'
 import profileRoutes from './routes/profile.routes.js'
 import projectsRoutes from './routes/projects.routes.js'
 import templatesRoutes from './routes/templates.routes.js'
+import mcpRoutes from './routes/mcp.routes.js'
 import { authenticateToken } from './middleware/auth.middleware.js'
 import { requireStudioAccess, requireDeployAccess } from './middleware/studioAccess.middleware.js'
 import { initAutoUpdateService, executeProjectAutoUpdate } from './services/autoupdate.service.js'
@@ -120,6 +121,8 @@ app.use('/api/deploy', authenticateToken, requireTenant, requireDeployAccess, re
 app.use('/api/studio', authenticateToken, requireTenant, requireStudioAccess, requireIdempotency(), studioRoutes)
 app.use('/api/projects', projectsRoutes)
 app.use('/api/templates', templatesRoutes)
+// MCP endpoint for AI clients; authenticated with a project MCP token instead of a session
+app.use('/api/mcp', mcpRoutes)
 
 const httpServer = app.listen(PORT, HOST, () => {
   console.log(`[AUTODEPLOY-STUDIO-BACKEND] Multi-Tenant Engine Listening on http://${HOST}:${PORT}`)

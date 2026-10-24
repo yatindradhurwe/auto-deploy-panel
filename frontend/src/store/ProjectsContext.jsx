@@ -99,6 +99,18 @@ export function ProjectsProvider({ children }) {
     }
   }), [api])
 
+  // --- MCP access tokens (managers of a project) ---------------------------------------------
+
+  const getMcpTokens = useCallback((project) =>
+    api(`/api/projects/mcp/tokens?projectPath=${encodeURIComponent(project.path)}`), [api])
+
+  const createMcpToken = useCallback((project, { name, access, expiresInDays }) => api('/api/projects/mcp/tokens', {
+    method: 'POST',
+    body: { projectPath: project.path, projectName: project.name, name, access, expiresInDays: Number(expiresInDays) }
+  }), [api])
+
+  const revokeMcpToken = useCallback((tokenId) => api(`/api/projects/mcp/tokens/${tokenId}`, { method: 'DELETE' }), [api])
+
   const updateShare = useCallback((shareId, role) => api(`/api/projects/shares/${shareId}`, { method: 'PATCH', body: { role } }), [api])
   const revokeShare = useCallback((shareId) => api(`/api/projects/shares/${shareId}`, { method: 'DELETE' }), [api])
 
@@ -109,8 +121,11 @@ export function ProjectsProvider({ children }) {
     getShares,
     shareProject,
     updateShare,
-    revokeShare
-  }), [state, refresh, refreshSharedWithMe, getShares, shareProject, updateShare, revokeShare])
+    revokeShare,
+    getMcpTokens,
+    createMcpToken,
+    revokeMcpToken
+  }), [state, refresh, refreshSharedWithMe, getShares, shareProject, updateShare, revokeShare, getMcpTokens, createMcpToken, revokeMcpToken])
 
   return <ProjectsContext.Provider value={value}>{children}</ProjectsContext.Provider>
 }

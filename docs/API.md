@@ -87,7 +87,8 @@ Access levels: **user** = any logged-in member; **admin** = system admin. All `/
 | POST | `/uploads` | `{ kind: 'source'\|'database', name, size }` → `{ uploadId, chunkSize }` |
 | POST | `/uploads/:id/chunk?offset=N` | Raw bytes (`application/octet-stream`). A wrong offset returns 409 with `expectedOffset`. |
 | POST | `/uploads/:id/complete` | Source: extracts and returns `analysis`. Database: returns `engine` and `format`. |
-| POST | `/deploy` | `{ appName, domain, source: { type: 'github', gitUrl, branch } \| { type: 'upload', uploadId }, envVars, port?, overrides?, database: { mode: 'none'\|'create'\|'import', engine, uploadId?, adminUser?, adminPassword? }, ssl, sslEmail, replaceDomain }` → `{ deployId, stages }` |
+| POST | `/deploy` | `{ appName, domain, source: { type: 'github', gitUrl, branch } \| { type: 'upload', uploadId }, envVars, port?, overrides?, database: { mode: 'none'\|'create'\|'import', engine, uploadId?, adminUser?, adminPassword? } \| { mode: 'migrate', sourceUrl, includeAuth?, storage?: { url, key }, name?, user?, password? }, ssl, sslEmail, replaceDomain }` → `{ deployId, stages }`. `migrate` copies an external PostgreSQL (Supabase, Neon, RDS…) into a new local database and, with `storage`, downloads every Supabase Storage bucket to `/var/lib/autodeploy-storage/<app>` (public buckets served at `/storage/v1/object/public/<bucket>/…`). |
+| POST | `/migration-check` | `{ sourceUrl, includeAuth?, storage?: { url, key } }` → `{ database: { provider, host, database, version, schemas, tables, size }, storage: { url, buckets: [{ name, public, files, bytes }] } }` — read-only check from the selected server before a `migrate` deploy. |
 | GET | `/stream/:deployId` | Server-Sent Events: `stage`, `log`, `progress`, `plan`, `result` (replayed on reconnect). |
 | GET/POST | `/get-github-token`, `/save-github-token`, `/github-repos` | GitHub connection. |
 | POST | `/detect-stack` | Back-compat alias of `analyze-git`. |
@@ -108,6 +109,15 @@ Access levels: **user** = any logged-in member; **admin** = system admin. All `/
 | GET | `/sessions/:id/changes` | Unified diff per changed file. |
 | POST | `/sessions/:id/revert` | `{ file? }` — one file or all. |
 | POST | `/sessions/:id/deploy` | `{ commit, commitMessage }` — optional Git commit, then PM2 restart. |
+
+## MCP server — `/api/mcp` and `/api/projects/mcp` (project managers, selected server)
+Lets Claude Code, Claude Desktop, Cursor or any MCP client work on one project with the user's own AI. Token access: `read` (view, read-only commands, logs), `edit` (+ file edits, builds/tests, undo), `full` (+ PM2 restart). Tokens are stored hashed and re-checked on every call (expiry, revoke, "sign out everywhere", project access).
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/projects/mcp/tokens?projectPath=` | Tokens for the project (owners/admins see all, managers their own) and the `endpoint` URL. |
+| POST | `/api/projects/mcp/tokens` | `{ projectPath, projectName, name, access, expiresInDays: 7\|30\|90\|365\|0 }` → `{ token, secret, endpoint }`; `secret` is shown only once. |
+| DELETE | `/api/projects/mcp/tokens/:id` | Revoke (creator or organization owner/admin). |
+| POST | `/api/mcp` | MCP Streamable HTTP (JSON-RPC, JSON responses), `Authorization: Bearer adpmcp_…`. Tools: `get_project_info`, `view`, `run_command`, `get_app_logs`, `create_file`, `str_replace`, `insert`, `list_changes`, `undo_changes`, `restart_app`. |
 
 ## Admin, team, billing
 - `/api/admin` (admin): `overview`, `users` (+ `suspend`, `activate`, `reset-password`, `revoke-sessions`, `impersonate`, delete), `organizations` (+ `plan`, `suspend`, `activate`, members `role`, delete), `servers`, `subscriptions`, `plans` (CRUD), `settings`, `audit-logs`, `idempotency/stats|records`.

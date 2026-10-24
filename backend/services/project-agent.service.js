@@ -177,7 +177,7 @@ function hostOf(session) {
   return getHost(server)
 }
 
-async function pm2AppsFor(host, root) {
+export async function pm2AppsFor(host, root) {
   const { stdout } = await host.exec('pm2 jlist 2>/dev/null', { timeout: 20000 })
   try {
     const line = stdout.split('\n').find(l => l.trim().startsWith('['))
@@ -190,7 +190,7 @@ async function pm2AppsFor(host, root) {
 }
 
 /** Facts about the project that go into the (cached) system prompt — one round trip. */
-async function describeProject(host, root) {
+export async function describeProject(host, root) {
   const pkgFiles = ['package.json', 'frontend/package.json', 'backend/package.json', 'server/package.json', 'client/package.json']
   const markers = ['composer.json', 'requirements.txt', 'pyproject.toml', 'index.html', 'Dockerfile', '.git']
   const { stdout } = await host.exec(
@@ -378,14 +378,16 @@ async function listDir(host, abs, rel) {
   return `Directory ${rel} (2 levels; node_modules, .git, build output not expanded):\n${out.join('\n')}${out.length >= 500 ? '\n… (truncated)' : ''}`
 }
 
+// `session.backupDir` lets other callers (the MCP server) keep backups in their own folder
 async function backupBeforeWrite(host, session, abs, rel) {
   if (session.changes[rel]) return
   const existed = await host.exists(abs)
   const entry = { created: !existed, backup: null }
   if (existed) {
     const name = crypto.createHash('sha1').update(rel).digest('hex')
-    fs.mkdirSync(backupDir(session.id), { recursive: true })
-    fs.writeFileSync(path.join(backupDir(session.id), name), await host.readFile(abs, { encoding: null }))
+    const dir = session.backupDir || backupDir(session.id)
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
+    fs.writeFileSync(path.join(dir, name), await host.readFile(abs, { encoding: null }))
     entry.backup = name
   }
   session.changes[rel] = entry
@@ -590,7 +592,7 @@ function childEnv() {
   }
 }
 
-async function runBash(session, input, state, host = hostOf(session)) {
+export async function runBash(session, input, state, host = hostOf(session)) {
   if (input?.restart) return 'Shell restarted. (Each command already runs in a fresh process in the project root.)'
   const root = session.projectPath
   const { argv, timeoutMs } = await validateCommand(root, splitCommand(String(input?.command || '').trim()), host)

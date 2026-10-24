@@ -1606,12 +1606,10 @@ const IGNORED_RESTORE_ERRORS = /already exists|transaction_timeout|must be owner
  * Copies an external PostgreSQL database (typically Supabase) into a new PostgreSQL database on
  * this server: creates the database and its user, recreates Supabase's roles (anon,
  * authenticated, service_role) and extensions, dumps the source's own schemas (plus `auth` with
- * `includeAuth`) and restores them as the new user. With `targetProjectPath`, that project's .env
- * is pointed at the new database (lines that referenced the source are rewritten; otherwise
- * DATABASE_URL is set) and its PM2 apps can be restarted. The source is not changed.
+ * `includeAuth`) and restores them as the new user. The source is not changed.
+ * `onLog(text)` receives progress lines.
  */
-export async function migrateToLocal(host, connectionId, { name, user, password, targetProjectPath = null, includeAuth = true, restart = true }) {
-  const source = await getEntry(host, connectionId)
+async function copyExternalPostgres(host, source, { name, user, password, includeAuth = true, onLog = () => {} }) {
   if (source.engine !== 'postgresql' || source.peer || isLocalHost(source.host)) throw httpErr(400, 'Only an external PostgreSQL database (such as Supabase) can be migrated onto this server.')
   if (!await hasPgPeer(host)) throw httpErr(400, 'PostgreSQL is not installed on this server. Install it first (apt-get install -y postgresql), then migrate.')
   name = String(name || '').trim()
@@ -1625,12 +1623,12 @@ export async function migrateToLocal(host, connectionId, { name, user, password,
   if (!pgDump) throw httpErr(400, `The source runs PostgreSQL ${major}, newer than this server's pg_dump. Install a matching client first: apt-get install -y postgresql-client-${major} (from the PostgreSQL apt repository, apt.postgresql.org).`)
 
   // The source's own schemas, without Supabase internals
-  const schemas = (await pgJson(srcSpec, `SELECT nspname AS name FROM pg_namespace WHERE nspname NOT LIKE 'pg\\_%' AND nspname <> 'information_schema' AND nspname NOT IN (${SUPABASE_INTERNAL_SCHEMAS.map(pgLit).join(', ')}) ORDER BY 1`)).map(r => r.name)
-  if (includeAuth && (await psql(srcSpec, "SELECT 1 FROM pg_namespace WHERE nspname = 'auth'")).trim() === '1') schemas.push('auth')
+  const schemas = await sourceSchemas(srcSpec, includeAuth)
   if (!schemas.length) throw httpErr(400, 'The source database has no schemas of its own to copy.')
   const extensions = await pgJson(srcSpec, "SELECT e.extname AS name, n.nspname AS schema FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace WHERE e.extname <> 'plpgsql'")
 
   // 1. Dump first: nothing is created on this server if the source can't be read
+  onLog(`Dumping ${schemas.join(', ')} from ${source.database} on ${source.host} (PostgreSQL ${major})…\n`)
   const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)
   const dump = `${BACKUP_DIR}/${String(source.database).replace(/[^\w.-]/g, '_')}-to-${name}-${stamp}-migration.sql.gz`
   await host.exec(`mkdir -p ${BACKUP_DIR} && chmod 700 ${BACKUP_DIR}`)
@@ -1642,6 +1640,7 @@ export async function migrateToLocal(host, connectionId, { name, user, password,
   }
 
   // 2. The new database and its user
+  onLog(`Creating database ${name} for user ${user}…\n`)
   const created = await createDatabase(host, { engine: 'postgresql', name, user, password })
   const peer = { _exec: host, peer: true, database: 'postgres' }
   const peerDb = { _exec: host, peer: true, database: name }
@@ -1664,10 +1663,62 @@ export async function migrateToLocal(host, connectionId, { name, user, password,
 
   // 4. Restore as the app's user, so it owns every object. Errors are collected, not fatal:
   // Supabase dumps carry platform-specific statements that a plain PostgreSQL can't run.
+  onLog(`Restoring into ${name}…\n`)
   const restore = await host.exec(`set -o pipefail; { echo ${q(`SET ROLE ${pgIdent(user)};`)}; gunzip -c ${q(dump)}; } | runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=0 -d ${q(name)} 2>&1 >/dev/null`, { timeout: 60 * 60 * 1000 })
   if (restore.code !== 0) throw httpErr(500, `Restore into ${name} failed (the dump is kept at ${dump}): ${String(restore.stdout || restore.stderr).trim().split('\n').slice(-4).join('\n')}`)
   const errors = String(restore.stdout || '').split('\n').filter(l => /ERROR:/.test(l) && !IGNORED_RESTORE_ERRORS.test(l)).map(l => l.replace(/^psql:[^:]*:\d+:\s*/, ''))
   const tables = Number((await psql(peerDb, `SELECT count(*) FROM pg_tables WHERE schemaname IN (${schemas.map(pgLit).join(', ')})`)).trim())
+  return { tables, schemas, errors, skippedExtensions, dump, created }
+}
+
+/** The source's own schemas (Supabase internals left out), plus `auth` when asked for and present. */
+async function sourceSchemas(srcSpec, includeAuth) {
+  const schemas = (await pgJson(srcSpec, `SELECT nspname AS name FROM pg_namespace WHERE nspname NOT LIKE 'pg\\_%' AND nspname <> 'information_schema' AND nspname NOT IN (${SUPABASE_INTERNAL_SCHEMAS.map(pgLit).join(', ')}) ORDER BY 1`)).map(r => r.name)
+  if (includeAuth && (await psql(srcSpec, "SELECT 1 FROM pg_namespace WHERE nspname = 'auth'")).trim() === '1') schemas.push('auth')
+  return schemas
+}
+
+const migrationNotes = ({ errors, skippedExtensions }) => [
+  ...(errors.length ? [`${errors.length} statement(s) could not be restored`] : []),
+  ...(skippedExtensions.length ? [`extensions not available on this server: ${skippedExtensions.join(', ')}`] : [])
+]
+
+/**
+ * Checks an external PostgreSQL connection string from this server before a migration:
+ * returns what would be copied. Nothing is written.
+ */
+export async function inspectExternalPostgres(host, url, { includeAuth = true } = {}) {
+  const spec = parsePgUrl(url)
+  if (isLocalHost(spec.host)) throw httpErr(400, 'That database is already on this server — choose "Create new database" or "Upload database file" instead.')
+  const srcSpec = { ...spec, _exec: host, peer: false }
+  const version = await probePg(host, srcSpec)
+  const schemas = await sourceSchemas(srcSpec, includeAuth)
+  const tables = schemas.length ? Number((await psql(srcSpec, `SELECT count(*) FROM pg_tables WHERE schemaname IN (${schemas.map(pgLit).join(', ')})`)).trim()) : 0
+  const size = Number((await psql(srcSpec, 'SELECT pg_database_size(current_database())')).trim()) || null
+  return { provider: isSupabaseHost(spec.host) ? 'supabase' : null, host: spec.host, database: spec.database, version, schemas, tables, size }
+}
+
+/**
+ * Copies the external PostgreSQL database at `url` (Supabase, Neon, RDS, …) into a new database
+ * on this server. Used by the deployment wizard's "Migrate existing database".
+ */
+export async function migrateExternalPostgres(host, url, opts) {
+  const source = parsePgUrl(url)
+  const result = await copyExternalPostgres(host, source, opts)
+  return { ...result, source: { host: source.host, database: source.database, provider: isSupabaseHost(source.host) ? 'supabase' : null }, notes: migrationNotes(result) }
+}
+
+/**
+ * Copies a discovered external PostgreSQL database onto this server (see copyExternalPostgres).
+ * With `targetProjectPath`, that project's .env is pointed at the new database (lines that
+ * referenced the source are rewritten; otherwise DATABASE_URL is set) and its PM2 apps can be
+ * restarted.
+ */
+export async function migrateToLocal(host, connectionId, { name, user, password, targetProjectPath = null, includeAuth = true, restart = true }) {
+  const source = await getEntry(host, connectionId)
+  const { tables, schemas, errors, skippedExtensions, dump, created } = await copyExternalPostgres(host, source, { name, user, password, includeAuth })
+  name = String(name).trim()
+  user = String(user).trim()
 
   // 5. Point the project at the new database
   const target = { database: name, user, password, url: password ? `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@127.0.0.1:5432/${name}` : null }
@@ -1697,9 +1748,7 @@ export async function migrateToLocal(host, connectionId, { name, user, password,
   }
 
   discoveryCache.delete(host.id)
-  const notes = []
-  if (errors.length) notes.push(`${errors.length} statement(s) could not be restored`)
-  if (skippedExtensions.length) notes.push(`extensions not available on this server: ${skippedExtensions.join(', ')}`)
+  const notes = migrationNotes({ errors, skippedExtensions })
   return {
     message: `Copied ${tables} table(s) from ${source.database} on ${source.host} into ${name} on this server.${updatedFiles.length ? ` Updated ${updatedFiles.length} .env file(s)${restarted.length ? ` and restarted ${restarted.join(', ')}` : ''}.` : ''}${notes.length ? ` Note: ${notes.join('; ')}.` : ''}`,
     tables,

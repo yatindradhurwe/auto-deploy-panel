@@ -4,10 +4,12 @@ import crypto from 'crypto'
 import { analyzeProject, manifestPaths } from './detector.service.js'
 import { getReadyUpload, validateGitUrl, withGithubToken, redactUrl } from './upload.service.js'
 import { templateDeploySource } from './template.service.js'
-import { findMysqlAdmin, checkDbPassword, RESERVED_DB_USERS } from './database.service.js'
+import { findMysqlAdmin, checkDbPassword, RESERVED_DB_USERS, migrateExternalPostgres } from './database.service.js'
+import { migrateSupabaseStorage, publicBucketLocations, supabaseProjectUrl } from './supabase-storage.service.js'
 
 /**
- * 1-click deployment pipeline (GitHub or uploaded source, optional database) on the selected
+ * 1-click deployment pipeline (GitHub or uploaded source, optional database — new, uploaded or
+ * migrated from Supabase / another PostgreSQL, with Supabase Storage files) on the selected
  * server, through its host executor (direct on the panel host, SSH for connected servers).
  *
  * Progress is reported as weighted stages so the UI can show an honest percentage:
@@ -23,6 +25,7 @@ export const STAGES = [
   { id: 'source', label: 'Getting source code', weight: 12 },
   { id: 'analyze', label: 'Detecting app type', weight: 4 },
   { id: 'database', label: 'Setting up database', weight: 10 },
+  { id: 'storage', label: 'Copying storage files', weight: 6 },
   { id: 'env', label: 'Writing configuration', weight: 3 },
   { id: 'install', label: 'Installing dependencies', weight: 26 },
   { id: 'build', label: 'Building app', weight: 18 },
@@ -102,10 +105,22 @@ export function validateDeployConfig(body, userId, server = null) {
 
   const dbIn = body.database || {}
   let database = { mode: 'none' }
-  if (dbIn.mode === 'create' || dbIn.mode === 'import') {
-    const engine = dbIn.engine
+  if (dbIn.mode === 'migrate') {
+    // An existing PostgreSQL database (Supabase, Neon, RDS, …) copied onto the server, and optionally
+    // the Supabase project's Storage files. The source URL and key are used for this deploy only.
+    const url = String(dbIn.sourceUrl || '').trim()
+    if (!/^postgres(ql)?:\/\/./i.test(url)) throw httpError(400, 'Paste the connection string of the database to migrate (postgresql://user:password@host:5432/postgres).')
+    if (url.length > 2000) throw httpError(400, 'The connection string is too long.')
+    database = { mode: 'migrate', engine: 'postgresql', sourceUrl: url, includeAuth: dbIn.includeAuth !== false }
+    if (dbIn.storage?.url || dbIn.storage?.key) {
+      database.storage = { url: supabaseProjectUrl(dbIn.storage.url), key: String(dbIn.storage.key || '').trim() }
+      if (!database.storage.key) throw httpError(400, 'Enter the Supabase service_role (secret) key to copy Storage files, or clear the project URL.')
+    }
+  }
+  if (dbIn.mode === 'create' || dbIn.mode === 'import' || dbIn.mode === 'migrate') {
+    const engine = dbIn.mode === 'migrate' ? 'postgresql' : dbIn.engine
     if (!['postgresql', 'mysql', 'mongodb', 'sqlite'].includes(engine)) throw httpError(400, 'Choose a database engine.')
-    database = { mode: dbIn.mode, engine }
+    if (dbIn.mode !== 'migrate') database = { mode: dbIn.mode, engine }
     if (dbIn.mode === 'import') {
       const up = getReadyUpload(dbIn.uploadId, userId, 'database')
       database.file = up.file
@@ -199,7 +214,8 @@ export async function runDeployPipeline(cfg, emit, { host }) {
     progress()
   }
   const log = (text, isError = false) => emit({ kind: 'log', stage: current, text: redactUrl(text), isError })
-  const secrets = [cfg.server?.password, cfg.database.adminPassword, cfg.database.password].filter(Boolean)
+  const sourcePassword = (() => { try { return decodeURIComponent(new URL(cfg.database.sourceUrl).password) } catch { return null } })()
+  const secrets = [cfg.server?.password, cfg.database.adminPassword, cfg.database.password, cfg.database.sourceUrl, sourcePassword, cfg.database.storage?.key].filter(Boolean)
   const scrub = (t) => secrets.reduce((acc, s) => acc.split(s).join('***'), t)
 
   let lines = 0
@@ -230,6 +246,7 @@ export async function runDeployPipeline(cfg, emit, { host }) {
   let plan
   let port = cfg.port
   let dbInfo = null
+  let storageInfo = null
   const warnings = []
 
   try {
@@ -385,7 +402,18 @@ echo "Extracted $(find ${q(dir)} -type f | wc -l) files into ${dir}"
       }
       const cat = cfg.database.ext === '.sql.gz' ? `gunzip -c ${q(remoteDump || '')}` : `cat ${q(remoteDump || '')}`
 
-      if (engine === 'postgresql') {
+      if (cfg.database.mode === 'migrate') {
+        if (!await query('command -v psql')) throw new Error('PostgreSQL is not installed on the server (apt install postgresql).')
+        const m = await migrateExternalPostgres(host, cfg.database.sourceUrl, {
+          name: db.name, user: db.user, password: db.password, includeAuth: cfg.database.includeAuth, onLog: (t) => log(scrub(t))
+        })
+        log(`Copied ${m.tables} table(s) from ${m.source.database} on ${m.source.host} (${m.schemas.join(', ')}). The source was not changed; a copy of the dump is at ${m.dump}.\n`)
+        for (const e of m.errors.slice(0, 20)) log(`${scrub(e)}\n`, true)
+        if (m.notes.length) warnings.push(`Database migration: ${m.notes.join('; ')}. See the deployment log.`)
+        db.host = '127.0.0.1'; db.port = 5432
+        db.url = `postgresql://${db.user}:${db.password}@127.0.0.1:5432/${db.name}`
+        db.migratedFrom = m.source
+      } else if (engine === 'postgresql') {
         if (!await query('command -v psql')) throw new Error('PostgreSQL is not installed on the server (apt install postgresql).')
         const pg = (sql) => `runuser -u postgres -- psql -v ON_ERROR_STOP=1 -tAc ${q(sql)}`
         const exists = (await query(pg(`SELECT 1 FROM pg_database WHERE datname='${db.name}'`))).trim() === '1'
@@ -452,7 +480,19 @@ FLUSH PRIVILEGES;`
       }
       if (remoteDump) await sh(`rm -f ${q(remoteDump)}`, { allowFailure: true, quiet: true })
       dbInfo = db
-      stage('database', 'done', `${engine} · ${db.name}`)
+      stage('database', 'done', `${engine} · ${db.name}${db.migratedFrom ? ` · from ${db.migratedFrom.provider === 'supabase' ? 'Supabase' : db.migratedFrom.host}` : ''}`)
+    }
+
+    // ------------------------------------------------------------------ storage
+    if (!cfg.database.storage) {
+      stage('storage', 'skipped', 'No storage to copy')
+    } else {
+      stage('storage', 'running', cfg.database.storage.url)
+      storageInfo = await migrateSupabaseStorage(host, { ...cfg.database.storage, appName: cfg.appName, onLog: (t) => log(scrub(t)) })
+      log(`Copied ${storageInfo.files} file(s) from ${storageInfo.buckets.length} bucket(s) into ${storageInfo.dir}\n`)
+      if (storageInfo.failed) warnings.push(`${storageInfo.failed} storage file(s) could not be downloaded. Redeploy to retry, or copy them by hand into ${storageInfo.dir}.`)
+      if (storageInfo.skipped.length) warnings.push(`Skipped in storage: ${storageInfo.skipped.slice(0, 5).join(', ')}${storageInfo.skipped.length > 5 ? ` and ${storageInfo.skipped.length - 5} more` : ''}.`)
+      stage('storage', storageInfo.failed ? 'warning' : 'done', `${storageInfo.files} file(s) · ${storageInfo.buckets.length} bucket(s)`)
     }
 
     // ------------------------------------------------------------------ env
@@ -473,6 +513,9 @@ FLUSH PRIVILEGES;`
         )
       }
       if (dbInfo.engine === 'sqlite') autoEnv.push(['DB_CONNECTION', 'sqlite'], ['DB_DATABASE', dbInfo.file])
+    }
+    if (storageInfo) {
+      autoEnv.push(['STORAGE_DIR', storageInfo.dir], ['STORAGE_PUBLIC_URL', `${cfg.ssl ? 'https' : 'http'}://${cfg.domain}/storage/v1/object/public`])
     }
     for (const d of envDirs) {
       const existing = parseEnv(await query(`cat ${q(`${d}/.env`)} 2>/dev/null || cat ${q(`${d}/.env.example`)} 2>/dev/null`))
@@ -637,7 +680,9 @@ echo "Started ${cfg.appName} with PM2"`)
     } else {
       body = `    location / {\n        ${proxy(port)}\n    }`
     }
-    const conf = `${marker}\nserver {\n    listen 80;\n    listen [::]:80;\n    server_name ${cfg.domain};\n    client_max_body_size 64m;\n${body}\n}\n`
+    // Migrated public Supabase buckets keep their URL paths on the app's domain
+    const storageLocations = storageInfo ? publicBucketLocations(storageInfo.dir, storageInfo.buckets) : ''
+    const conf = `${marker}\nserver {\n    listen 80;\n    listen [::]:80;\n    server_name ${cfg.domain};\n    client_max_body_size 64m;\n${storageLocations ? `${storageLocations}\n` : ''}${body}\n}\n`
     await sh(`
 set -e
 [ -f ${q(confPath)} ] && cp ${q(confPath)} ${q(`${confPath}.bak`)}
@@ -707,7 +752,14 @@ echo "nginx is serving ${cfg.domain}"`)
         type: plan.type,
         port,
         directory: dir,
-        database: dbInfo ? { engine: dbInfo.engine, name: dbInfo.name, user: dbInfo.user, password: dbInfo.password, url: dbInfo.url } : null,
+        database: dbInfo ? { engine: dbInfo.engine, name: dbInfo.name, user: dbInfo.user, password: dbInfo.password, url: dbInfo.url, migratedFrom: dbInfo.migratedFrom || null } : null,
+        storage: storageInfo ? {
+          directory: storageInfo.dir,
+          files: storageInfo.files,
+          buckets: storageInfo.buckets,
+          publicUrl: `${https ? 'https' : 'http'}://${cfg.domain}/storage/v1/object/public`,
+          supabaseUrl: `${storageInfo.base}/storage/v1/object/public`
+        } : null,
         warnings
       }
     })

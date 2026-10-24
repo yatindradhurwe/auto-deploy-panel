@@ -8,7 +8,8 @@ import { useServers } from '../store/ServersContext'
 import { signInWithGithub } from '../utils/githubSignIn'
 
 /**
- * 1-click deployment: GitHub repo or uploaded archive (+ optional database file) → live site.
+ * 1-click deployment: GitHub repo or uploaded archive (+ optional database: new, uploaded, or migrated
+ * from Supabase / another PostgreSQL together with Supabase Storage files) → live site.
  */
 
 const TYPE_OPTIONS = [
@@ -97,6 +98,9 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
   const [dbUpload, setDbUpload] = useState(null)
   const [dbAdmin, setDbAdmin] = useState({ user: '', password: '' })
   const [dbCreds, setDbCreds] = useState({ name: '', user: '', password: '' })
+  const [migrate, setMigrate] = useState({ sourceUrl: '', includeAuth: true, storageUrl: '', storageKey: '' })
+  const [migrateCheck, setMigrateCheck] = useState(null) // { busy } | { result } | { error }
+  const setMigrateField = (k, v) => { setMigrate(m => ({ ...m, [k]: v })); setMigrateCheck(null) }
 
   // --- server / launch
   const [ssl, setSsl] = useState(true)
@@ -303,6 +307,18 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
     if (done?.engine) setDbEngine(done.engine)
   }
 
+  const migrateStorage = () => (migrate.storageUrl.trim() || migrate.storageKey.trim() ? { url: migrate.storageUrl.trim(), key: migrate.storageKey.trim() } : undefined)
+
+  const checkMigration = async () => {
+    setMigrateCheck({ busy: true })
+    try {
+      const data = await api('/migration-check', { method: 'POST', body: { sourceUrl: migrate.sourceUrl.trim(), includeAuth: migrate.includeAuth, storage: migrateStorage() } })
+      setMigrateCheck({ result: data })
+    } catch (e) {
+      setMigrateCheck({ error: e.message })
+    }
+  }
+
   // ------------------------------------------------------------------ deploy
   const startDeploy = async () => {
     setError(null)
@@ -313,7 +329,10 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
       port: port ? Number(port) : undefined,
       source: sourceType === 'template' ? { type: 'template', templateId: template?.id } : sourceType === 'github' ? { type: 'github', gitUrl, branch } : { type: 'upload', uploadId: upload?.uploadId },
       overrides: { ...overrides, type: overrides.type },
-      database: dbMode === 'none' ? { mode: 'none' } : {
+      database: dbMode === 'none' ? { mode: 'none' } : dbMode === 'migrate' ? {
+        mode: 'migrate', sourceUrl: migrate.sourceUrl.trim(), includeAuth: migrate.includeAuth, storage: migrateStorage(),
+        name: dbCreds.name.trim(), user: dbCreds.user.trim(), password: dbCreds.password
+      } : {
         mode: dbMode, engine: dbEngine, uploadId: dbUpload?.uploadId,
         ...(dbEngine === 'mysql' && dbAdmin.user ? { adminUser: dbAdmin.user, adminPassword: dbAdmin.password } : {}),
         ...(['mysql', 'postgresql'].includes(dbEngine) ? { name: dbCreds.name.trim(), user: dbCreds.user.trim(), password: dbCreds.password } : {})
@@ -389,7 +408,7 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
 
   const sourceReady = !!analysis && (sourceType === 'template' ? !!template : sourceType === 'github' ? !!gitUrl : upload?.status === 'ready')
   const appReady = /^[a-z0-9][a-z0-9-]{0,48}[a-z0-9]$/.test(appName) && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain)
-  const dbReady = dbMode !== 'import' || dbUpload?.status === 'ready'
+  const dbReady = dbMode === 'import' ? dbUpload?.status === 'ready' : dbMode === 'migrate' ? /^postgres(ql)?:\/\/./i.test(migrate.sourceUrl.trim()) && !!migrate.storageUrl.trim() === !!migrate.storageKey.trim() : true
   const filteredRepos = repos.filter(r => r.full_name.toLowerCase().includes(repoQuery.toLowerCase())).slice(0, 50)
 
   const ProgressBar = ({ value }) => (
@@ -456,6 +475,16 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
                     <div key={k} className="flex items-center gap-2"><span className="text-slate-500 w-28 shrink-0">{k}</span><code className="text-slate-200 truncate flex-1">{v}</code>
                       <button onClick={() => navigator.clipboard?.writeText(v)} className="text-slate-500 hover:text-white cursor-pointer"><Copy className="w-3.5 h-3.5" /></button></div>
                   ))}
+                </div>
+              )}
+              {r.summary?.storage && (
+                <div className="text-left p-4 rounded-2xl bg-white/[0.03] border border-white/10 text-xs space-y-1.5">
+                  <div className="text-white font-semibold flex items-center gap-2"><FileArchive className="w-4 h-4 text-cyan-400" /> Storage — {r.summary.storage.files} file(s) copied (STORAGE_DIR and STORAGE_PUBLIC_URL are in .env)</div>
+                  {[['Folder', r.summary.storage.directory], ['Public URL', r.summary.storage.publicUrl], ['Replaces', r.summary.storage.supabaseUrl]].map(([k, v]) => (
+                    <div key={k} className="flex items-center gap-2"><span className="text-slate-500 w-28 shrink-0">{k}</span><code className="text-slate-200 truncate flex-1">{v}</code>
+                      <button onClick={() => navigator.clipboard?.writeText(v)} className="text-slate-500 hover:text-white cursor-pointer"><Copy className="w-3.5 h-3.5" /></button></div>
+                  ))}
+                  <div className="text-slate-500">Buckets: {r.summary.storage.buckets.map(b => `${b.name} (${b.public ? 'public' : 'private'}, ${b.files})`).join(' · ') || 'none'}</div>
                 </div>
               )}
               {r.summary?.warnings?.map((w, i) => <div key={i} className="text-left text-xs text-amber-300 flex gap-2"><AlertTriangle className="w-4 h-4 shrink-0" />{w}</div>)}
@@ -722,8 +751,8 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
               <span className="text-slate-200 font-semibold">Detected:</span> {analysis.database.hints.join(' · ')}
             </div>
           )}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {[['none', 'No database', 'The app needs none, or uses an external one'], ['create', 'Create new database', 'Empty database + user; credentials go into .env'], ['import', 'Upload database file', 'Create it and import your .sql / .dump / .sqlite']].map(([id, title, desc]) => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {[['none', 'No database', 'The app needs none, or uses an external one'], ['create', 'Create new database', 'Empty database + user; credentials go into .env'], ['import', 'Upload database file', 'Create it and import your .sql / .dump / .sqlite'], ['migrate', 'Migrate existing database', 'Copy from Supabase or any PostgreSQL, plus Supabase Storage files']].map(([id, title, desc]) => (
               <button key={id} onClick={() => setDbMode(id)} className={`p-4 rounded-2xl border text-left cursor-pointer ${dbMode === id ? 'border-cyan-400 bg-cyan-500/10' : 'border-white/10 bg-white/[0.02] hover:bg-white/5'}`}>
                 <div className="text-sm text-white font-semibold">{title}</div>
                 <div className="text-xs text-slate-400 mt-1">{desc}</div>
@@ -731,7 +760,7 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
             ))}
           </div>
 
-          {dbMode !== 'none' && (
+          {dbMode !== 'none' && dbMode !== 'migrate' && (
             <label className="block"><span className="text-xs text-slate-400">Database engine</span>
               <select value={dbEngine} onChange={(e) => setDbEngine(e.target.value)} disabled={dbUpload?.result?.engine && dbMode === 'import'} className={`${input} mt-1`}>
                 {ENGINES.filter(([v]) => dbMode === 'create' || v !== 'mongodb').map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -756,7 +785,41 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
             )
           )}
 
-          {dbMode !== 'none' && ['mysql', 'postgresql'].includes(dbEngine) && (
+          {dbMode === 'migrate' && (
+            <div className="space-y-4">
+              <label className="block"><span className="text-xs text-slate-400">Connection string of the database to copy</span>
+                <input value={migrate.sourceUrl} onChange={(e) => setMigrateField('sourceUrl', e.target.value)} placeholder="postgresql://postgres.abcdefgh:password@aws-0-eu-central-1.pooler.supabase.com:5432/postgres" autoComplete="off" spellCheck={false} className={`${input} mt-1 font-mono`} />
+                <span className="block text-[11px] text-slate-500 mt-1">Supabase: Connect → Session pooler (the direct db.….supabase.co address is IPv6 only). Neon, RDS, Railway and other PostgreSQL work too. The source is only read, never changed.</span></label>
+              <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer"><input type="checkbox" checked={migrate.includeAuth} onChange={(e) => setMigrateField('includeAuth', e.target.checked)} /> Also copy Supabase Auth users (the auth schema)</label>
+
+              <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 space-y-2">
+                <div className="text-xs text-slate-300 font-semibold">Supabase Storage files <span className="text-slate-500 font-normal">(optional)</span></div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input value={migrate.storageUrl} onChange={(e) => setMigrateField('storageUrl', e.target.value)} placeholder="Project URL (https://abcdefgh.supabase.co)" autoComplete="off" spellCheck={false} className={input} />
+                  <input type="password" value={migrate.storageKey} onChange={(e) => setMigrateField('storageKey', e.target.value)} placeholder="service_role / secret key" autoComplete="new-password" className={input} />
+                </div>
+                <div className="text-[11px] text-slate-500">Every bucket is downloaded to the server. Public buckets are served from your domain at the same paths, so <code>https://….supabase.co/storage/v1/object/public/…</code> becomes <code>https://{domain || 'your-domain'}/storage/v1/object/public/…</code>. The key is used for this copy only and is not saved.</div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button onClick={checkMigration} disabled={!dbReady || migrateCheck?.busy} className={ghost}>{migrateCheck?.busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Test connection</button>
+                {migrateCheck?.error && <span className="text-xs text-rose-300 whitespace-pre-wrap flex-1 min-w-0">{migrateCheck.error}</span>}
+              </div>
+              {migrateCheck?.result && (
+                <div className="p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 text-xs text-slate-300 space-y-1.5">
+                  {migrateCheck.result.database && (() => {
+                    const d = migrateCheck.result.database
+                    return <div className="flex gap-2"><Check className="w-4 h-4 text-emerald-400 shrink-0" /><span>{d.provider === 'supabase' ? 'Supabase' : d.host} · PostgreSQL {d.version} · {d.tables} table(s) in {d.schemas.join(', ') || 'no schemas'}{d.size ? ` · ${formatBytes(d.size)}` : ''}</span></div>
+                  })()}
+                  {migrateCheck.result.storage && (
+                    <div className="flex gap-2"><Check className="w-4 h-4 text-emerald-400 shrink-0" /><span>{migrateCheck.result.storage.buckets.length ? migrateCheck.result.storage.buckets.map(b => `${b.name} (${b.public ? 'public' : 'private'}${b.files !== null ? `, ${b.files} file(s), ${formatBytes(b.bytes)}` : ''})`).join(' · ') : 'No storage buckets'}</span></div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {dbMode !== 'none' && (dbMode === 'migrate' || ['mysql', 'postgresql'].includes(dbEngine)) && (
             <div>
               <div className="text-xs text-slate-400">New database credentials <span className="text-slate-500">(optional — leave empty to generate them; they are written to .env)</span></div>
               <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -767,7 +830,7 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
             </div>
           )}
 
-          {dbMode !== 'none' && dbEngine === 'mysql' && (
+          {dbMode !== 'none' && dbMode !== 'migrate' && dbEngine === 'mysql' && (
             <details className="text-xs text-slate-400">
               <summary className="cursor-pointer">MySQL admin login (only if the panel can't log in to MySQL by itself — use root or another admin, not the new database's user)</summary>
               <div className="mt-2 grid grid-cols-2 gap-2">
@@ -808,7 +871,7 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
               ['App', `${overrides.type !== 'auto' ? TYPE_OPTIONS.find(t => t[0] === overrides.type)?.[1] : analysis?.framework}`],
               ['Address', `${ssl ? 'https' : 'http'}://${domain}`],
               ['Folder', `/var/www/${appName}`],
-              ['Database', dbMode === 'none' ? 'None' : `${ENGINES.find(e => e[0] === dbEngine)?.[1]}${dbMode === 'import' ? ` · import ${dbUpload?.name}` : ' · new, empty'}`],
+              ['Database', dbMode === 'none' ? 'None' : dbMode === 'migrate' ? `PostgreSQL · copy of ${migrateCheck?.result?.database?.provider === 'supabase' || /supabase\./i.test(migrate.sourceUrl) ? 'Supabase' : 'external database'}${migrate.storageUrl.trim() ? ' + Storage files' : ''}` : `${ENGINES.find(e => e[0] === dbEngine)?.[1]}${dbMode === 'import' ? ` · import ${dbUpload?.name}` : ' · new, empty'}`],
               ['Server', activeServer?.name || 'This server']
             ].map(([k, v]) => (
               <div key={k} className="flex gap-3"><span className="text-slate-500 w-20 shrink-0">{k}</span><span className="text-slate-200 truncate">{v}</span></div>

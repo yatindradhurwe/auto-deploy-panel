@@ -7,6 +7,8 @@ import { diagnoseDeploymentError, executeSshPatch } from '../services/ai.service
 import { recordTemplateDeploy } from '../services/template.service.js'
 import { isSuperSession } from '../services/project-access.service.js'
 import { checkEntitlement } from '../services/subscription.service.js'
+import { inspectExternalPostgres } from '../services/database.service.js'
+import { inspectSupabaseStorage } from '../services/supabase-storage.service.js'
 import { bareToken, callbackUrl, githubOAuthAvailable, startGithubOAuth, finishGithubOAuth, githubUser, listGithubRepos, revokeGithubOAuth } from '../services/github.service.js'
 
 const router = express.Router()
@@ -74,6 +76,24 @@ router.post('/uploads/:id/chunk', async (req, res) => {
 router.post('/uploads/:id/complete', async (req, res) => {
   try {
     res.json({ success: true, ...(await completeUpload(req.params.id, req.user?.id)) })
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, error: err.message })
+  }
+})
+
+/**
+ * POST /api/deploy/migration-check { sourceUrl, includeAuth?, storage?: { url, key } }
+ * Before a "Migrate existing database" deploy: logs in to the source database from the selected
+ * server and lists the Supabase Storage buckets, so the wizard can show what will be copied.
+ */
+router.post('/migration-check', async (req, res) => {
+  try {
+    const { sourceUrl, includeAuth, storage } = req.body || {}
+    const out = {}
+    if (sourceUrl) out.database = await inspectExternalPostgres(getHost(req.tenant?.server || null), sourceUrl, { includeAuth: includeAuth !== false })
+    if (storage?.url || storage?.key) out.storage = await inspectSupabaseStorage(storage)
+    if (!out.database && !out.storage) return res.status(400).json({ success: false, error: 'Paste the connection string of the database to migrate.' })
+    res.json({ success: true, ...out })
   } catch (err) {
     res.status(err.status || 500).json({ success: false, error: err.message })
   }

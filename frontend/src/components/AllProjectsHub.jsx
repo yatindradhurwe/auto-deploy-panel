@@ -2,12 +2,13 @@ import React, { useState, useEffect } from 'react'
 import {
   Layers, Search, Grid, List, ExternalLink, Globe, Play, Sparkles, Code,
   Server, RefreshCw, CheckCircle2, ChevronDown, Bell, User, FolderGit2,
-  Trash2, ShieldCheck, DownloadCloud, Activity, Zap, HardDrive, ShoppingBag, Users, LogOut
+  Trash2, ShieldCheck, DownloadCloud, Activity, Zap, HardDrive, ShoppingBag, Users, LogOut, Plug
 } from 'lucide-react'
 import { useAuth } from '../store/AuthContext'
 import DeleteProjectModal from './DeleteProjectModal'
 import ShareProjectModal from './ShareProjectModal'
-import { useProjects, canShareProject, ACCESS_LABELS } from '../store/ProjectsContext'
+import McpAccessModal from './McpAccessModal'
+import { useProjects, canShareProject, canManageProject, ACCESS_LABELS } from '../store/ProjectsContext'
 import ThemeToggle from './ThemeToggle'
 
 export default function AllProjectsHub({
@@ -27,6 +28,7 @@ export default function AllProjectsHub({
   const [showCreditNotice, setShowCreditNotice] = useState(true)
   const [projectToDelete, setProjectToDelete] = useState(null)
   const [projectToShare, setProjectToShare] = useState(null)
+  const [projectForMcp, setProjectForMcp] = useState(null)
 
   const filteredProjects = projects.filter((p) => {
     if (!searchQuery.trim()) return true
@@ -412,6 +414,16 @@ export default function AllProjectsHub({
                       <span>Open Dedicated Studio</span>
                     </button>
 
+                    {canManageProject(proj) && (
+                      <button
+                        onClick={() => setProjectForMcp(proj)}
+                        title="Connect Claude or another AI to this project (MCP server)"
+                        className="p-2 bg-emerald-950/80 hover:bg-emerald-900/90 text-emerald-300 border border-emerald-800 rounded-xl text-xs transition cursor-pointer"
+                      >
+                        <Plug className="w-4 h-4 text-emerald-300" />
+                      </button>
+                    )}
+
                     {canShareProject(proj) && (
                       <button
                         onClick={() => setProjectToShare(proj)}
@@ -441,6 +453,7 @@ export default function AllProjectsHub({
       </main>
 
       <ShareProjectModal project={projectToShare} onClose={() => setProjectToShare(null)} />
+      <McpAccessModal project={projectForMcp} onClose={() => setProjectForMcp(null)} />
 
       <DeleteProjectModal
         isOpen={Boolean(projectToDelete)}
