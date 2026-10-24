@@ -99,14 +99,18 @@ export function ProjectsProvider({ children }) {
     }
   }), [api])
 
-  // --- MCP access tokens (managers of a project) ---------------------------------------------
+  // --- MCP access tokens (managers of a project; owners/admins for the whole server) ----------
+  // `target` is a project, or { scope: 'server' } for a token that covers the selected server
 
-  const getMcpTokens = useCallback((project) =>
-    api(`/api/projects/mcp/tokens?projectPath=${encodeURIComponent(project.path)}`), [api])
+  const getMcpTokens = useCallback((target) => api(target.scope === 'server'
+    ? '/api/projects/mcp/tokens?scope=server'
+    : `/api/projects/mcp/tokens?projectPath=${encodeURIComponent(target.path)}`), [api])
 
-  const createMcpToken = useCallback((project, { name, access, expiresInDays }) => api('/api/projects/mcp/tokens', {
+  const createMcpToken = useCallback((target, { name, access, expiresInDays }) => api('/api/projects/mcp/tokens', {
     method: 'POST',
-    body: { projectPath: project.path, projectName: project.name, name, access, expiresInDays: Number(expiresInDays) }
+    body: target.scope === 'server'
+      ? { scope: 'server', name, access, expiresInDays: Number(expiresInDays) }
+      : { projectPath: target.path, projectName: target.name, name, access, expiresInDays: Number(expiresInDays) }
   }), [api])
 
   const revokeMcpToken = useCallback((tokenId) => api(`/api/projects/mcp/tokens/${tokenId}`, { method: 'DELETE' }), [api])

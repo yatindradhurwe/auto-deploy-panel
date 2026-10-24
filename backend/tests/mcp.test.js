@@ -99,6 +99,51 @@ try {
     assert.throws(() => authenticateMcpToken('adpmcp_wrong'), /not valid/)
   })
 
+  await test('only owners/admins of their own server, or super admins, get server-wide tokens', async () => {
+    await assert.rejects(createToken(orgReq, { scope: 'server' }), (e) => e.status === 403 && /platform host/.test(e.message))
+    const devOnOwnServer = { ...orgReq, tenant: { organizationId: 'org-a', server: { id: 'srv-a', organizationId: 'org-a', ipAddress: '203.0.113.9' }, memberRole: 'DEVELOPER' } }
+    await assert.rejects(createToken(devOnOwnServer, { scope: 'server' }), (e) => e.status === 403 && /owners and admins/.test(e.message))
+    await assert.rejects(createToken(superReq, { scope: 'galaxy' }), (e) => e.status === 400)
+  })
+
+  const { secret: serverSecret, token: serverToken } = await createToken(superReq, { scope: 'server', name: 'Whole server', access: 'full' })
+  const { secret: serverReadSecret } = await createToken(superReq, { scope: 'server', access: 'read' })
+
+  await test('server tokens are listed apart from project tokens', async () => {
+    assert.deepStrictEqual(listTokens(superReq, null, 'server').map((t) => t.scope), ['server', 'server'])
+    assert.ok(listTokens(superReq, PROJECT).every((t) => t.scope === 'project'))
+    assert.strictEqual(serverToken.projectPath, '/')
+  })
+
+  const server = authenticateMcpToken(serverSecret)
+  const serverRead = authenticateMcpToken(serverReadSecret)
+
+  await test('server tokens reach any path and full ones get run_shell', async () => {
+    const tools = (await rpc(server, 'tools/list')).result.tools.map((t) => t.name)
+    assert.ok(tools.includes('get_server_info') && tools.includes('run_shell') && !tools.includes('get_project_info'))
+    const readTools = (await rpc(serverRead, 'tools/list')).result.tools.map((t) => t.name)
+    assert.deepStrictEqual(readTools, ['get_server_info', 'view', 'run_command', 'get_app_logs'])
+    assert.match((await call(serverRead, 'view', { path: path.join(PROJECT, 'index.html') })).content[0].text, /Hello/)
+    assert.match((await call(serverRead, 'run_command', { command: 'ls', cwd: PROJECT })).content[0].text, /index\.html/)
+    assert.match((await call(serverRead, 'run_shell', { script: 'id' })).content[0].text, /needs a token with full access/)
+    const sh = (await call(server, 'run_shell', { script: 'echo hi | tr a-z A-Z && pwd', cwd: PROJECT })).content[0].text
+    assert.match(sh, /HI[\s\S]*site[\s\S]*exit code 0/)
+    assert.match((await call(server, 'restart_app')).content[0].text, /app_name is required/)
+    // Project tokens never get the server tools
+    assert.match((await call(edit, 'run_shell', { script: 'id' })).content[0].text, /Unknown tool/)
+  })
+
+  await test('losing super admin stops a server token', async () => {
+    const d = readDb()
+    d.users['u-super'].platformRole = 'admin'
+    writeDb(d)
+    assert.throws(() => authenticateMcpToken(serverSecret), /super admin access/)
+    d.users['u-super'].platformRole = 'superadmin'
+    writeDb(d)
+    revokeToken(superReq, serverToken.id)
+    assert.throws(() => authenticateMcpToken(serverSecret), /not valid/)
+  })
+
   console.log(`\n${passed} MCP tests passed`)
 } finally {
   fs.rmSync(TEST_DIR, { recursive: true, force: true })

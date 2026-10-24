@@ -8,6 +8,11 @@ const ACCESS_OPTIONS = [
   { value: 'edit', label: 'Read & edit — change files, run builds and tests' },
   { value: 'full', label: 'Full — edit and restart the app' }
 ]
+const SERVER_ACCESS_OPTIONS = [
+  { value: 'read', label: 'Read only — any file, logs, safe commands' },
+  { value: 'edit', label: 'Read & edit — change any file, run builds' },
+  { value: 'full', label: 'Full — any shell command as root, restart apps' }
+]
 const ACCESS_TONES = { read: 'slate', edit: 'cyan', full: 'amber' }
 const EXPIRY_OPTIONS = [
   { value: '7', label: 'Expires in 7 days' },
@@ -21,7 +26,7 @@ const formatDate = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, {
 
 function serverSlug(project) {
   const slug = String(project?.name || 'project').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40)
-  return `autodeploy-${slug || 'project'}`
+  return `autodeploy-${project?.scope === 'server' ? 'server-' : ''}${slug || 'project'}`
 }
 
 /** Setup instructions for the common MCP clients, with the new token filled in. */
@@ -70,7 +75,8 @@ function CopyBlock({ code }) {
 
 /**
  * Generate MCP access tokens so Claude Code, Claude Desktop, Cursor or another AI client can work on
- * this project through the panel's MCP server (managers of the project only).
+ * this project through the panel's MCP server (managers of the project only). With
+ * `project.scope === 'server'` the token covers the whole selected server (owners/admins only).
  */
 export default function McpAccessModal({ project, onClose }) {
   const { getMcpTokens, createMcpToken, revokeMcpToken } = useProjects()
@@ -80,6 +86,7 @@ export default function McpAccessModal({ project, onClose }) {
   const [form, setForm] = useState({ name: '', access: 'edit', expiresInDays: '90' })
   const [created, setCreated] = useState(null)
   const [client, setClient] = useState('claude-code')
+  const isServer = project?.scope === 'server'
 
   const load = () => getMcpTokens(project).then(setData).catch((err) => setError(err.message))
 
@@ -90,7 +97,7 @@ export default function McpAccessModal({ project, onClose }) {
       setCreated(null)
       load()
     }
-  }, [project?.path])
+  }, [project?.path, project?.scope])
 
   const generate = async () => {
     setBusy('create')
@@ -125,13 +132,20 @@ export default function McpAccessModal({ project, onClose }) {
   const snippet = snippets.find((s) => s.id === client) || snippets[0]
 
   return (
-    <Modal open={!!project} title={`Connect AI to "${project?.name || ''}"`} onClose={onClose} wide>
+    <Modal open={!!project} title={isServer ? `Connect AI to the whole server "${project?.name || ''}"` : `Connect AI to "${project?.name || ''}"`} onClose={onClose} wide>
       {!data && !error ? <Loading /> : (
         <div className="space-y-5 text-xs">
-          <p className="text-slate-400">
-            Generate an MCP server token so Claude Code, Claude Desktop, Cursor or any other MCP-capable AI can read and change this project on its server.
-            The AI only reaches this project's folder, runs a safe list of commands, and every file it changes is backed up so it can be undone.
-          </p>
+          {isServer ? (
+            <p className="text-slate-400">
+              Generate an MCP server token so Claude Code, Claude Desktop, Cursor or any other MCP-capable AI can work on this entire server, not just one project:
+              every site and app, nginx, PM2, databases and system settings. With Full access the AI can run any shell command as the server user (usually root).
+            </p>
+          ) : (
+            <p className="text-slate-400">
+              Generate an MCP server token so Claude Code, Claude Desktop, Cursor or any other MCP-capable AI can read and change this project on its server.
+              The AI only reaches this project's folder, runs a safe list of commands, and every file it changes is backed up so it can be undone.
+            </p>
+          )}
 
           {error && <Alert>{error}</Alert>}
 
@@ -166,7 +180,7 @@ export default function McpAccessModal({ project, onClose }) {
                 <TextInput value={form.name} maxLength={60} placeholder="e.g. Claude Code on my laptop" onChange={(e) => setForm({ ...form, name: e.target.value })} />
               </Field>
               <Field label="Access">
-                <Select className="w-full" value={form.access} onChange={(access) => setForm({ ...form, access })} options={ACCESS_OPTIONS} />
+                <Select className="w-full" value={form.access} onChange={(access) => setForm({ ...form, access })} options={isServer ? SERVER_ACCESS_OPTIONS : ACCESS_OPTIONS} />
               </Field>
               <Field label="Expiry">
                 <Select className="w-full" value={form.expiresInDays} onChange={(expiresInDays) => setForm({ ...form, expiresInDays })} options={EXPIRY_OPTIONS} />
@@ -182,7 +196,7 @@ export default function McpAccessModal({ project, onClose }) {
           <div className="space-y-2">
             <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Active tokens</h4>
             {(data?.tokens || []).length === 0 ? (
-              <EmptyState>No AI clients are connected to this project yet.</EmptyState>
+              <EmptyState>No AI clients are connected to this {isServer ? 'server' : 'project'} yet.</EmptyState>
             ) : (
               <ul className="divide-y divide-slate-800 border border-slate-800 rounded-2xl">
                 {data.tokens.map((t) => (
@@ -209,8 +223,10 @@ export default function McpAccessModal({ project, onClose }) {
           <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-amber-200">
             <ShieldAlert className="w-4 h-4 shrink-0 mt-px" />
             <span>
-              Anyone with the token can work on this project as you, so keep it private. It stops working when it expires, when you revoke it,
-              when you sign out everywhere, or when you lose access to the project.
+              {isServer
+                ? 'Anyone with this token controls the whole server, so keep it private and prefer a short expiry. Shell commands are not backed up and cannot be undone. '
+                : 'Anyone with the token can work on this project as you, so keep it private. '}
+              It stops working when it expires, when you revoke it, when you sign out everywhere, or when you lose {isServer ? 'owner/admin access to the server' : 'access to the project'}.
             </span>
           </div>
         </div>

@@ -123,11 +123,11 @@ function mcpEndpoint(req) {
   return `${proto}://${host}/api/mcp`
 }
 
-router.get('/mcp/tokens', handle((req) => ({ success: true, endpoint: mcpEndpoint(req), tokens: listTokens(req, req.query.projectPath) })))
+router.get('/mcp/tokens', handle((req) => ({ success: true, endpoint: mcpEndpoint(req), tokens: listTokens(req, req.query.projectPath, req.query.scope === 'server' ? 'server' : 'project') })))
 
 router.post('/mcp/tokens', handleAsync(async (req) => {
-  const { projectPath, projectName, name, access, expiresInDays } = req.body || {}
-  const { token, secret } = await createToken(req, { projectPath, projectName, name, access, expiresInDays })
+  const { scope, projectPath, projectName, name, access, expiresInDays } = req.body || {}
+  const { token, secret } = await createToken(req, { scope, projectPath, projectName, name, access, expiresInDays })
   recordAuditLog({
     organizationId: req.tenant.organizationId,
     userId: req.user.id,
@@ -135,7 +135,7 @@ router.post('/mcp/tokens', handleAsync(async (req) => {
     resourceType: 'mcp_token',
     resourceId: token.id,
     ip: String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim(),
-    details: { email: req.user.email, projectPath: token.projectPath, access: token.access, name: token.name, expiresAt: token.expiresAt }
+    details: { email: req.user.email, scope: token.scope, projectPath: token.projectPath, access: token.access, name: token.name, expiresAt: token.expiresAt }
   })
   return { success: true, endpoint: mcpEndpoint(req), token, secret }
 }))

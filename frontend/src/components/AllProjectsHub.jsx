@@ -20,7 +20,7 @@ export default function AllProjectsHub({
   activeHubTab = 'projects'
 }) {
   // Projects on the selected server, with the caller's access to each (projects store)
-  const { projects, loading, error: projectsError, refresh: fetchProjects, sharedWithMe } = useProjects()
+  const { projects, loading, error: projectsError, refresh: fetchProjects, sharedWithMe, fullAccess } = useProjects()
   const { logout } = useAuth()
   const [searchQuery, setSearchQuery] = useState('')
   const [sortOrder, setSortOrder] = useState('custom')
@@ -248,6 +248,17 @@ export default function AllProjectsHub({
                 className="w-full px-4 py-2 bg-slate-950 border border-slate-800 rounded-2xl text-xs text-slate-100 placeholder-slate-500 font-mono focus:border-cyan-500 focus:outline-none shadow-inner"
               />
             </div>
+
+            {fullAccess && (
+              <button
+                onClick={() => setProjectForMcp({ scope: 'server', path: '/', name: server?.name || server?.ipAddress || 'This server' })}
+                className="px-4 py-2 bg-slate-950 border border-emerald-500/40 hover:border-emerald-400 text-emerald-200 font-bold text-xs rounded-2xl flex items-center justify-center space-x-2 shrink-0 transition cursor-pointer"
+                title="Let Claude Code, Cursor or another AI work on this whole server over MCP"
+              >
+                <Plug className="w-4 h-4 text-emerald-300" />
+                <span>Connect AI to server</span>
+              </button>
+            )}
 
             <button
               onClick={() => onTabChange && onTabChange('deployments')}

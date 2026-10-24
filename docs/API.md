@@ -114,10 +114,10 @@ Access levels: **user** = any logged-in member; **admin** = system admin. All `/
 Lets Claude Code, Claude Desktop, Cursor or any MCP client work on one project with the user's own AI. Token access: `read` (view, read-only commands, logs), `edit` (+ file edits, builds/tests, undo), `full` (+ PM2 restart). Tokens are stored hashed and re-checked on every call (expiry, revoke, "sign out everywhere", project access).
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/projects/mcp/tokens?projectPath=` | Tokens for the project (owners/admins see all, managers their own) and the `endpoint` URL. |
-| POST | `/api/projects/mcp/tokens` | `{ projectPath, projectName, name, access, expiresInDays: 7\|30\|90\|365\|0 }` → `{ token, secret, endpoint }`; `secret` is shown only once. |
+| GET | `/api/projects/mcp/tokens?projectPath=` | Tokens for the project (owners/admins see all, managers their own) and the `endpoint` URL. `?scope=server` lists whole-server tokens (owners/admins). |
+| POST | `/api/projects/mcp/tokens` | `{ projectPath, projectName, name, access, expiresInDays: 7\|30\|90\|365\|0 }` → `{ token, secret, endpoint }`; `secret` is shown only once. `{ scope: 'server', name, access, expiresInDays }` creates a whole-server token: organization owners/admins on their own servers, super admins on any server. |
 | DELETE | `/api/projects/mcp/tokens/:id` | Revoke (creator or organization owner/admin). |
-| POST | `/api/mcp` | MCP Streamable HTTP (JSON-RPC, JSON responses), `Authorization: Bearer adpmcp_…`. Tools: `get_project_info`, `view`, `run_command`, `get_app_logs`, `create_file`, `str_replace`, `insert`, `list_changes`, `undo_changes`, `restart_app`. |
+| POST | `/api/mcp` | MCP Streamable HTTP (JSON-RPC, JSON responses), `Authorization: Bearer adpmcp_…`. Tools: `get_project_info`, `view`, `run_command`, `get_app_logs`, `create_file`, `str_replace`, `insert`, `list_changes`, `undo_changes`, `restart_app`. Server tokens get `get_server_info` instead of `get_project_info`, absolute paths, a `cwd` for `run_command`, and with full access `run_shell` (any bash script, audited as `MCP_TOOL_CALL`). |
 
 ## Admin, team, billing
 - `/api/admin` (admin): `overview`, `users` (+ `suspend`, `activate`, `reset-password`, `revoke-sessions`, `impersonate`, delete), `organizations` (+ `plan`, `suspend`, `activate`, members `role`, delete), `servers`, `subscriptions`, `plans` (CRUD), `settings`, `audit-logs`, `idempotency/stats|records`.

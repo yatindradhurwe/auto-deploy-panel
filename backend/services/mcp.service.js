@@ -5,8 +5,8 @@ import { fileURLToPath } from 'url'
 import { readDb, writeDb, getUserById, getOrganizationById, getOrganizationMembers, getServerById } from './db.service.js'
 import { getPlatformRole, getUserStatus, getPlatformSettings } from './admin.service.js'
 import { getHost } from './host.service.js'
-import { projectLevel, hasLevel, isPlatformHost, isSuperSession, normalizeProjectPath } from './project-access.service.js'
-import { runEditor, runBash, confine, splitCommand, describeProject, pm2AppsFor } from './project-agent.service.js'
+import { projectLevel, hasLevel, isPlatformHost, isSuperSession, isOrgAdmin, normalizeProjectPath } from './project-access.service.js'
+import { runEditor, runBash, confine, splitCommand, describeProject, pm2AppsFor, childEnv } from './project-agent.service.js'
 
 /**
  * MCP (Model Context Protocol) server for a project, so Claude Code, Claude Desktop, Cursor or any
@@ -24,6 +24,11 @@ import { runEditor, runBash, confine, splitCommand, describeProject, pm2AppsFor 
  *  - 'read'  view files, run read-only commands (ls, grep, git log…), read app logs
  *  - 'edit'  + create/edit files, run builds, tests and installs, undo its own changes
  *  - 'full'  + restart the project's PM2 app(s)
+ *
+ * A token can instead cover the whole server (scope 'server'), for organization owners/admins on
+ * their own servers and super admins on any server, the panel host included. Paths and PM2 apps are
+ * then not confined to one project, and 'full' adds run_shell: any shell command as the SSH user
+ * (root on most servers), with no allowlist.
  */
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -32,9 +37,12 @@ const MCP_DIR = process.env.AUTODEPLOY_DB_PATH ? path.join(path.dirname(process.
 const PANEL_PM2_NAME = process.env.PANEL_PM2_NAME || 'auto-deploy-panel'
 
 export const MCP_ACCESS = ['read', 'edit', 'full']
+export const MCP_SCOPES = ['project', 'server']
 const ACCESS_RANK = { read: 1, edit: 2, full: 3 }
 const TOKEN_PREFIX = 'adpmcp_'
 const MAX_TOKENS_PER_PROJECT = 20
+const SERVER_ROOT = '/'
+const isServerToken = (t) => t.scope === 'server'
 const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05']
 const READ_PROGRAMS = new Set(['ls', 'cat', 'head', 'tail', 'wc', 'grep', 'rg', 'find', 'tree', 'pwd', 'stat', 'file', 'diff', 'du', 'echo', 'git'])
 
@@ -51,6 +59,7 @@ function publicToken(t, db = readDb()) {
     id: t.id,
     name: t.name,
     access: t.access,
+    scope: t.scope || 'project',
     tokenPreview: `${t.tokenPrefix}…`,
     projectPath: t.projectPath,
     projectName: t.projectName,
@@ -73,22 +82,46 @@ function requireManagedProject(req, projectPath) {
   return { dir, level }
 }
 
+/** Whole-server access: organization owners/admins on their own servers, super admins anywhere. */
+function canManageServer(req) {
+  return isSuperSession(req) || (isOrgAdmin(req) && !isPlatformHost(req.tenant?.server))
+}
+
+function requireServerManager(req) {
+  if (req.user.impersonatedBy) throw httpError(403, 'MCP access tokens cannot be created while impersonating a user.')
+  if (!canManageServer(req)) {
+    throw httpError(403, isOrgAdmin(req)
+      ? 'The platform host is managed by platform staff. Select one of your organization\'s servers.'
+      : 'Only organization owners and admins can connect an AI client to the whole server.')
+  }
+}
+
 const serverKey = (req) => (isPlatformHost(req.tenant?.server) ? null : req.tenant.server.id)
 
-export function listTokens(req, projectPath) {
-  const { dir, level } = requireManagedProject(req, projectPath)
+export function listTokens(req, projectPath, scope = 'project') {
+  const server = scope === 'server'
+  let dir = SERVER_ROOT
+  let seeAll = true
+  if (server) requireServerManager(req)
+  else {
+    const managed = requireManagedProject(req, projectPath)
+    dir = managed.dir
+    seeAll = managed.level === 'super' || managed.level === 'owner'
+  }
   const db = readDb()
-  const seeAll = level === 'super' || level === 'owner'
   return (db.mcpTokens || [])
-    .filter((t) => t.organizationId === req.tenant.organizationId && (t.serverId || null) === serverKey(req) && t.projectPath === dir)
+    .filter((t) => t.organizationId === req.tenant.organizationId && (t.serverId || null) === serverKey(req) && isServerToken(t) === server && t.projectPath === dir)
     .filter((t) => seeAll || t.userId === req.user.id)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .map((t) => publicToken(t, db))
 }
 
 /** Creates a token and returns it once in plain text; only its hash is stored. */
-export async function createToken(req, { projectPath, projectName, name, access = 'edit', expiresInDays = 90 }) {
-  const { dir } = requireManagedProject(req, projectPath)
+export async function createToken(req, { scope = 'project', projectPath, projectName, name, access = 'edit', expiresInDays = 90 }) {
+  if (!MCP_SCOPES.includes(scope)) throw httpError(400, 'scope must be "project" or "server".')
+  const server = scope === 'server'
+  if (server) requireServerManager(req)
+  const dir = server ? SERVER_ROOT : requireManagedProject(req, projectPath).dir
   if (!MCP_ACCESS.includes(access)) throw httpError(400, 'access must be "read", "edit" or "full".')
   const days = Number(expiresInDays)
   if (![0, 7, 30, 90, 365].includes(days)) throw httpError(400, 'expiresInDays must be 7, 30, 90, 365 or 0 (never).')
@@ -96,14 +129,16 @@ export async function createToken(req, { projectPath, projectName, name, access 
 
   // The directory must exist on the server (and resolve to itself, not a symlink elsewhere)
   const host = getHost(serverKey(req) ? req.tenant.server : null)
-  let real
-  try { real = await host.realpath(dir) } catch { real = null }
-  if (!real) throw httpError(404, `${dir} does not exist on this server.`)
+  let real = dir
+  if (!server) {
+    try { real = await host.realpath(dir) } catch { real = null }
+    if (!real) throw httpError(404, `${dir} does not exist on this server.`)
+  }
 
   const db = readDb()
   db.mcpTokens ||= []
-  const sameProject = db.mcpTokens.filter((t) => t.organizationId === req.tenant.organizationId && (t.serverId || null) === serverKey(req) && t.projectPath === real)
-  if (sameProject.length >= MAX_TOKENS_PER_PROJECT) throw httpError(400, `This project already has ${MAX_TOKENS_PER_PROJECT} MCP tokens. Revoke unused ones first.`)
+  const sameProject = db.mcpTokens.filter((t) => t.organizationId === req.tenant.organizationId && (t.serverId || null) === serverKey(req) && isServerToken(t) === server && t.projectPath === real)
+  if (sameProject.length >= MAX_TOKENS_PER_PROJECT) throw httpError(400, `This ${server ? 'server' : 'project'} already has ${MAX_TOKENS_PER_PROJECT} MCP tokens. Revoke unused ones first.`)
 
   const raw = TOKEN_PREFIX + crypto.randomBytes(32).toString('base64url')
   const user = getUserById(req.user.id)
@@ -115,8 +150,9 @@ export async function createToken(req, { projectPath, projectName, name, access 
     tokenPrefix: raw.slice(0, TOKEN_PREFIX.length + 6),
     organizationId: req.tenant.organizationId,
     serverId: serverKey(req),
+    scope,
     projectPath: real,
-    projectName: String(projectName || path.posix.basename(real)).slice(0, 100),
+    projectName: String(server ? host.label : (projectName || path.posix.basename(real))).slice(0, 100),
     userId: req.user.id,
     access,
     // A console (super admin) token keeps working on the platform host only while the user stays super admin
@@ -135,7 +171,9 @@ export function revokeToken(req, id) {
   const db = readDb()
   const token = (db.mcpTokens || []).find((t) => t.id === id && t.organizationId === req.tenant.organizationId)
   if (!token) throw httpError(404, 'Token not found.')
-  if (token.userId !== req.user.id) {
+  if (isServerToken(token)) {
+    if (!canManageServer(req)) throw httpError(403, 'Only organization owners and admins can revoke server tokens.')
+  } else if (token.userId !== req.user.id) {
     const level = projectLevel(req, { projectPath: token.projectPath })
     if (level !== 'super' && level !== 'owner') throw httpError(403, 'Only the token\'s creator or an organization admin can revoke it.')
   }
@@ -189,8 +227,11 @@ export function authenticateMcpToken(raw) {
     user: { id: user.id, email: user.email, role, portal: token.super ? 'console' : 'panel' },
     tenant: { organizationId: token.organizationId, server, memberRole: member ? member.role : 'OWNER' }
   }
-  const level = projectLevel(req, { projectPath: token.projectPath })
-  if (!hasLevel(level, 'manager')) throw httpError(403, 'The token\'s creator no longer manages this project.')
+  if (isServerToken(token)) {
+    if (!canManageServer(req)) throw httpError(403, 'The token\'s creator can no longer manage this server.')
+  } else if (!hasLevel(projectLevel(req, { projectPath: token.projectPath }), 'manager')) {
+    throw httpError(403, 'The token\'s creator no longer manages this project.')
+  }
 
   if (!token.lastUsedAt || Date.now() - Date.parse(token.lastUsedAt) > 60000) {
     const saved = (db.mcpTokens || []).find((t) => t.id === token.id)
@@ -206,9 +247,26 @@ export function authenticateMcpToken(raw) {
 
 const PATH_PROP = { type: 'string', description: 'Path relative to the project root (absolute paths inside the project also work).' }
 
+const SERVER_PATH_PROP = { type: 'string', description: 'Absolute path on the server (relative paths resolve from /).' }
+
+/**
+ * `scope` limits a tool to project or server tokens; `server` overrides parts of its definition for
+ * server tokens.
+ */
 const TOOLS = [
   {
     access: 'read',
+    scope: 'server',
+    def: {
+      name: 'get_server_info',
+      description: 'Hostname, OS, uptime, CPU, memory and disk usage, every PM2 process with its folder, and the folders in /var/www. Call this first.',
+      inputSchema: { type: 'object', properties: {} },
+      annotations: { readOnlyHint: true }
+    }
+  },
+  {
+    access: 'read',
+    scope: 'project',
     def: {
       name: 'get_project_info',
       description: 'Name, root directory, stack (package.json scripts, frameworks), git status and PM2 processes of this project. Call this first.',
@@ -230,7 +288,8 @@ const TOOLS = [
         required: ['path']
       },
       annotations: { readOnlyHint: true }
-    }
+    },
+    server: { path: SERVER_PATH_PROP }
   },
   {
     access: 'read',
@@ -238,6 +297,28 @@ const TOOLS = [
       name: 'run_command',
       description: 'Run ONE command in the project root without a shell (no pipes, redirects, &&, ;, $(), globs). Read-only tokens: ls, cat, head, tail, wc, grep, rg, find, tree, pwd, stat, file, diff, du, echo, git (status, diff, log, show, ls-files, grep, blame, branch, rev-parse). Edit tokens also: npm (run/test/install/ci/ls/outdated/audit/view), npx (tsc, eslint, prettier, vite, next, jest, vitest, tailwindcss, astro, nuxt, svelte-check, vue-tsc), node <script>, php -l, python3 -m py_compile|compileall|pytest, composer (install/dump-autoload/validate/show), curl GET to localhost.',
       inputSchema: { type: 'object', properties: { command: { type: 'string', description: 'For example: git log --oneline -20' } }, required: ['command'] }
+    },
+    server: {
+      description: 'Run ONE allowlisted command without a shell (no pipes, redirects, &&, ;, $(), globs) in the given folder. Read-only tokens: ls, cat, head, tail, wc, grep, rg, find, tree, pwd, stat, file, diff, du, echo, git (read-only subcommands). Edit tokens also: npm, npx (installed tools), node <script>, php -l, python3 -m py_compile|compileall|pytest, composer, curl GET to localhost. Full-access tokens can use run_shell for anything else.',
+      properties: { cwd: { type: 'string', description: 'Absolute folder to run in (default /root).' } }
+    }
+  },
+  {
+    access: 'full',
+    scope: 'server',
+    def: {
+      name: 'run_shell',
+      description: 'Run a bash script on the server as the panel\'s SSH user (usually root): pipes, &&, sudo, apt, systemctl, nginx, pm2, docker, databases, anything. Nothing is allowlisted or backed up, so check what a command does before running it and never run destructive commands the user did not ask for.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          script: { type: 'string', description: 'For example: nginx -t && systemctl reload nginx' },
+          cwd: { type: 'string', description: 'Absolute folder to run in (default /root).' },
+          timeout_seconds: { type: 'integer', minimum: 1, maximum: 600, description: 'Default 120.' }
+        },
+        required: ['script']
+      },
+      annotations: { destructiveHint: true, openWorldHint: true }
     }
   },
   {
@@ -253,6 +334,11 @@ const TOOLS = [
         }
       },
       annotations: { readOnlyHint: true }
+    },
+    server: {
+      description: 'Recent output and error logs of a PM2 process on the server.',
+      properties: { app_name: { type: 'string', description: 'PM2 app name (see get_server_info).' } },
+      required: ['app_name']
     }
   },
   {
@@ -261,7 +347,8 @@ const TOOLS = [
       name: 'create_file',
       description: 'Create a file, or overwrite an existing one, with the given content. Parent directories are created.',
       inputSchema: { type: 'object', properties: { path: PATH_PROP, content: { type: 'string' } }, required: ['path', 'content'] }
-    }
+    },
+    server: { path: SERVER_PATH_PROP }
   },
   {
     access: 'edit',
@@ -269,7 +356,8 @@ const TOOLS = [
       name: 'str_replace',
       description: 'Replace one exact, unique occurrence of old_str in a file with new_str. View the file first and copy the text exactly, including whitespace.',
       inputSchema: { type: 'object', properties: { path: PATH_PROP, old_str: { type: 'string' }, new_str: { type: 'string' } }, required: ['path', 'old_str', 'new_str'] }
-    }
+    },
+    server: { path: SERVER_PATH_PROP }
   },
   {
     access: 'edit',
@@ -277,7 +365,8 @@ const TOOLS = [
       name: 'insert',
       description: 'Insert text after the given line of a file (0 = at the top).',
       inputSchema: { type: 'object', properties: { path: PATH_PROP, insert_line: { type: 'integer', minimum: 0 }, text: { type: 'string' } }, required: ['path', 'insert_line', 'text'] }
-    }
+    },
+    server: { path: SERVER_PATH_PROP }
   },
   {
     access: 'edit',
@@ -304,11 +393,35 @@ const TOOLS = [
       description: 'Restart the project\'s PM2 process(es) so backend changes go live.',
       inputSchema: { type: 'object', properties: { app_name: { type: 'string', description: 'PM2 app name; defaults to every app running from this project.' } } },
       annotations: { destructiveHint: true }
+    },
+    server: {
+      description: 'Restart a PM2 process on the server.',
+      properties: { app_name: { type: 'string', description: 'PM2 app name (see get_server_info).' } },
+      required: ['app_name']
     }
   }
 ]
 
-const toolsFor = (access) => TOOLS.filter((t) => ACCESS_RANK[t.access] <= ACCESS_RANK[access])
+/** The tool definition as a token of this scope sees it. */
+function defFor(tool, scope) {
+  if (scope !== 'server' || !tool.server) return tool.def
+  const { description, path: pathProp, properties = {}, required } = tool.server
+  const schema = tool.def.inputSchema
+  return {
+    ...tool.def,
+    description: description || tool.def.description,
+    inputSchema: {
+      ...schema,
+      properties: { ...schema.properties, ...(pathProp ? { path: pathProp } : {}), ...properties },
+      ...(required ? { required } : {})
+    }
+  }
+}
+
+const tokenScope = (token) => (isServerToken(token) ? 'server' : 'project')
+const toolsFor = (token) => TOOLS
+  .filter((t) => ACCESS_RANK[t.access] <= ACCESS_RANK[token.access] && (!t.scope || t.scope === tokenScope(token)))
+  .map((t) => defFor(t, tokenScope(token)))
 
 // The per-token change log (which files were changed and where their backups are)
 const stateFile = (id) => path.join(MCP_DIR, `${id}.json`)
@@ -333,26 +446,54 @@ function serialize(id, fn) {
 }
 
 async function projectApps(host, token, appName) {
+  if (isServerToken(token) && !appName) throw new Error('app_name is required. See get_server_info for the PM2 apps on this server.')
   const apps = await pm2AppsFor(host, token.projectPath)
   if (!appName) return apps
   const app = apps.find((a) => a.name === String(appName))
-  if (!app) throw new Error(`No PM2 app named '${appName}' runs from this project. Apps: ${apps.map((a) => a.name).join(', ') || 'none'}.`)
+  if (!app) throw new Error(`No PM2 app named '${appName}' runs ${isServerToken(token) ? 'on this server' : 'from this project'}. Apps: ${apps.map((a) => a.name).join(', ') || 'none'}.`)
   return [app]
 }
 
 async function callTool(ctx, name, args = {}) {
   const { token, host } = ctx
-  const tool = TOOLS.find((t) => t.def.name === name)
+  const tool = TOOLS.find((t) => t.def.name === name && (!t.scope || t.scope === tokenScope(token)))
   if (!tool) throw new Error(`Unknown tool '${name}'.`)
   if (ACCESS_RANK[tool.access] > ACCESS_RANK[token.access]) throw new Error(`'${name}' needs a token with ${tool.access === 'full' ? 'full' : 'edit'} access. This token is ${token.access}.`)
   const root = token.projectPath
   const session = { id: token.id, projectPath: root, changes: {}, backupDir: path.join(MCP_DIR, `${token.id}.backups`) }
+  const workDir = async () => {
+    const { abs } = await confine(host, root, args.cwd ? String(args.cwd) : '/root')
+    const st = await host.stat(abs)
+    if (!st?.isDirectory) throw new Error(`${abs} is not a folder on this server.`)
+    return abs
+  }
 
   switch (name) {
     case 'get_project_info': {
       const facts = await describeProject(host, root)
       const git = await host.exec('git status --short --branch 2>/dev/null | head -n 40', { cwd: root, timeout: 20000 })
       return `Project: ${token.projectName}\nRoot: ${root}\nServer: ${host.label}\nAccess: ${token.access}\n${facts}${git.stdout.trim() ? `\n\ngit status:\n${git.stdout.trim()}` : ''}`
+    }
+    case 'get_server_info': {
+      const r = await host.exec([
+        'echo "Host: $(hostname) ($(. /etc/os-release 2>/dev/null; echo "$PRETTY_NAME"), $(uname -m))"',
+        'echo "User: $(id -un)"',
+        'echo "Uptime: $(uptime -p 2>/dev/null) · load $(cut -d" " -f1-3 /proc/loadavg) · $(nproc) CPU"',
+        'free -h 2>/dev/null | sed -n 1,2p',
+        'df -h -x tmpfs -x devtmpfs -x overlay 2>/dev/null',
+        'echo; echo "/var/www:"; ls -1 /var/www 2>/dev/null'
+      ].join('\n'), { timeout: 20000 })
+      const apps = await pm2AppsFor(host, SERVER_ROOT)
+      const pm2 = apps.length ? apps.map((a) => `- ${a.name} (${a.status}) ${a.cwd}`).join('\n') : 'none'
+      return `Server: ${host.label}\nAccess: ${token.access}\n${r.stdout.trim()}\n\nPM2 processes:\n${pm2}`
+    }
+    case 'run_shell': {
+      const script = String(args.script || '')
+      if (!script.trim()) throw new Error('script is required.')
+      const timeout = Math.min(600, Math.max(1, Number(args.timeout_seconds) || 120)) * 1000
+      const r = await host.exec(`${script}\n`, { cwd: await workDir(), timeout, ...(host.isLocal ? { env: childEnv() } : {}) })
+      const out = (r.stdout + (r.stderr ? `\n${r.stderr}` : '')).trim()
+      return `${out.length > 30000 ? `${out.slice(0, 10000)}\n… (output truncated) …\n${out.slice(-20000)}` : out}\n[exit code ${r.code}]`.trim()
     }
     case 'view':
       return runEditor(session, { command: 'view', path: args.path, view_range: args.view_range }, host)
@@ -362,7 +503,8 @@ async function callTool(ctx, name, args = {}) {
         const [prog] = splitCommand(command)
         if (!READ_PROGRAMS.has(prog)) throw new Error(`'${prog || ''}' is not available with a read-only token. Allowed: ${[...READ_PROGRAMS].join(', ')}.`)
       }
-      return runBash(session, { command }, { controller: new AbortController() }, host)
+      const cwd = isServerToken(token) ? await workDir() : undefined
+      return runBash(session, { command, cwd }, { controller: new AbortController() }, host)
     }
     case 'get_app_logs': {
       const apps = await projectApps(host, token, args.app_name)
@@ -437,6 +579,10 @@ async function callTool(ctx, name, args = {}) {
 const rpcError = (id, code, message) => ({ jsonrpc: '2.0', id: id ?? null, error: { code, message } })
 
 function instructions(token, host) {
+  if (isServerToken(token)) {
+    return `This MCP server gives you access to a whole live server managed by AutoDeploy Panel: ${host.label} (access: ${token.access}). Every website and app hosted on it is reachable, usually under /var/www, and runs under PM2.
+Start with get_server_info. Paths are absolute. Explore before changing anything and keep changes to what the user asked for: other sites on this server are live too. ${token.access === 'full' ? 'run_shell runs any command as the server user, usually root, with no undo, so never run destructive commands (deleting data, dropping databases, stopping services) unless the user explicitly asks.' : 'Commands are allowlisted and run without a shell.'} Never print secrets from .env files or credentials.`
+  }
   return `This MCP server gives you access to one project on a live server managed by AutoDeploy Panel: "${token.projectName}" at ${token.projectPath} on ${host.label} (access: ${token.access}).
 Start with get_project_info. Explore before editing, keep changes focused and follow the project's style, and verify with the project's build/tests via run_command. Commands run without a shell, one at a time. Files and builds change what the live site serves; ${token.access === 'full' ? 'restart_app restarts the backend, so only use it when the user asks or a backend change needs it.' : 'restarting the backend is done by the user from the panel.'} Never print secrets from .env files.`
 }
@@ -457,14 +603,14 @@ export async function handleRpc(ctx, msg, onToolCall = () => {}) {
       return result({
         protocolVersion: PROTOCOL_VERSIONS.includes(requested) ? requested : PROTOCOL_VERSIONS[0],
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: 'autodeploy-panel', title: `AutoDeploy · ${ctx.token.projectName}`, version: '1.0.0' },
+        serverInfo: { name: 'autodeploy-panel', title: `AutoDeploy · ${isServerToken(ctx.token) ? `server ${ctx.token.projectName}` : ctx.token.projectName}`, version: '1.0.0' },
         instructions: instructions(ctx.token, ctx.host)
       })
     }
     case 'ping':
       return result({})
     case 'tools/list':
-      return result({ tools: toolsFor(ctx.token.access).map((t) => t.def) })
+      return result({ tools: toolsFor(ctx.token) })
     case 'tools/call': {
       const name = String(params.name || '')
       try {
@@ -486,4 +632,4 @@ export async function handleRpc(ctx, msg, onToolCall = () => {}) {
   }
 }
 
-export const isWriteTool = (name) => ['create_file', 'str_replace', 'insert', 'undo_changes', 'restart_app'].includes(name)
+export const isWriteTool = (name) => ['create_file', 'str_replace', 'insert', 'undo_changes', 'restart_app', 'run_shell'].includes(name)

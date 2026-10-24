@@ -183,7 +183,7 @@ export async function pm2AppsFor(host, root) {
     const line = stdout.split('\n').find(l => l.trim().startsWith('['))
     return JSON.parse(line || '[]')
       .map(p => ({ name: p.name, cwd: p.pm2_env?.pm_cwd, status: p.pm2_env?.status }))
-      .filter(p => p.cwd && (p.cwd === root || p.cwd.startsWith(root + '/')))
+      .filter(p => p.cwd && (p.cwd === root || p.cwd.startsWith(root.endsWith('/') ? root : root + '/')))
   } catch {
     return []
   }
@@ -577,7 +577,7 @@ function truncateOutput(text) {
 }
 
 // Child processes never see the panel's own secrets (JWT secret, API keys, DB passwords)
-function childEnv() {
+export function childEnv() {
   return {
     PATH: process.env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
     HOME: process.env.HOME || '/root',
@@ -598,7 +598,8 @@ export async function runBash(session, input, state, host = hostOf(session)) {
   const { argv, timeoutMs } = await validateCommand(root, splitCommand(String(input?.command || '').trim()), host)
   // On the panel host the command gets a clean environment (no panel secrets); remote servers use their own
   const r = await host.exec(argv.map(q).join(' ') + ' 2>&1', {
-    cwd: root,
+    // `cwd` (already confined by the caller) lets the server-wide MCP run commands in any folder
+    cwd: input?.cwd || root,
     timeout: timeoutMs,
     signal: state.controller.signal,
     ...(host.isLocal ? { env: childEnv() } : {})

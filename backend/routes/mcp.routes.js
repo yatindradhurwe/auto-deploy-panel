@@ -41,7 +41,7 @@ router.post('/', async (req, res) => {
       resourceType: 'mcp_token',
       resourceId: ctx.token.id,
       ip,
-      details: { tool: name, path: args.path || args.app_name || null, projectPath: ctx.token.projectPath, failed: isError }
+      details: { tool: name, path: args.path || args.app_name || null, ...(name === 'run_shell' ? { script: String(args.script || '').slice(0, 2000) } : {}), scope: ctx.token.scope || 'project', projectPath: ctx.token.projectPath, failed: isError }
     })
   }
 
