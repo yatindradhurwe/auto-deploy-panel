@@ -1,5 +1,6 @@
 import { q, GIT_AS_OWNER } from './host.service.js'
 import { loadEnv } from './deploy-pipeline.service.js'
+import { rewriteBuildScript, removeStackScript } from './supabase-stack.service.js'
 
 /**
  * Project lifecycle operations (update from Git, delete) through a host executor, so they run
@@ -101,6 +102,8 @@ for d in . backend server api services/*; do
   if [ -f "$d/requirements.txt" ]; then (cd "$d" && venv/bin/pip install -r requirements.txt); fi
   if [ -f "$d/alembic.ini" ]; then (cd "$d" && ${loadEnv}; venv/bin/alembic upgrade head) || echo "Migrations reported an error (see above)"; fi
 done
+# Apps migrated from Supabase: the new build points at the app's own Supabase services again
+${rewriteBuildScript(app, dir)}
 # Install/build ran as root: hand new files back to the folder's owner (site users on CloudPanel etc.)
 if [ "$(stat -c %U .)" != root ] && [ "$(id -u)" = 0 ]; then chown -R --from=root:root --reference=. . ; fi`)
 
@@ -132,6 +135,8 @@ export async function deleteProject(host, opts) {
   const lines = ['echo "=== Deleting ' + (appName || domain || dir).replace(/"/g, '') + ' ==="']
   if (opts.deletePm2 !== false && appName) {
     lines.push(`echo "Removing PM2 process ${appName}"`, `pm2 delete ${q(appName)} 2>&1 || true`, 'pm2 save >/dev/null 2>&1 || true')
+    // The app's local Supabase services (auth, rest, storage, functions), if it was migrated with them
+    lines.push(removeStackScript(appName.toLowerCase()))
   }
   if (opts.deleteNginx !== false && domain) {
     lines.push(`echo "Removing nginx site ${domain}"`,

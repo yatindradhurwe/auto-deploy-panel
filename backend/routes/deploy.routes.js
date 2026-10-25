@@ -9,6 +9,8 @@ import { isSuperSession } from '../services/project-access.service.js'
 import { checkEntitlement } from '../services/subscription.service.js'
 import { inspectExternalPostgres } from '../services/database.service.js'
 import { inspectSupabaseStorage } from '../services/supabase-storage.service.js'
+import { listSupabaseProjects, supabaseProjectDetails } from '../services/supabase-cloud.service.js'
+import { listVercelProjects, vercelProjectDetails } from '../services/vercel.service.js'
 import * as dnsProvider from '../services/dns-provider.service.js'
 import { bareToken, callbackUrl, githubOAuthAvailable, startGithubOAuth, finishGithubOAuth, githubUser, listGithubRepos, revokeGithubOAuth } from '../services/github.service.js'
 
@@ -83,15 +85,15 @@ router.post('/uploads/:id/complete', async (req, res) => {
 })
 
 /**
- * POST /api/deploy/migration-check { sourceUrl, includeAuth?, storage?: { url, key } }
+ * POST /api/deploy/migration-check { sourceUrl, includeAuth?, includeStorage?, storage?: { url, key } }
  * Before a "Migrate existing database" deploy: logs in to the source database from the selected
  * server and lists the Supabase Storage buckets, so the wizard can show what will be copied.
  */
 router.post('/migration-check', async (req, res) => {
   try {
-    const { sourceUrl, includeAuth, storage } = req.body || {}
+    const { sourceUrl, includeAuth, includeStorage, storage } = req.body || {}
     const out = {}
-    if (sourceUrl) out.database = await inspectExternalPostgres(getHost(req.tenant?.server || null), sourceUrl, { includeAuth: includeAuth !== false })
+    if (sourceUrl) out.database = await inspectExternalPostgres(getHost(req.tenant?.server || null), sourceUrl, { includeAuth: includeAuth !== false, includeStorage: !!includeStorage })
     if (storage?.url || storage?.key) out.storage = await inspectSupabaseStorage(storage)
     if (!out.database && !out.storage) return res.status(400).json({ success: false, error: 'Paste the connection string of the database to migrate.' })
     res.json({ success: true, ...out })
@@ -99,6 +101,25 @@ router.post('/migration-check', async (req, res) => {
     res.status(err.status || 500).json({ success: false, error: err.message })
   }
 })
+
+/**
+ * Importing from Vercel and Supabase. The access tokens are used for these calls only and never saved.
+ *   POST /api/deploy/vercel/projects { token }               → { projects }
+ *   POST /api/deploy/vercel/project { token, id, teamId? }   → repository, build settings, env, domains
+ *   POST /api/deploy/supabase/projects { token }             → { projects }
+ *   POST /api/deploy/supabase/project { token, ref }         → pooler address, keys, JWT secret, Auth settings, functions
+ */
+const importRoute = (fn) => async (req, res) => {
+  try {
+    res.json({ success: true, ...(await fn(req.body || {})) })
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, error: err.message })
+  }
+}
+router.post('/vercel/projects', importRoute(async ({ token }) => ({ projects: await listVercelProjects(token) })))
+router.post('/vercel/project', importRoute(async ({ token, id, teamId }) => ({ project: await vercelProjectDetails(token, id, teamId) })))
+router.post('/supabase/projects', importRoute(async ({ token }) => ({ projects: await listSupabaseProjects(token) })))
+router.post('/supabase/project', importRoute(async ({ token, ref }) => ({ project: await supabaseProjectDetails(token, ref) })))
 
 /**
  * Test SSH Connection

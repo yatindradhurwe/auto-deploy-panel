@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
   Github, Upload, Server, Database, Rocket, Check, X, RefreshCw, ChevronRight, ChevronDown, ArrowLeft,
-  AlertTriangle, FileArchive, Globe, Lock, Search, Copy, ExternalLink, Sparkles, Settings2, Box, Loader2, KeyRound
+  AlertTriangle, FileArchive, Globe, Lock, Search, Copy, ExternalLink, Sparkles, Settings2, Box, Loader2, KeyRound, Triangle, Zap
 } from 'lucide-react'
 import { useAuth } from '../store/AuthContext'
 import { useServers } from '../store/ServersContext'
 import { signInWithGithub } from '../utils/githubSignIn'
+import { VercelImport, SupabaseImport } from './CloudImport'
 
 /**
- * 1-click deployment: GitHub repo or uploaded archive (+ optional database: new, uploaded, or migrated
- * from Supabase / another PostgreSQL together with Supabase Storage files) → live site.
+ * 1-click deployment: GitHub repo, uploaded archive or a Vercel project (+ optional database: new,
+ * uploaded, or migrated from Supabase / another PostgreSQL together with Supabase Storage files and,
+ * for Supabase apps, Auth, REST, Storage and Edge Functions run on the server) → live site.
  */
 
 const TYPE_OPTIONS = [
@@ -83,6 +85,8 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
   const [analyzing, setAnalyzing] = useState(false)
   const [upload, setUpload] = useState(null) // { name, size, progress, uploadId, status }
   const [analysis, setAnalysis] = useState(null)
+  const [vercelImport, setVercelImport] = useState(null) // project details imported from Vercel
+  const pendingOverrides = useRef(null) // build settings to apply once the imported repo is analyzed
 
   // --- app config
   const [appName, setAppName] = useState('')
@@ -98,7 +102,11 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
   const [dbUpload, setDbUpload] = useState(null)
   const [dbAdmin, setDbAdmin] = useState({ user: '', password: '' })
   const [dbCreds, setDbCreds] = useState({ name: '', user: '', password: '' })
-  const [migrate, setMigrate] = useState({ sourceUrl: '', includeAuth: true, storageUrl: '', storageKey: '' })
+  const [migrate, setMigrate] = useState({
+    sourceUrl: '', includeAuth: true, storageUrl: '', storageKey: '',
+    // Run Supabase Auth / REST / Storage / Edge Functions for the app on the server
+    runSupabase: true, supabaseRef: '', jwtSecret: '', keys: null, auth: null, noVerifyJwt: [], functionSecrets: '', secretNames: []
+  })
   const [migrateCheck, setMigrateCheck] = useState(null) // { busy } | { result } | { error }
   const setMigrateField = (k, v) => { setMigrate(m => ({ ...m, [k]: v })); setMigrateCheck(null) }
 
@@ -257,7 +265,9 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
 
   const applyAnalysis = (a, nameHint) => {
     setAnalysis(a)
-    setOverrides({ type: 'auto', buildCommand: '', startCommand: '', outputDir: '', appDir: '' })
+    setOverrides({ type: 'auto', buildCommand: '', startCommand: '', outputDir: '', appDir: '', ...(pendingOverrides.current || {}) })
+    if (pendingOverrides.current && Object.values(pendingOverrides.current).some(Boolean)) setShowAdvanced(true)
+    pendingOverrides.current = null
     const name = appName || slug(nameHint)
     setAppName(name)
     if (!domain && name) setDomain('')
@@ -305,6 +315,47 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
     const repo = slug(gitUrl.split('/').pop().replace(/\.git$/, ''))
     if (!appName || appName === repo || appName.startsWith(`${repo}-`)) setAppName(b === branches[0] ? repo : slug(`${repo}-${b}`))
     analyzeGit(gitUrl, b)
+  }
+
+  /** A Vercel project: its repository is analyzed like a GitHub pick; env, domain and build settings are filled in. */
+  const importFromVercel = (p) => {
+    setError(null)
+    setVercelImport(p)
+    if (p.envText) setEnvVars(prev => (prev.trim() ? `${prev.trim()}\n${p.envText}` : p.envText))
+    if (p.domains?.[0]) { setDomainMode('custom'); setDomain(p.domains[0]) }
+    if (!appName) setAppName(slug(p.name))
+    if (p.supabaseRef) {
+      setDbMode('migrate')
+      setMigrate(m => ({ ...m, supabaseRef: p.supabaseRef, storageUrl: m.storageUrl || `https://${p.supabaseRef}.supabase.co` }))
+    }
+    if (p.gitUrl) {
+      pendingOverrides.current = p.overrides
+      setGitUrl(p.gitUrl)
+      setBranch(p.branch)
+      loadBranches(p.gitUrl)
+      analyzeGit(p.gitUrl, p.branch, p.name)
+    }
+  }
+
+  /** A Supabase project from the user's account: everything the migration needs except the database password. */
+  const importFromSupabase = (d, password) => {
+    setMigrate(m => ({
+      ...m,
+      sourceUrl: d.poolerTemplate.replace('{password}', encodeURIComponent(password)),
+      storageUrl: d.storageKey ? d.url : m.storageUrl,
+      storageKey: d.storageKey || m.storageKey,
+      includeAuth: true,
+      runSupabase: true,
+      supabaseRef: d.ref,
+      jwtSecret: d.jwtSecret || m.jwtSecret,
+      keys: d.keys?.anon && d.keys?.service_role ? d.keys : null,
+      auth: d.auth,
+      noVerifyJwt: d.functions.filter(f => !f.verifyJwt).map(f => f.slug),
+      secretNames: d.secretNames,
+      // Supabase returns only digests of the functions' secrets: list the names for the user to fill in
+      functionSecrets: m.functionSecrets.trim() ? m.functionSecrets : d.secretNames.map(n => `${n}=`).join('\n')
+    }))
+    setMigrateCheck(null)
   }
 
   /** Chunked upload with real byte progress. */
@@ -366,11 +417,13 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
   }
 
   const migrateStorage = () => (migrate.storageUrl.trim() || migrate.storageKey.trim() ? { url: migrate.storageUrl.trim(), key: migrate.storageKey.trim() } : undefined)
+  const supabaseSource = !!migrate.supabaseRef || /supabase\.(co|com)\b/i.test(migrate.sourceUrl)
+  const runsSupabase = dbMode === 'migrate' && supabaseSource && migrate.runSupabase
 
   const checkMigration = async () => {
     setMigrateCheck({ busy: true })
     try {
-      const data = await api('/migration-check', { method: 'POST', body: { sourceUrl: migrate.sourceUrl.trim(), includeAuth: migrate.includeAuth, storage: migrateStorage() } })
+      const data = await api('/migration-check', { method: 'POST', body: { sourceUrl: migrate.sourceUrl.trim(), includeAuth: migrate.includeAuth, includeStorage: runsSupabase, storage: migrateStorage() } })
       setMigrateCheck({ result: data })
     } catch (e) {
       setMigrateCheck({ error: e.message })
@@ -385,11 +438,15 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
       domain,
       envVars,
       port: port ? Number(port) : undefined,
-      source: sourceType === 'template' ? { type: 'template', templateId: template?.id } : sourceType === 'github' ? { type: 'github', gitUrl, branch } : { type: 'upload', uploadId: upload?.uploadId },
+      source: sourceType === 'template' ? { type: 'template', templateId: template?.id } : sourceType === 'github' || sourceType === 'vercel' ? { type: 'github', gitUrl, branch } : { type: 'upload', uploadId: upload?.uploadId },
       overrides: { ...overrides, type: overrides.type },
       database: dbMode === 'none' ? { mode: 'none' } : dbMode === 'migrate' ? {
         mode: 'migrate', sourceUrl: migrate.sourceUrl.trim(), includeAuth: migrate.includeAuth, storage: migrateStorage(),
-        name: dbCreds.name.trim(), user: dbCreds.user.trim(), password: dbCreds.password
+        name: dbCreds.name.trim(), user: dbCreds.user.trim(), password: dbCreds.password,
+        supabase: runsSupabase ? {
+          enabled: true, ref: migrate.supabaseRef || undefined, jwtSecret: migrate.jwtSecret.trim() || undefined, keys: migrate.keys || undefined,
+          auth: migrate.auth || undefined, noVerifyJwt: migrate.noVerifyJwt, functionSecrets: migrate.functionSecrets
+        } : undefined
       } : {
         mode: dbMode, engine: dbEngine, uploadId: dbUpload?.uploadId,
         ...(dbEngine === 'mysql' && dbAdmin.user ? { adminUser: dbAdmin.user, adminPassword: dbAdmin.password } : {}),
@@ -465,7 +522,7 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
   const primary = 'px-5 py-2.5 rounded-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-sm flex items-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-default'
   const ghost = 'px-4 py-2.5 rounded-full bg-white/5 hover:bg-white/10 text-slate-200 text-sm flex items-center gap-2 cursor-pointer'
 
-  const sourceReady = !!analysis && (sourceType === 'template' ? !!template : sourceType === 'github' ? !!gitUrl : upload?.status === 'ready')
+  const sourceReady = !!analysis && (sourceType === 'template' ? !!template : sourceType === 'github' || sourceType === 'vercel' ? !!gitUrl : upload?.status === 'ready')
   const dnsBlocked = domainMode === 'managed' && (!!dnsCheck?.busy || (dnsCheck?.result?.status === 'taken' && !replaceDomain))
   const appReady = /^[a-z0-9][a-z0-9-]{0,48}[a-z0-9]$/.test(appName) && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain) && !dnsBlocked
   const dbReady = dbMode === 'import' ? dbUpload?.status === 'ready' : dbMode === 'migrate' ? /^postgres(ql)?:\/\/./i.test(migrate.sourceUrl.trim()) && !!migrate.storageUrl.trim() === !!migrate.storageKey.trim() : true
@@ -556,6 +613,16 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
                   <div className="text-slate-500">Buckets: {r.summary.storage.buckets.map(b => `${b.name} (${b.public ? 'public' : 'private'}, ${b.files})`).join(' · ') || 'none'}</div>
                 </div>
               )}
+              {r.summary?.supabase && (
+                <div className="text-left p-4 rounded-2xl bg-white/[0.03] border border-white/10 text-xs space-y-1.5">
+                  <div className="text-white font-semibold flex items-center gap-2"><Zap className="w-4 h-4 text-cyan-400" /> Supabase now runs on this server{r.summary.supabase.keysChanged ? ' (new keys, already in .env and the built app)' : ''}</div>
+                  {[['Supabase URL', r.summary.supabase.url], ['anon key', r.summary.supabase.anonKey], ['service_role key', r.summary.supabase.serviceKey], ['Replaces', r.summary.supabase.replaces]].filter(([, v]) => v).map(([k, v]) => (
+                    <div key={k} className="flex items-center gap-2"><span className="text-slate-500 w-28 shrink-0">{k}</span><code className="text-slate-200 truncate flex-1">{v}</code>
+                      <button onClick={() => navigator.clipboard?.writeText(v)} className="text-slate-500 hover:text-white cursor-pointer"><Copy className="w-3.5 h-3.5" /></button></div>
+                  ))}
+                  <div className="text-slate-500">Services: {r.summary.supabase.processes.join(', ')}{r.summary.supabase.functions.length ? ` · functions: ${r.summary.supabase.functions.join(', ')}` : ''}. Keep the service_role key secret.</div>
+                </div>
+              )}
               {r.summary?.warnings?.map((w, i) => <div key={i} className="text-left text-xs text-amber-300 flex gap-2"><AlertTriangle className="w-4 h-4 shrink-0" />{w}</div>)}
             </div>
           )}
@@ -596,7 +663,7 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
           <div className="flex justify-center gap-3">
             {r.status === 'failed' && <button onClick={() => setStep('launch')} className={ghost}><ArrowLeft className="w-4 h-4" /> Back to settings</button>}
             {r.status === 'failed' && <button onClick={startDeploy} className={primary}><RefreshCw className="w-4 h-4" /> Try again</button>}
-            {r.status === 'success' && <button onClick={() => { setStep('source'); setDeployId(null); setAnalysis(null); setUpload(null); setDbUpload(null); setAppName(''); setDomain(''); setSubTouched(false) }} className={ghost}>Deploy another app</button>}
+            {r.status === 'success' && <button onClick={() => { setStep('source'); setDeployId(null); setAnalysis(null); setUpload(null); setDbUpload(null); setAppName(''); setDomain(''); setSubTouched(false); setVercelImport(null) }} className={ghost}>Deploy another app</button>}
             {r.status === 'success' && onBackToHub && <button onClick={onBackToHub} className={primary}>Done</button>}
           </div>
         )}
@@ -647,7 +714,7 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
       {step === 'source' && (
         <div className={`${card} p-6`}>
           <div className="inline-flex p-1 rounded-full bg-white/5 border border-white/10">
-            {[...(template ? [['template', 'Template', Sparkles]] : []), ['github', 'GitHub', Github], ['upload', 'Upload project', Upload]].map(([id, label, Icon]) => (
+            {[...(template ? [['template', 'Template', Sparkles]] : []), ['github', 'GitHub', Github], ['upload', 'Upload project', Upload], ['vercel', 'From Vercel', Triangle]].map(([id, label, Icon]) => (
               <button key={id} onClick={() => { setSourceType(id); setAnalysis(id === 'template' ? (template.analysis || { framework: template.name, label: 'Marketplace template', fileCount: '—', type: template.defaults?.type || 'auto' }) : null); setError(null) }} className={`px-4 py-2 rounded-full text-sm flex items-center gap-2 cursor-pointer ${sourceType === id ? 'bg-white text-slate-950 font-semibold' : 'text-slate-300'}`}>
                 <Icon className="w-4 h-4" /> {label}
               </button>
@@ -737,6 +804,14 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
               </div>
               {analyzing && <div className="text-sm text-slate-400 flex items-center gap-2"><RefreshCw className="w-4 h-4 animate-spin" /> Downloading the repository and detecting the stack…</div>}
             </div>
+          )}
+
+          {sourceType === 'vercel' && (
+            <>
+              <VercelImport api={api} styles={{ input, primary, ghost }} onImport={importFromVercel} imported={vercelImport} />
+              {analyzing && <div className="mt-3 text-sm text-slate-400 flex items-center gap-2"><RefreshCw className="w-4 h-4 animate-spin" /> Downloading the repository and detecting the stack…</div>}
+              {vercelImport && !analyzing && !analysis && <div className="mt-3 text-xs text-slate-400">If the repository is private, connect the GitHub account that can read it in the GitHub tab, then pick the project again.</div>}
+            </>
           )}
 
           {sourceType === 'upload' && (
@@ -843,6 +918,9 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
               </div>
             )}
           </div>
+          {vercelImport?.missingEnv?.length > 0 && (
+            <div className="text-xs text-amber-300 flex gap-2"><AlertTriangle className="w-4 h-4 shrink-0" />Enter the values of {vercelImport.missingEnv.join(', ')} (sensitive on Vercel, so they could not be imported).</div>
+          )}
           <label className="block"><span className="text-xs text-slate-400">Environment variables (optional, one per line)</span>
             <textarea value={envVars} onChange={(e) => setEnvVars(e.target.value)} rows={4} placeholder={'API_KEY=…\nSMTP_HOST=…'} className={`${input} mt-1 font-mono text-xs`} />
             <span className="text-[11px] text-slate-500">PORT, NODE_ENV and database settings are added automatically.</span></label>
@@ -920,6 +998,7 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
 
           {dbMode === 'migrate' && (
             <div className="space-y-4">
+              <SupabaseImport api={api} styles={{ input, primary, ghost }} onImport={importFromSupabase} preferredRef={migrate.supabaseRef} />
               <label className="block"><span className="text-xs text-slate-400">Connection string of the database to copy</span>
                 <input value={migrate.sourceUrl} onChange={(e) => setMigrateField('sourceUrl', e.target.value)} placeholder="postgresql://postgres.abcdefgh:password@aws-0-eu-central-1.pooler.supabase.com:5432/postgres" autoComplete="off" spellCheck={false} className={`${input} mt-1 font-mono`} />
                 <span className="block text-[11px] text-slate-500 mt-1">Supabase: Connect → Session pooler (the direct db.….supabase.co address is IPv6 only). Neon, RDS, Railway and other PostgreSQL work too. The source is only read, never changed.</span></label>
@@ -934,6 +1013,26 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
                 <div className="text-[11px] text-slate-500">Every bucket is downloaded to the server. Public buckets are served from your domain at the same paths, so <code>https://….supabase.co/storage/v1/object/public/…</code> becomes <code>https://{domain || 'your-domain'}/storage/v1/object/public/…</code>. The key is used for this copy only and is not saved.</div>
               </div>
 
+              {supabaseSource && (
+                <div className={`p-4 rounded-2xl border space-y-3 ${migrate.runSupabase ? 'bg-cyan-500/5 border-cyan-500/25' : 'bg-white/[0.03] border-white/10'}`}>
+                  <label className="flex items-start gap-2 text-sm text-slate-200 cursor-pointer">
+                    <input type="checkbox" className="mt-1" checked={migrate.runSupabase} onChange={(e) => setMigrateField('runSupabase', e.target.checked)} />
+                    <span><span className="font-semibold flex items-center gap-1.5"><Zap className="w-4 h-4 text-cyan-400" /> Run Supabase on this server</span>
+                      <span className="block text-xs text-slate-400 mt-0.5">Auth (users keep their passwords), the REST API with your row level security, Storage and the repo's Edge Functions, at <code>https://{domain || 'your-domain'}/auth/v1</code>, <code>/rest/v1</code>, <code>/storage/v1</code> and <code>/functions/v1</code>. The app's Supabase URL and keys are switched to them, so supabase-js keeps working without code changes. Realtime is not included. Uses about 200 MB of memory.</span></span>
+                  </label>
+                  {migrate.runSupabase && (
+                    <>
+                      <label className="block"><span className="text-xs text-slate-400">JWT secret {migrate.jwtSecret ? <span className="text-emerald-300">· filled in</span> : <span className="text-slate-500">(optional)</span>}</span>
+                        <input type="password" value={migrate.jwtSecret} onChange={(e) => setMigrateField('jwtSecret', e.target.value)} placeholder="Legacy JWT secret (Project Settings → JWT Keys)" autoComplete="new-password" className={`${input} mt-1 font-mono`} />
+                        <span className="block text-[11px] text-slate-500 mt-1">With it, the project's current anon and service keys and your users' sessions stay valid. Without it, new keys are issued (written to .env and into the built app) and users sign in once more.</span></label>
+                      <label className="block"><span className="text-xs text-slate-400">Edge Function secrets <span className="text-slate-500">(one KEY=value per line)</span></span>
+                        <textarea value={migrate.functionSecrets} onChange={(e) => setMigrateField('functionSecrets', e.target.value)} rows={3} placeholder={'OPENAI_API_KEY=…\nSTRIPE_SECRET_KEY=…'} className={`${input} mt-1 font-mono text-xs`} />
+                        <span className="block text-[11px] text-slate-500 mt-1">{migrate.secretNames.length ? `Your project has ${migrate.secretNames.length} secret(s); Supabase does not reveal their values, so paste them here. ` : ''}SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY and SUPABASE_DB_URL are set automatically. Functions are read from the repo's supabase/functions folder.</span></label>
+                    </>
+                  )}
+                </div>
+              )}
+
               <div className="flex flex-wrap items-center gap-3">
                 <button onClick={checkMigration} disabled={!dbReady || migrateCheck?.busy} className={ghost}>{migrateCheck?.busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Test connection</button>
                 {migrateCheck?.error && <span className="text-xs text-rose-300 whitespace-pre-wrap flex-1 min-w-0">{migrateCheck.error}</span>}
@@ -942,7 +1041,10 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
                 <div className="p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 text-xs text-slate-300 space-y-1.5">
                   {migrateCheck.result.database && (() => {
                     const d = migrateCheck.result.database
-                    return <div className="flex gap-2"><Check className="w-4 h-4 text-emerald-400 shrink-0" /><span>{d.provider === 'supabase' ? 'Supabase' : d.host} · PostgreSQL {d.version} · {d.tables} table(s) in {d.schemas.join(', ') || 'no schemas'}{d.size ? ` · ${formatBytes(d.size)}` : ''}</span></div>
+                    return <>
+                      <div className="flex gap-2"><Check className="w-4 h-4 text-emerald-400 shrink-0" /><span>{d.provider === 'supabase' ? 'Supabase' : d.host} · PostgreSQL {d.version} · {d.tables} table(s) in {d.schemas.join(', ') || 'no schemas'}{d.size ? ` · ${formatBytes(d.size)}` : ''}{d.users !== null && d.users !== undefined ? ` · ${d.users} user(s)` : ''}</span></div>
+                      {d.notes?.map((n, i) => <div key={i} className="flex gap-2 text-amber-300"><AlertTriangle className="w-4 h-4 shrink-0" /><span>{n}</span></div>)}
+                    </>
                   })()}
                   {migrateCheck.result.storage && (
                     <div className="flex gap-2"><Check className="w-4 h-4 text-emerald-400 shrink-0" /><span>{migrateCheck.result.storage.buckets.length ? migrateCheck.result.storage.buckets.map(b => `${b.name} (${b.public ? 'public' : 'private'}${b.files !== null ? `, ${b.files} file(s), ${formatBytes(b.bytes)}` : ''})`).join(' · ') : 'No storage buckets'}</span></div>
@@ -1000,12 +1102,12 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
 
           <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 text-sm grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
             {[
-              ['Source', sourceType === 'template' ? `Template: ${template?.name}` : sourceType === 'github' ? `${gitUrl.replace(/^https:\/\/(github\.com\/)?/, '').replace(/\.git$/, '')} · ${branch}` : upload?.name],
+              ['Source', sourceType === 'template' ? `Template: ${template?.name}` : sourceType === 'github' || sourceType === 'vercel' ? `${gitUrl.replace(/^https:\/\/(github\.com\/)?/, '').replace(/\.git$/, '')} · ${branch}` : upload?.name],
               ['App', `${overrides.type !== 'auto' ? TYPE_OPTIONS.find(t => t[0] === overrides.type)?.[1] : analysis?.framework}`],
               ['Address', `${ssl ? 'https' : 'http'}://${domain}`],
               ['DNS', domainMode === 'managed' ? `Automatic · ${dnsConn?.label} A record → ${activeServer?.ipAddress || 'this server'}` : `You point ${domain} to ${activeServer?.ipAddress || 'the server'}`],
               ['Folder', `/var/www/${appName}`],
-              ['Database', dbMode === 'none' ? 'None' : dbMode === 'migrate' ? `PostgreSQL · copy of ${migrateCheck?.result?.database?.provider === 'supabase' || /supabase\./i.test(migrate.sourceUrl) ? 'Supabase' : 'external database'}${migrate.storageUrl.trim() ? ' + Storage files' : ''}` : `${ENGINES.find(e => e[0] === dbEngine)?.[1]}${dbMode === 'import' ? ` · import ${dbUpload?.name}` : ' · new, empty'}`],
+              ['Database', dbMode === 'none' ? 'None' : dbMode === 'migrate' ? `PostgreSQL · copy of ${migrateCheck?.result?.database?.provider === 'supabase' || /supabase\./i.test(migrate.sourceUrl) ? 'Supabase' : 'external database'}${migrate.storageUrl.trim() ? ' + Storage files' : ''}${runsSupabase ? ' · Supabase API on this server' : ''}` : `${ENGINES.find(e => e[0] === dbEngine)?.[1]}${dbMode === 'import' ? ` · import ${dbUpload?.name}` : ' · new, empty'}`],
               ['Server', activeServer?.name || 'This server']
             ].map(([k, v]) => (
               <div key={k} className="flex gap-3"><span className="text-slate-500 w-20 shrink-0">{k}</span><span className="text-slate-200 truncate">{v}</span></div>

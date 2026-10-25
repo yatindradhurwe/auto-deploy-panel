@@ -1,0 +1,10 @@
+{
+  "name": "autodeploy-supabase-runtime",
+  "private": true,
+  "type": "module",
+  "description": "Installed by the panel into /opt/autodeploy-supabase/runtime on servers running a local Supabase stack",
+  "dependencies": {
+    "busboy": "1.6.0",
+    "pg": "8.13.1"
+  }
+}

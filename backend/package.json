@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node tests/idempotency.test.js && node tests/mcp.test.js"
+    "test": "node tests/idempotency.test.js && node tests/mcp.test.js && node tests/migration.test.js && node tests/supabase-stack.test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.132.1",

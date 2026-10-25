@@ -6,11 +6,13 @@ import { getReadyUpload, validateGitUrl, withGithubToken, redactUrl } from './up
 import { templateDeploySource } from './template.service.js'
 import { findMysqlAdmin, checkDbPassword, RESERVED_DB_USERS, migrateExternalPostgres } from './database.service.js'
 import { migrateSupabaseStorage, publicBucketLocations, supabaseProjectUrl } from './supabase-storage.service.js'
+import { setupSupabaseStack, normalizeAuthConfig, supabaseEnvLayer, rewriteBuildScript, REF_RE } from './supabase-stack.service.js'
 
 /**
  * 1-click deployment pipeline (GitHub or uploaded source, optional database — new, uploaded or
- * migrated from Supabase / another PostgreSQL, with Supabase Storage files) on the selected
- * server, through its host executor (direct on the panel host, SSH for connected servers).
+ * migrated from Supabase / another PostgreSQL, with Supabase Storage files and, optionally, the
+ * project's Auth, REST, Storage and Edge Functions APIs run on the server) on the selected server,
+ * through its host executor (direct on the panel host, SSH for connected servers).
  *
  * Progress is reported as weighted stages so the UI can show an honest percentage:
  *   emit({ kind: 'stage', id, status: 'running'|'done'|'skipped'|'failed'|'warning', label, detail })
@@ -27,6 +29,7 @@ export const STAGES = [
   { id: 'analyze', label: 'Detecting app type', weight: 4 },
   { id: 'database', label: 'Setting up database', weight: 10 },
   { id: 'storage', label: 'Copying storage files', weight: 6 },
+  { id: 'supabase', label: 'Starting Supabase services', weight: 8 },
   { id: 'env', label: 'Writing configuration', weight: 3 },
   { id: 'install', label: 'Installing dependencies', weight: 26 },
   { id: 'build', label: 'Building app', weight: 18 },
@@ -177,6 +180,7 @@ export function validateDeployConfig(body, userId, server = null) {
       database.storage = { url: supabaseProjectUrl(dbIn.storage.url), key: String(dbIn.storage.key || '').trim() }
       if (!database.storage.key) throw httpError(400, 'Enter the Supabase service_role (secret) key to copy Storage files, or clear the project URL.')
     }
+    if (dbIn.supabase?.enabled) database.supabase = validateSupabaseStack(dbIn.supabase, url, database.storage)
   }
   if (dbIn.mode === 'create' || dbIn.mode === 'import' || dbIn.mode === 'migrate') {
     const engine = dbIn.mode === 'migrate' ? 'postgresql' : dbIn.engine
@@ -230,6 +234,39 @@ export function validateDeployConfig(body, userId, server = null) {
     autoDns: body.autoDns === true,
     githubToken: body._githubToken || null,
     server
+  }
+}
+
+const JWT_RE = /^eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
+
+/**
+ * "Run Supabase on this server" options of a migration: the project ref (from the form, the Storage
+ * URL or the pooler login), the project's JWT secret and keys (to keep them valid), its Auth
+ * settings, the Edge Functions' secrets and the functions deployed with verify_jwt = false.
+ */
+function validateSupabaseStack(sb, sourceUrl, storage) {
+  let ref = String(sb.ref || '').trim().toLowerCase()
+  if (!ref && storage?.url) ref = /^https:\/\/([a-z0-9]+)\.supabase\.co$/.exec(storage.url)?.[1] || ''
+  if (!ref) {
+    try {
+      const u = new URL(sourceUrl)
+      ref = (/^postgres\.([a-z0-9]{8,40})$/.exec(decodeURIComponent(u.username)) || /^db\.([a-z0-9]{8,40})\.supabase\.co$/.exec(u.hostname) || [])[1] || ''
+    } catch { /* checked elsewhere */ }
+  }
+  if (ref && !REF_RE.test(ref)) throw httpError(400, 'Invalid Supabase project reference.')
+  const jwtSecret = String(sb.jwtSecret || '').trim()
+  if (jwtSecret && (!/^\S{32,512}$/.test(jwtSecret))) throw httpError(400, 'The JWT secret must be 32 or more characters without spaces (Supabase → Project Settings → JWT Keys → Legacy JWT secret).')
+  const keys = sb.keys && JWT_RE.test(sb.keys.anon || '') && JWT_RE.test(sb.keys.service_role || '') ? { anon: sb.keys.anon, service_role: sb.keys.service_role } : null
+  const secretsText = String(sb.functionSecrets || '')
+  if (secretsText.length > 50000) throw httpError(400, 'The Edge Function secrets are too long.')
+  const noVerifyJwt = (Array.isArray(sb.noVerifyJwt) ? sb.noVerifyJwt : []).map(String).filter(n => /^[A-Za-z0-9_-]{1,100}$/.test(n)).slice(0, 200)
+  return {
+    ref: ref || null,
+    jwtSecret: jwtSecret || null,
+    sourceKeys: keys,
+    auth: normalizeAuthConfig(sb.auth || {}),
+    functionSecrets: parseEnv(secretsText).map(([k, v]) => [k, envValue(v)]),
+    noVerifyJwt
   }
 }
 
@@ -331,7 +368,10 @@ export async function runDeployPipeline(cfg, emit, { host, pointDomain = null })
   }
   const log = (text, isError = false) => emit({ kind: 'log', stage: current, text: redactUrl(text), isError })
   const sourcePassword = (() => { try { return decodeURIComponent(new URL(cfg.database.sourceUrl).password) } catch { return null } })()
-  const secrets = [cfg.server?.password, cfg.database.adminPassword, cfg.database.password, cfg.database.sourceUrl, sourcePassword, cfg.database.storage?.key].filter(Boolean)
+  const sb = cfg.database.supabase
+  const secrets = [cfg.server?.password, cfg.database.adminPassword, cfg.database.password, cfg.database.sourceUrl, sourcePassword, cfg.database.storage?.key,
+    sb?.jwtSecret, sb?.sourceKeys?.service_role, sb?.auth?.smtp?.pass, ...Object.values(sb?.auth?.providers || {}).map(p => p.secret), ...(sb?.functionSecrets || []).map(([, v]) => v)]
+    .filter(v => v && String(v).length >= 6)
   const scrub = (t) => secrets.reduce((acc, s) => acc.split(s).join('***'), t)
 
   let lines = 0
@@ -363,6 +403,7 @@ export async function runDeployPipeline(cfg, emit, { host, pointDomain = null })
   let port = cfg.port
   let dbInfo = null
   let storageInfo = null
+  let stackInfo = null
   let adminInfo = null
   let dns = null
   const warnings = []
@@ -558,7 +599,9 @@ apt-get install -y $PKGS >/dev/null 2>&1 || { apt-get update -qq >/dev/null 2>&1
       if (cfg.database.mode === 'migrate') {
         if (!await query('command -v psql')) throw new Error('PostgreSQL is not installed on the server (apt install postgresql).')
         const m = await migrateExternalPostgres(host, cfg.database.sourceUrl, {
-          name: db.name, user: db.user, password: db.password, includeAuth: cfg.database.includeAuth, onLog: (t) => log(scrub(t))
+          name: db.name, user: db.user, password: db.password, includeAuth: cfg.database.includeAuth || !!sb,
+          // The local Supabase API needs the storage schema and the grants to anon/authenticated
+          includeStorage: !!sb, keepPrivileges: !!sb, onLog: (t) => log(scrub(t))
         })
         log(`Copied ${m.tables} table(s) from ${m.source.database} on ${m.source.host} (${m.schemas.join(', ')}). The source was not changed; a copy of the dump is at ${m.dump}.\n`)
         for (const e of m.errors.slice(0, 20)) log(`${scrub(e)}\n`, true)
@@ -651,6 +694,33 @@ FLUSH PRIVILEGES;`
       stage('storage', storageInfo.failed ? 'warning' : 'done', `${storageInfo.files} file(s) · ${storageInfo.buckets.length} bucket(s)`)
     }
 
+    // ------------------------------------------------------------------ supabase
+    if (!sb) {
+      stage('supabase', 'skipped', 'Not requested')
+    } else {
+      stage('supabase', 'running', 'Auth · REST · Storage · Functions')
+      stackInfo = await setupSupabaseStack(host, {
+        appName: cfg.appName,
+        publicUrl: `${cfg.ssl ? 'https' : 'http'}://${cfg.domain}`,
+        projectDir: dir,
+        db: { name: dbInfo.name, user: dbInfo.user, password: dbInfo.password },
+        ref: sb.ref,
+        jwtSecret: sb.jwtSecret,
+        sourceKeys: sb.sourceKeys,
+        auth: sb.auth,
+        storage: storageInfo ? { dir: storageInfo.dir, buckets: storageInfo.buckets } : null,
+        functionSecrets: sb.functionSecrets,
+        noVerifyJwt: sb.noVerifyJwt,
+        onLog: (t, isErr) => log(scrub(t), isErr)
+      })
+      secrets.push(stackInfo.jwtSecret, stackInfo.keys.service_role)
+      for (const n of stackInfo.notes) { log(`${n}\n`); if (/did not answer/.test(n)) warnings.push(n) }
+      if (!sb.auth.smtp) warnings.push('Supabase Auth has no mail server here, so new sign-ups are confirmed automatically and password-reset emails are not sent. Add SMTP settings (Supabase → Authentication → SMTP) and redeploy to send emails.')
+      if (Object.keys(sb.auth.providers).length) warnings.push(`Add ${stackInfo.url}/auth/v1/callback as an authorized redirect URL with each sign-in provider (${Object.keys(sb.auth.providers).join(', ')}).`)
+      log(`Supabase API for this app: ${stackInfo.url} (PM2: ${stackInfo.processes.join(', ')})\n`)
+      stage('supabase', 'done', `${stackInfo.processes.length} services${stackInfo.functions.length ? ` · ${stackInfo.functions.length} function(s)` : ''}`)
+    }
+
     // ------------------------------------------------------------------ env
     stage('env', 'running')
     const envDirs = new Set([serverDir])
@@ -684,10 +754,20 @@ FLUSH PRIVILEGES;`
       if (filled.generated.length) log(`Generated ${filled.generated.join(', ')} (the template had empty or example values)\n`)
       if (d === serverDir && filled.admin) adminInfo = { ...filled.admin, envFile: `${d}/.env` }
       // Order: existing/.env.example (placeholders filled) < panel values < what the user typed
-      const merged = mergeEnv(filled.pairs, autoEnv, userEnv)
+      let merged = mergeEnv(filled.pairs, autoEnv, userEnv)
+      // Supabase variables (also ones imported from Vercel) point at the app's own stack
+      if (stackInfo) merged = mergeEnv(parseEnv(merged), supabaseEnvLayer(parseEnv(merged), { ref: sb.ref, url: stackInfo.url, keys: stackInfo.keys, jwtSecret: stackInfo.jwtSecret, dbUrl: dbInfo.url }))
       if (d === serverDir) serverEnv = parseEnv(merged)
       await sh(`echo ${b64(merged)} | base64 -d > ${q(`${d}/.env`)} && chmod 600 ${q(`${d}/.env`)}`, { quiet: true })
       log(`Wrote ${d}/.env (${merged.trim().split('\n').length} variables)\n`)
+    }
+    // A separate frontend folder builds with its own .env: give it the Supabase values too
+    if (stackInfo && plan.type === 'fullstack' && !envDirs.has(appDirOf(plan.frontend))) {
+      const fd = appDirOf(plan.frontend)
+      const existing = parseEnv(await query(`cat ${q(`${fd}/.env`)} 2>/dev/null`))
+      const merged = mergeEnv(existing, supabaseEnvLayer([...existing, ...userEnv], { ref: sb.ref, url: stackInfo.url, keys: stackInfo.keys, jwtSecret: stackInfo.jwtSecret, dbUrl: dbInfo.url }).filter(([k]) => !/SERVICE|SECRET|DATABASE|_DB_|POSTGRES/.test(k)))
+      await sh(`echo ${b64(merged)} | base64 -d > ${q(`${fd}/.env`)} && chmod 600 ${q(`${fd}/.env`)}`, { quiet: true })
+      log(`Wrote ${fd}/.env (Supabase settings for the frontend build)\n`)
     }
     if (port) await sh(`echo ${port} > ${q(`${dir}/.autodeploy-port`)}`, { quiet: true })
 
@@ -825,6 +905,8 @@ chown -R www-data:www-data storage bootstrap/cache`)
         u.outputDir = found
       }
     }
+    // Hardcoded https://<ref>.supabase.co URLs (and old keys) in the built app → the app's own stack
+    if (stackInfo) await sh(rewriteBuildScript(cfg.appName, dir), { allowFailure: true })
     stage('build', built ? 'done' : 'skipped', built ? null : 'No build step')
 
     // Prisma apps: create/upgrade the tables before the app starts (they usually crash without them),
@@ -945,7 +1027,9 @@ echo "Started ${cfg.appName} with PM2"`)
     }
     // Migrated public Supabase buckets keep their URL paths on the app's domain
     const storageLocations = storageInfo ? publicBucketLocations(storageInfo.dir, storageInfo.buckets) : ''
-    const conf = `${marker}\nserver {\n    listen 80;\n    listen [::]:80;\n    server_name ${cfg.domain};\n    client_max_body_size 64m;\n${storageLocations ? `${storageLocations}\n` : ''}${body}\n}\n`
+    // The app's Supabase API at Supabase's paths, plus a local-only copy for its edge functions
+    const supabaseLocations = stackInfo ? `${stackInfo.locations}\n` : ''
+    const conf = `${marker}\nserver {\n    listen 80;\n    listen [::]:80;\n    server_name ${cfg.domain};\n    client_max_body_size 64m;\n${storageLocations ? `${storageLocations}\n` : ''}${supabaseLocations}${body}\n}\n${stackInfo ? `\n${stackInfo.gateway}` : ''}`
     await sh(`
 set -e
 [ -f ${q(confPath)} ] && cp ${q(confPath)} ${q(`${confPath}.bak`)}
@@ -1031,6 +1115,15 @@ echo "nginx is serving ${cfg.domain}"`)
           buckets: storageInfo.buckets,
           publicUrl: `${https ? 'https' : 'http'}://${cfg.domain}/storage/v1/object/public`,
           supabaseUrl: `${storageInfo.base}/storage/v1/object/public`
+        } : null,
+        supabase: stackInfo ? {
+          url: `${https ? 'https' : 'http'}://${cfg.domain}`,
+          anonKey: stackInfo.keys.anon,
+          serviceKey: stackInfo.keys.service_role,
+          keysChanged: stackInfo.keysChanged,
+          functions: stackInfo.functions,
+          processes: stackInfo.processes,
+          replaces: sb.ref ? `https://${sb.ref}.supabase.co` : null
         } : null,
         dns: dns ? { zone: dns.zone, provider: dns.provider, action: dns.action } : null,
         admin: adminInfo && dbInfo?.fresh ? { email: adminInfo.email, password: envValue(serverEnv.find(([k]) => k === adminInfo.passwordKey)?.[1]), url } : null,

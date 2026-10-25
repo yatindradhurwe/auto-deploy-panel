@@ -1600,16 +1600,18 @@ function repointEnv(text, dir, source, target) {
   return changed ? out.join('\n') : null
 }
 
-const IGNORED_RESTORE_ERRORS = /already exists|transaction_timeout|must be owner of (extension|schema)|COMMENT ON EXTENSION|unrecognized configuration parameter|role "(postgres|supabase_\w+)" does not exist/i
+// Supabase grants also name its platform roles, which a plain PostgreSQL does not have
+const IGNORED_RESTORE_ERRORS = /already exists|transaction_timeout|must be owner of (extension|schema)|COMMENT ON EXTENSION|unrecognized configuration parameter|role "(postgres|supabase_\w+|authenticator|dashboard_user|pgbouncer|pgsodium_\w+)" does not exist|permission denied to change default privileges/i
 
 /**
  * Copies an external PostgreSQL database (typically Supabase) into a new PostgreSQL database on
  * this server: creates the database and its user, recreates Supabase's roles (anon,
  * authenticated, service_role) and extensions, dumps the source's own schemas (plus `auth` with
- * `includeAuth`) and restores them as the new user. The source is not changed.
- * `onLog(text)` receives progress lines.
+ * `includeAuth`, `storage` with `includeStorage`) and restores them as the new user. With
+ * `keepPrivileges` the source's grants are restored too (the local Supabase API relies on the grants
+ * to anon/authenticated). The source is not changed. `onLog(text)` receives progress lines.
  */
-async function copyExternalPostgres(host, source, { name, user, password, includeAuth = true, onLog = () => {} }) {
+async function copyExternalPostgres(host, source, { name, user, password, includeAuth = true, includeStorage = false, keepPrivileges = false, onLog = () => {} }) {
   if (source.engine !== 'postgresql' || source.peer || isLocalHost(source.host)) throw httpErr(400, 'Only an external PostgreSQL database (such as Supabase) can be migrated onto this server.')
   if (!await hasPgPeer(host)) throw httpErr(400, 'PostgreSQL is not installed on this server. Install it first (apt-get install -y postgresql), then migrate.')
   name = String(name || '').trim()
@@ -1623,8 +1625,9 @@ async function copyExternalPostgres(host, source, { name, user, password, includ
   if (!pgDump) throw httpErr(400, `The source runs PostgreSQL ${major}, newer than this server's pg_dump. Install a matching client first: apt-get install -y postgresql-client-${major} (from the PostgreSQL apt repository, apt.postgresql.org).`)
 
   // The source's own schemas, without Supabase internals
-  const schemas = await sourceSchemas(srcSpec, includeAuth)
+  const schemas = await sourceSchemas(srcSpec, includeAuth, includeStorage)
   if (!schemas.length) throw httpErr(400, 'The source database has no schemas of its own to copy.')
+  const leftBehind = await platformFeatures(srcSpec)
   const extensions = await pgJson(srcSpec, "SELECT e.extname AS name, n.nspname AS schema FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace WHERE e.extname <> 'plpgsql'")
 
   // 1. Dump first: nothing is created on this server if the source can't be read
@@ -1632,7 +1635,7 @@ async function copyExternalPostgres(host, source, { name, user, password, includ
   const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)
   const dump = `${BACKUP_DIR}/${String(source.database).replace(/[^\w.-]/g, '_')}-to-${name}-${stamp}-migration.sql.gz`
   await host.exec(`mkdir -p ${BACKUP_DIR} && chmod 700 ${BACKUP_DIR}`)
-  const dumpCmd = `PGPASSWORD=${q(source.password || '')} PGCONNECT_TIMEOUT=10 ${q(pgDump)} --no-owner --no-privileges --no-publications --no-subscriptions --quote-all-identifiers -h ${q(source.host)} -p ${q(source.port)} -U ${q(source.user || 'postgres')} -d ${q(source.database)} ${schemas.map(s => `-n ${q(s)}`).join(' ')}`
+  const dumpCmd = `PGPASSWORD=${q(source.password || '')} PGCONNECT_TIMEOUT=10 ${q(pgDump)} --no-owner ${keepPrivileges ? '' : '--no-privileges '}--no-publications --no-subscriptions --quote-all-identifiers -h ${q(source.host)} -p ${q(source.port)} -U ${q(source.user || 'postgres')} -d ${q(source.database)} ${schemas.map(s => `-n ${q(s)}`).join(' ')}`
   const d = await host.exec(`set -o pipefail; umask 077; ${dumpCmd} | gzip > ${q(dump)}`, { timeout: 60 * 60 * 1000 })
   if (d.code !== 0) {
     await host.exec(`rm -f ${q(dump)}`).catch(() => {})
@@ -1668,34 +1671,54 @@ async function copyExternalPostgres(host, source, { name, user, password, includ
   if (restore.code !== 0) throw httpErr(500, `Restore into ${name} failed (the dump is kept at ${dump}): ${String(restore.stdout || restore.stderr).trim().split('\n').slice(-4).join('\n')}`)
   const errors = String(restore.stdout || '').split('\n').filter(l => /ERROR:/.test(l) && !IGNORED_RESTORE_ERRORS.test(l)).map(l => l.replace(/^psql:[^:]*:\d+:\s*/, ''))
   const tables = Number((await psql(peerDb, `SELECT count(*) FROM pg_tables WHERE schemaname IN (${schemas.map(pgLit).join(', ')})`)).trim())
-  return { tables, schemas, errors, skippedExtensions, dump, created }
+  return { tables, schemas, errors, skippedExtensions, dump, created, leftBehind }
 }
 
-/** The source's own schemas (Supabase internals left out), plus `auth` when asked for and present. */
-async function sourceSchemas(srcSpec, includeAuth) {
+/** The source's own schemas (Supabase internals left out), plus `auth` / `storage` when asked for and present. */
+async function sourceSchemas(srcSpec, includeAuth, includeStorage = false) {
   const schemas = (await pgJson(srcSpec, `SELECT nspname AS name FROM pg_namespace WHERE nspname NOT LIKE 'pg\\_%' AND nspname <> 'information_schema' AND nspname NOT IN (${SUPABASE_INTERNAL_SCHEMAS.map(pgLit).join(', ')}) ORDER BY 1`)).map(r => r.name)
-  if (includeAuth && (await psql(srcSpec, "SELECT 1 FROM pg_namespace WHERE nspname = 'auth'")).trim() === '1') schemas.push('auth')
+  for (const [want, schema] of [[includeAuth, 'auth'], [includeStorage, 'storage']]) {
+    if (want && (await psql(srcSpec, `SELECT 1 FROM pg_namespace WHERE nspname = ${pgLit(schema)}`)).trim() === '1') schemas.push(schema)
+  }
   return schemas
 }
 
-const migrationNotes = ({ errors, skippedExtensions }) => [
+/**
+ * Supabase platform features that live outside the copied schemas: pg_cron jobs, tables published to
+ * Realtime and database webhooks. They are reported, not copied.
+ */
+async function platformFeatures(srcSpec) {
+  const count = async (sql) => Number((await psql(srcSpec, sql).catch(() => '0')).trim()) || 0
+  return {
+    cronJobs: await count("SELECT CASE WHEN to_regclass('cron.job') IS NULL THEN 0 ELSE (SELECT count(*) FROM cron.job) END"),
+    realtimeTables: await count("SELECT count(*) FROM pg_publication_tables WHERE pubname = 'supabase_realtime'"),
+    webhooks: await count("SELECT CASE WHEN to_regclass('supabase_functions.hooks') IS NULL THEN 0 ELSE (SELECT count(DISTINCT hook_name) FROM supabase_functions.hooks) END")
+  }
+}
+
+const migrationNotes = ({ errors, skippedExtensions, leftBehind }) => [
   ...(errors.length ? [`${errors.length} statement(s) could not be restored`] : []),
-  ...(skippedExtensions.length ? [`extensions not available on this server: ${skippedExtensions.join(', ')}`] : [])
+  ...(skippedExtensions.length ? [`extensions not available on this server: ${skippedExtensions.join(', ')}`] : []),
+  ...(leftBehind?.cronJobs ? [`${leftBehind.cronJobs} pg_cron job(s) were not copied: recreate them in the panel's Cron jobs`] : []),
+  ...(leftBehind?.realtimeTables ? [`${leftBehind.realtimeTables} table(s) use Supabase Realtime, which this server does not provide`] : []),
+  ...(leftBehind?.webhooks ? [`${leftBehind.webhooks} database webhook(s) were not copied`] : [])
 ]
 
 /**
  * Checks an external PostgreSQL connection string from this server before a migration:
  * returns what would be copied. Nothing is written.
  */
-export async function inspectExternalPostgres(host, url, { includeAuth = true } = {}) {
+export async function inspectExternalPostgres(host, url, { includeAuth = true, includeStorage = false } = {}) {
   const spec = parsePgUrl(url)
   if (isLocalHost(spec.host)) throw httpErr(400, 'That database is already on this server — choose "Create new database" or "Upload database file" instead.')
   const srcSpec = { ...spec, _exec: host, peer: false }
   const version = await probePg(host, srcSpec)
-  const schemas = await sourceSchemas(srcSpec, includeAuth)
+  const schemas = await sourceSchemas(srcSpec, includeAuth, includeStorage)
   const tables = schemas.length ? Number((await psql(srcSpec, `SELECT count(*) FROM pg_tables WHERE schemaname IN (${schemas.map(pgLit).join(', ')})`)).trim()) : 0
   const size = Number((await psql(srcSpec, 'SELECT pg_database_size(current_database())')).trim()) || null
-  return { provider: isSupabaseHost(spec.host) ? 'supabase' : null, host: spec.host, database: spec.database, version, schemas, tables, size }
+  const users = schemas.includes('auth') ? Number((await psql(srcSpec, "SELECT CASE WHEN to_regclass('auth.users') IS NULL THEN 0 ELSE (SELECT count(*) FROM auth.users) END").catch(() => '0')).trim()) || 0 : null
+  const leftBehind = await platformFeatures(srcSpec)
+  return { provider: isSupabaseHost(spec.host) ? 'supabase' : null, host: spec.host, database: spec.database, version, schemas, tables, size, users, leftBehind, notes: migrationNotes({ errors: [], skippedExtensions: [], leftBehind }) }
 }
 
 /**
