@@ -47,7 +47,8 @@ export async function executeProjectAutoUpdate(appName, triggerSource = 'manual'
       appName,
       branch,
       gitRepoUrl,
-      githubToken: (ownerSettings.githubToken || '').trim()
+      githubToken: (ownerSettings.githubToken || '').trim(),
+      onlyIfChanged: triggerSource === 'periodic'
     }, (text) => { outputLog += text })
     status = 'success'
   } catch (err) {

@@ -1,4 +1,5 @@
 import { q, GIT_AS_OWNER } from './host.service.js'
+import { loadEnv } from './deploy-pipeline.service.js'
 
 /**
  * Project lifecycle operations (update from Git, delete) through a host executor, so they run
@@ -20,7 +21,7 @@ function checkDir(dir) {
 /**
  * Pull the latest code, install/build, reload PM2.  onLog(text, isError)
  */
-export async function updateProject(host, { projectPath, appName, branch, gitRepoUrl = '', githubToken = '' }, onLog = () => {}) {
+export async function updateProject(host, { projectPath, appName, branch, gitRepoUrl = '', githubToken = '', onlyIfChanged = false }, onLog = () => {}) {
   const dir = checkDir(projectPath || (appName ? `/var/www/${appName}` : ''))
   // No branch given → stay on the branch the folder already tracks; never switch a project onto 'main' by default.
   if (!branch && await host.exists(`${dir}/.git`)) branch = (await host.exec(`${GIT_AS_OWNER}G rev-parse --abbrev-ref HEAD`, { cwd: dir })).stdout?.trim()
@@ -32,6 +33,7 @@ export async function updateProject(host, { projectPath, appName, branch, gitRep
     let tail = ''
     const r = await host.exec(script, { cwd: dir, timeout: 20 * 60 * 1000, onData: (d, isErr) => { const t = d.replace(/(https:\/\/)[^@\s/]+@/g, '$1***@'); tail = (tail + t).slice(-600); onLog(t, isErr) } })
     if (r.code !== 0) throw new Error(`Command failed (exit ${r.code}): ${tail.replace(/\x1b\[[0-9;]*m/g, '').trim().split('\n').slice(-4).join(' | ')}`)
+    return tail
   }
 
   step(`Pulling ${branch} from Git`)
@@ -42,7 +44,7 @@ export async function updateProject(host, { projectPath, appName, branch, gitRep
     const r = await host.exec(`git -c credential.helper= clone --branch ${q(branch)} ${q(url)} ${q(dir)} && git -C ${q(dir)} remote set-url origin ${q(clean)}`, { timeout: 600000, onData: (d, isErr) => onLog(d.replace(/(https:\/\/)[^@\s/]+@/g, '$1***@'), isErr) })
     if (r.code !== 0) throw new Error(`Could not clone ${clean}. If the repository is private, connect your GitHub account first.`)
   } else {
-    await run(`
+    const pulled = await run(`
 set -e
 ${GIT_AS_OWNER}
 ORIGIN=$(G remote get-url origin 2>/dev/null | sed -E 's#https://[^@]+@#https://#')
@@ -51,6 +53,12 @@ if [ -n "$TOKEN" ] && echo "$ORIGIN" | grep -q '^https://github.com/'; then
   G -c credential.helper= fetch "$(echo "$ORIGIN" | sed "s#https://#https://x-access-token:$TOKEN@#")" ${q(branch)}
 else
   G fetch origin ${q(branch)}
+fi
+# Periodic syncs stop here when nothing new was pushed, so idle projects are not rebuilt and restarted every interval
+if [ ${onlyIfChanged ? 1 : 0} = 1 ] && [ "$(G rev-parse HEAD)" = "$(G rev-parse FETCH_HEAD)" ]; then
+  G log -1 --format='Already at %h — %s, nothing to deploy.'
+  echo __AUTODEPLOY_UNCHANGED__
+  exit 0
 fi
 # Refuse a commit with unresolved merge conflicts before any file is touched (the live code stays as it is)
 CONFLICTS=$(G grep -lE '^(<<<<<<<|>>>>>>>)( |$)' FETCH_HEAD -- . ':(exclude)*.md' 2>/dev/null | sed 's#^FETCH_HEAD:##' | head -8 | tr '\n' ' ' || true)
@@ -69,6 +77,7 @@ G reset --hard FETCH_HEAD
 for f in .env .env.local .env.production; do [ -f "$KEEP/$f" ] && cp -p "$KEEP/$f" "$f" && echo "Kept the server's $f"; done
 rm -rf "$KEEP"
 G log -1 --format='Now at %h — %s'`)
+    if (pulled.includes('__AUTODEPLOY_UNCHANGED__')) return { message: `${app} is already up to date.`, unchanged: true }
   }
 
   step('Installing dependencies and building')
@@ -76,12 +85,22 @@ G log -1 --format='Now at %h — %s'`)
 set -e
 npm_install() { if [ -f package-lock.json ]; then npm ci --include=dev --no-audit --no-fund || npm install --include=dev --legacy-peer-deps --no-audit --no-fund; else npm install --include=dev --legacy-peer-deps --no-audit --no-fund; fi; }
 has_build() { [ -f package.json ] && grep -q '"build"[[:space:]]*:' package.json; }
-if [ -f frontend/package.json ]; then (cd frontend && npm_install && npm run build); fi
-if [ -f backend/package.json ]; then (cd backend && npm_install && if has_build; then npm run build; fi); fi
-if [ -f package.json ] && [ ! -f frontend/package.json ] && [ ! -f backend/package.json ]; then npm_install; if has_build; then npm run build; fi; fi
+if [ -f pnpm-workspace.yaml ] || [ -f pnpm-lock.yaml ]; then
+  # pnpm workspace (apps/*, packages/*): one install at the root links the workspace:* packages
+  export CI=true COREPACK_ENABLE_DOWNLOAD_PROMPT=0; PNPM=$(command -v pnpm || echo 'corepack pnpm')
+  $PNPM install --frozen-lockfile --prod=false || $PNPM install --no-frozen-lockfile --prod=false
+  for d in apps/*/; do [ -f "$d/package.json" ] && grep -q '"build"[[:space:]]*:' "$d/package.json" && (cd "$d" && NODE_ENV=production $PNPM run build); done
+elif [ -f frontend/package.json ]; then (cd frontend && npm_install && npm run build); fi
+if [ ! -f pnpm-workspace.yaml ] && [ ! -f pnpm-lock.yaml ] && [ -f backend/package.json ]; then (cd backend && npm_install && if has_build; then npm run build; fi); fi
+if [ -f package.json ] && [ ! -f pnpm-workspace.yaml ] && [ ! -f pnpm-lock.yaml ] && [ ! -f frontend/package.json ] && [ ! -f backend/package.json ]; then npm_install; if has_build; then npm run build; fi; fi
 if [ -f composer.json ]; then COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --optimize-autoloader --no-interaction; fi
 if [ -f artisan ]; then php artisan migrate --force || true; php artisan config:cache || true; fi
-if [ -f requirements.txt ] && [ -d venv ]; then venv/bin/pip install -r requirements.txt; fi
+# Python apps at the root or in a backend/workspace folder: refresh dependencies and apply Alembic migrations
+for d in . backend server api services/*; do
+  [ -x "$d/venv/bin/pip" ] || continue
+  if [ -f "$d/requirements.txt" ]; then (cd "$d" && venv/bin/pip install -r requirements.txt); fi
+  if [ -f "$d/alembic.ini" ]; then (cd "$d" && ${loadEnv}; venv/bin/alembic upgrade head) || echo "Migrations reported an error (see above)"; fi
+done
 # Install/build ran as root: hand new files back to the folder's owner (site users on CloudPanel etc.)
 if [ "$(stat -c %U .)" != root ] && [ "$(id -u)" = 0 ]; then chown -R --from=root:root --reference=. . ; fi`)
 

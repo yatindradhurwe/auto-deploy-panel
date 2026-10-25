@@ -23,6 +23,8 @@ import path from 'path'
 export const IGNORED_DIRS = new Set(['node_modules', '.git', 'vendor', 'dist', 'build', '.next', '.nuxt', '.output', '.svelte-kit', 'venv', '.venv', '__pycache__', 'target', '.cache', 'coverage', '.idea', '.vscode'])
 const FRONTEND_DIRS = ['frontend', 'client', 'web', 'ui', 'app', 'site']
 const BACKEND_DIRS = ['backend', 'server', 'api', 'service']
+// pnpm/npm/turbo workspaces keep each app one level down: apps/web, services/api, …
+const WORKSPACE_ROOTS = ['apps', 'services']
 const MANIFESTS = ['package.json', 'composer.json', 'requirements.txt', 'pyproject.toml', 'Pipfile', 'go.mod', 'pom.xml', 'build.gradle', 'build.gradle.kts', 'Gemfile', 'angular.json', 'prisma/schema.prisma', '.env.example', '.env.sample', 'manage.py']
 
 /** Lists files under a local directory (relative POSIX paths), skipping dependency/build dirs. */
@@ -59,19 +61,31 @@ export function localReader(root) {
   }
 }
 
+/** Workspace app folders (apps/web, services/api, …) that contain a manifest of their own. */
+function workspaceDirs(files) {
+  const dirs = new Set()
+  for (const f of files) {
+    const parts = f.split('/')
+    if (parts.length === 3 && WORKSPACE_ROOTS.includes(parts[0]) && MANIFESTS.includes(parts[2])) dirs.add(`${parts[0]}/${parts[1]}`)
+  }
+  return [...dirs]
+}
+
 /** Manifest paths worth reading for a given file listing (root + common app subdirs). */
 export function manifestPaths(files) {
   const set = new Set(files)
-  const dirs = ['', ...FRONTEND_DIRS, ...BACKEND_DIRS]
+  const workspaces = workspaceDirs(files)
+  const dirs = ['', ...FRONTEND_DIRS, ...BACKEND_DIRS, ...workspaces]
   const wanted = []
   for (const d of dirs) for (const m of MANIFESTS) {
     const p = d ? `${d}/${m}` : m
     if (set.has(p)) wanted.push(p)
   }
-  // Python entry candidates and Django wsgi modules
+  // Python entry candidates and Django wsgi modules (one level deeper inside workspace folders)
   for (const f of files) {
-    if (/(^|\/)(app|main|wsgi|run|server|application|asgi|index|__init__)\.py$/.test(f) && f.split('/').length <= 3) wanted.push(f)
-    if (/(^|\/)vite\.config\.(js|ts|mjs|cjs)$/.test(f) && f.split('/').length <= 2) wanted.push(f)
+    const extra = workspaces.some(w => f.startsWith(`${w}/`)) ? 1 : 0
+    if (/(^|\/)(app|main|wsgi|run|server|application|asgi|index|__init__)\.py$/.test(f) && f.split('/').length <= 3 + extra) wanted.push(f)
+    if (/(^|\/)vite\.config\.(js|ts|mjs|cjs)$/.test(f) && f.split('/').length <= 2 + extra) wanted.push(f)
   }
   return [...new Set(wanted)]
 }
@@ -344,8 +358,9 @@ export function analyzeProject(files, read) {
     plan = { ...rootUnit }
   } else {
     const subEvidence = []
-    const fe = FRONTEND_DIRS.filter(d => has(`${d}/package.json`) || has(`${d}/index.html`)).map(d => detectUnit(d, files, has, read, subEvidence)).find(u => u && ['spa', 'static', 'node-ssr'].includes(u.type))
-    const be = BACKEND_DIRS.filter(d => [...MANIFESTS, 'index.php', 'artisan'].some(m => has(`${d}/${m}`))).map(d => detectUnit(d, files, has, read, subEvidence)).find(u => u && !['spa', 'static'].includes(u.type))
+    const workspaces = workspaceDirs(files)
+    const fe = [...FRONTEND_DIRS, ...workspaces].filter(d => has(`${d}/package.json`) || has(`${d}/index.html`)).map(d => detectUnit(d, files, has, read, subEvidence)).find(u => u && ['spa', 'static', 'node-ssr'].includes(u.type))
+    const be = [...BACKEND_DIRS, ...workspaces].filter(d => [...MANIFESTS, 'index.php', 'artisan'].some(m => has(`${d}/${m}`))).map(d => detectUnit(d, files, has, read, subEvidence)).find(u => u && !['spa', 'static'].includes(u.type))
     evidence.push(...subEvidence)
     if (fe && be && fe.type !== 'node-ssr' && ['nodejs', 'python'].includes(be.language)) {
       plan = { type: 'fullstack', language: be.language, framework: `${fe.framework} + ${be.framework}`, frontend: fe, backend: be, port: be.port }
@@ -362,7 +377,7 @@ export function analyzeProject(files, read) {
 
   if (!plan) {
     plan = { type: 'unknown', language: 'unknown', framework: 'Not recognised', dir: '' }
-    warnings.push('No package.json, composer.json, requirements.txt, go.mod, pom.xml, Gemfile or index.html was found at the top of the project or in frontend/, backend/, server/ or client/. If the archive contains a single folder, that is handled automatically — otherwise check that you uploaded the project root.')
+    warnings.push('No package.json, composer.json, requirements.txt, go.mod, pom.xml, Gemfile or index.html was found at the top of the project, in frontend/, backend/, server/ or client/, or in an apps/* or services/* workspace folder. If the archive contains a single folder, that is handled automatically — otherwise check that you uploaded the project root.')
   }
 
   if (plan.type === 'php' && !plan.wordpress && has('package.json') && plan.laravel) evidence.push('Laravel front-end assets (package.json) will be built with npm when a build script exists')

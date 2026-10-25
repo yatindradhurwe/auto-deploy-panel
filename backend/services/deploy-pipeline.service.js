@@ -45,7 +45,7 @@ const httpError = (status, message) => Object.assign(new Error(message), { statu
 const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`
 const b64 = (s) => Buffer.from(String(s), 'utf8').toString('base64')
 // Loads .env literally (values are never executed); used by the PM2 runner and one-off app commands
-const loadEnv = `if [ -f .env ]; then while IFS= read -r line || [ -n "$line" ]; do case "$line" in ''|'#'*) continue;; esac; k="\${line%%=*}"; v="\${line#*=}"; v="\${v%\\"}"; v="\${v#\\"}"; export "$k=$v"; done < .env; fi`
+export const loadEnv = `if [ -f .env ]; then while IFS= read -r line || [ -n "$line" ]; do case "$line" in ''|'#'*) continue;; esac; k="\${line%%=*}"; v="\${line#*=}"; v="\${v%\\"}"; v="\${v#\\"}"; export "$k=$v"; done < .env; fi`
 // Prints pip requirement lines from pyproject.toml (PEP 621 or Poetry) or a Pipfile, so apps that
 // are not installable packages still get their dependencies. Exit 3: no TOML parser (Python < 3.11).
 const PY_DEPS = `import sys
@@ -708,6 +708,9 @@ echo "Created wp-config.php"`)
     // ------------------------------------------------------------------ install
     stage('install', 'running')
     lines = 0
+    // pnpm workspaces link packages with workspace:* (npm cannot): install once at the workspace root
+    const pnpmInstall = `cd ${q(dir)} && export CI=true COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && PNPM=$(command -v pnpm || echo 'corepack pnpm') && $PNPM install --frozen-lockfile --prod=false || $PNPM install --no-frozen-lockfile --prod=false`
+    const pnpmWorkspace = !!await query(`[ -f ${q(`${dir}/pnpm-workspace.yaml`)} ] || [ -f ${q(`${dir}/pnpm-lock.yaml`)} ] && echo yes`)
     const nodeInstall = (d) => `cd ${q(d)} && if [ -f package-lock.json ]; then npm ci --include=dev --no-audit --no-fund || npm install --include=dev --no-audit --no-fund --legacy-peer-deps; else npm install --include=dev --no-audit --no-fund --legacy-peer-deps; fi`
     const pyInstall = (d, u) => {
       const server = (/^(\S*\/)?(gunicorn|uvicorn)\b/.exec(u.start || '') || [])[2]
@@ -741,11 +744,15 @@ ${server ? `[ -x venv/bin/${server} ] || venv/bin/pip install -q ${server}` : ''
     }
     const units = appUnits
     if (['spa', 'node-ssr', 'node-server', 'fullstack'].includes(plan.type)) {
+      if (pnpmWorkspace && units.some(u => !isPython(u))) {
+        log('pnpm install (workspace)\n')
+        await sh(pnpmInstall)
+      }
       for (const u of units) {
         if (isPython(u)) {
           log(`pip install in ${u.dir || '.'}\n`)
           await sh(pyInstall(appDirOf(u), u))
-        } else {
+        } else if (!pnpmWorkspace) {
           log(`npm install in ${u.dir || '.'}\n`)
           await sh(nodeInstall(appDirOf(u)))
         }
@@ -794,6 +801,12 @@ chown -R www-data:www-data storage bootstrap/cache`)
       built = true
     } else if (plan.type === 'java') {
       await sh(`cd ${q(serverDir)} && ${plan.build}`)
+      built = true
+    }
+    if (isPython(serverUnit) && !serverUnit.django && await query(`[ -f ${q(`${serverDir}/alembic.ini`)} ] && echo yes`)) {
+      log('Applying database migrations (alembic upgrade head)\n')
+      const r = await sh(`cd ${q(serverDir)} && ${loadEnv}; venv/bin/alembic upgrade head 2>&1`, { allowFailure: true })
+      if (r.code !== 0) warnings.push('Database migrations failed (see the log). The app may not work until `alembic upgrade head` succeeds.')
       built = true
     }
     if (isPython(serverUnit) && serverUnit.factory) {
