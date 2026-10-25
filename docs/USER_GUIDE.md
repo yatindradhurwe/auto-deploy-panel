@@ -35,6 +35,21 @@ Everything runs on the server the project lives on (shown in the studio header).
 
 Deleting a project can remove its PM2 process, nginx site, database and files; the panel's own folder and system folders are always protected.
 
+## Native mobile app
+Studio → **Settings → Mobile app → Native app (React Native)** turns the project's website into Android and iOS store apps (owners and admins; the project needs a domain with SSL).
+
+The panel generates a React Native (Expo) app that shows the site full-screen, with a splash screen, the Android back button, an offline screen and native features you switch on: push notifications, Face ID / fingerprint, haptics, the share sheet, camera and microphone, location, and links to your domain opening the app. The website reaches them through `window.NativeApp` (the snippet is on the page). Website changes appear in the app straight away; rebuild only when you change the app's settings.
+
+Build it one of three ways:
+
+| | Builds | Needs |
+|---|---|---|
+| **Android + iOS (GitHub Actions)** | Android `.apk` + `.aab` (Gradle, Android SDK) and iOS `.ipa` or a simulator build (Xcode on a GitHub Mac) | Your GitHub account connected under Git Repository. The panel creates a private repository (or uses one you name), pushes the app and starts the build; download the results on the page. |
+| **Android on this server** | Android `.apk` + `.aab`, signed with an upload key created on the server | JDK 17 and the Android SDK (**Install build tools** installs both), about 4 GB of RAM + swap and 12 GB of disk. Download a backup of the upload key; Google Play only accepts updates signed with it. |
+| **Source code** | A `.zip` to open in Android Studio / Xcode | — |
+
+Store signing for GitHub builds uses the repository's Actions secrets (the page lists which are set): `ANDROID_KEYSTORE_BASE64` + `ANDROID_KEYSTORE_PASSWORD` for Google Play; `IOS_P12_BASE64`, `IOS_P12_PASSWORD`, `IOS_PROFILE_BASE64` for the App Store; optionally `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`, `APP_STORE_CONNECT_KEY_BASE64` to upload to TestFlight. Without them you get a debug-signed APK to test and an iOS simulator build. Raise the build number before every store upload. Sign in with GitHub again if a build says the connection lacks the `workflow` permission.
+
 ## AI project agent
 The left panel of the studio (and the agent drawer in Code Studio).
 

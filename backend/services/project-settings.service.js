@@ -42,7 +42,7 @@ export function getStoredSettings(server, projectPath) {
   return (readDb().projectSettings || {})[settingsKey(server, projectPath)] || {}
 }
 
-function saveStoredSettings(server, projectPath, patch, userId) {
+export function saveStoredSettings(server, projectPath, patch, userId) {
   const db = readDb()
   if (!db.projectSettings) db.projectSettings = {}
   const key = settingsKey(server, projectPath)

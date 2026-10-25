@@ -2,10 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeft, Search, Sliders, Globe, Palette, Languages, Code, Braces, Building, CreditCard, Truck,
   Mail, ShieldCheck, TrendingUp, BarChart3, X, Save, Plus, Trash2, Lock, Power, RefreshCw, Link2,
-  CheckCircle2, AlertCircle, Loader2, Smartphone, GitBranch
+  CheckCircle2, AlertCircle, Loader2, Smartphone, GitBranch, Package
 } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
 import PwaSettings from './PwaSettings'
+import MobileAppBuilder from './MobileAppBuilder'
 import { signInWithGithub } from '../utils/githubSignIn'
 
 /**
@@ -91,7 +92,13 @@ const NAV = [
     ]
   },
   { category: 'SOURCE CODE', items: [{ id: 'git', label: 'Git Repository', icon: GitBranch, desc: 'The repository and branch this project pulls from when you publish', server: true }] },
-  { category: 'MOBILE APP', items: [{ id: 'pwa', label: 'App (PWA) · Android & iOS', icon: Smartphone, desc: 'Turn this website into an installable app for Android, iPhone and desktop', server: true }] },
+  {
+    category: 'MOBILE APP',
+    items: [
+      { id: 'pwa', label: 'App (PWA) · Android & iOS', icon: Smartphone, desc: 'Turn this website into an installable app for Android, iPhone and desktop', server: true },
+      { id: 'native-app', label: 'Native app (React Native)', icon: Package, desc: 'Build Android and iOS store apps from this website, with push, Face ID and other native features', server: true }
+    ]
+  },
   { category: 'DOMAINS', items: [{ id: 'domains', label: 'Domains', icon: Link2, desc: 'Domains that serve this site', server: true }] }
 ]
 
@@ -647,6 +654,10 @@ export default function ProjectSettingsModal({ isOpen, project, onClose }) {
                 />
               )}
 
+              {activeTab === 'native-app' && (
+                <MobileAppBuilder key={project?.path} project={project} api={api} base={base} locked={locked} />
+              )}
+
               {activeTab === 'git' && (
                 <div className="space-y-5">
                   {data.git?.isRepo ? (
@@ -715,7 +726,7 @@ export default function ProjectSettingsModal({ isOpen, project, onClose }) {
                 </div>
               )}
 
-              {activeTab !== 'overview' && activeTab !== 'pwa' && (
+              {activeTab !== 'overview' && activeTab !== 'pwa' && activeTab !== 'native-app' && (
                 <div className="flex flex-wrap items-center justify-end gap-3 pt-2 border-t border-white/10">
                   {isEnvTab && procs.length > 0 && (
                     <label className="flex items-center gap-2 text-xs text-slate-400 mr-auto">

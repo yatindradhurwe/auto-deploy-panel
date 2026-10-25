@@ -70,6 +70,25 @@ Access levels: **user** = any logged-in member; **admin** = system admin. All `/
 | GET | `/preview-proxy?url=` | Frame-friendly proxy for the live preview. |
 | GET/POST | `/autoupdate/config/:appName`, `/autoupdate/config`, `/autoupdate/trigger-now`, `/autoupdate/list`, `/autoupdate/history` | Git auto-update settings and history. |
 
+## Native mobile app — `/api/studio/mobile-app` (owners, selected server)
+Every body has `{ projectPath, domain, name }`.
+
+| Method | Path | Body / notes |
+|---|---|---|
+| POST | `/get` | → `{ config, icon, saved, pwaIcon, githubConnected }` |
+| POST | `/save` | `{ values: { appName, bundleId, version, buildNumber, startUrl, themeColor, backgroundColor, orientation, offlineMessage, features, extraHosts, googleServices, icon?, adaptiveIcon? } }` (icons as PNG data URLs) |
+| POST | `/source` | → `.zip` of the generated React Native (Expo) project. |
+| POST | `/github/connect` | `{ mode: 'create', name, owner? }` or `{ mode: 'existing', repo: 'owner/name' }`, with the caller's GitHub token. |
+| POST | `/github/disconnect` | Unlinks the repository (nothing deleted on GitHub). |
+| POST | `/github/build` | `{ platform: all\|android\|ios }` — pushes the app source and dispatches the `autodeploy-mobile.yml` workflow. |
+| POST | `/github/status` | → `{ builds: [{ status, conclusion, url, artifacts }], secrets, secretsUrl }` |
+| POST | `/github/artifact` | `{ artifactId }` → the build's `.zip`. |
+| POST | `/server/check` | → JDK, Android SDK, Node, memory and disk on the server. |
+| POST | `/server/install-tools` | Installs JDK 17 and the Android SDK in `/opt/android-sdk` (background job). |
+| POST | `/server/build` | `{ force? }` — background Android build in `/opt/autodeploy-mobile/<domain>`; `force` builds despite low memory. |
+| POST | `/server/status` | → `{ build, tools, files, keystore: { sha256 } }` (job state and log tail). |
+| POST | `/server/download` | `{ file: '<name>.apk\|.aab' \| 'upload-key' }` |
+
 ## Databases — `/api/studio/databases` (admin, selected server)
 | Method | Path | Body |
 |---|---|---|

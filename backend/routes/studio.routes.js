@@ -33,6 +33,7 @@ import { executeProjectAutoUpdate } from '../services/autoupdate.service.js'
 import * as mail from '../services/mail.service.js'
 import * as dnsProvider from '../services/dns-provider.service.js'
 import * as projectAgent from '../services/project-agent.service.js'
+import * as mobileApp from '../services/mobile-app.service.js'
 import {
   getRealHostMetrics,
   getRealPm2Processes,
@@ -760,6 +761,82 @@ router.post('/project-settings/save', withHost(async (req, res, host) => {
     result.applied.push(`Restarted ${names.join(', ')}`)
   }
   res.json({ success: true, message: result.applied.join('. ') + '.', ...result })
+}))
+
+/**
+ * Native Android & iOS app (React Native) built from the project's website — mobile-app.service.
+ * Body: { projectPath, domain, name, ... }. Owners and super admins only: builds install SDKs on
+ * the server and push to GitHub with the caller's own account.
+ */
+const mobileRoute = (fn) => withHost(async (req, res, host) => {
+  if (!['super', 'owner'].includes(req.studioAccess?.level)) return res.status(403).json({ success: false, error: 'Only organization owners and admins can build the mobile app.' })
+  const dir = await requireProjectDir(host, req.body.projectPath)
+  const domain = String(req.body.domain || '').trim().toLowerCase()
+  if (!DOMAIN_REGEX.test(domain)) return res.status(400).json({ success: false, error: 'Give this project a domain (with SSL) first: the app opens the website.' })
+  const ctx = { server: req.tenant?.server || null, dir, domain, project: { domain, name: String(req.body.name || '') }, token: (getUserSettings(req.user?.id)?.githubToken || '').trim() }
+  await fn(req, res, host, ctx)
+})
+
+const sendDownload = (res, file) => res.download(file.localPath, file.fileName, () => { file.cleanup().catch(() => {}) })
+
+router.post('/mobile-app/get', mobileRoute(async (req, res, host, c) => {
+  res.json({ success: true, ...mobileApp.getMobileApp(c.server, c.dir, c.project), githubConnected: !!c.token })
+}))
+
+router.post('/mobile-app/save', mobileRoute(async (req, res, host, c) => {
+  const config = mobileApp.saveMobileApp(c.server, c.dir, c.project, req.body.values || {}, req.user.id)
+  res.json({ success: true, config, message: 'App settings saved. Build again to put them in the app.' })
+}))
+
+router.post('/mobile-app/source', mobileRoute(async (req, res, host, c) => {
+  sendDownload(res, await mobileApp.sourceZip(host, c.server, c.dir, c.domain))
+}))
+
+router.post('/mobile-app/github/connect', mobileRoute(async (req, res, host, c) => {
+  const github = await mobileApp.connectRepo(c.server, c.dir, c.token, { ...req.body, userId: req.user.id })
+  res.json({ success: true, github, message: `Connected to ${github.owner}/${github.repo}.` })
+}))
+
+router.post('/mobile-app/github/disconnect', mobileRoute(async (req, res, host, c) => {
+  mobileApp.disconnectRepo(c.server, c.dir, req.user.id)
+  res.json({ success: true, message: 'Repository unlinked. Nothing was deleted on GitHub.' })
+}))
+
+router.post('/mobile-app/github/build', mobileRoute(async (req, res, host, c) => {
+  const r = await mobileApp.publishAndBuild(host, c.server, c.dir, c.domain, c.token, { platform: req.body.platform || 'all', userId: req.user.id })
+  recordAuditLog({ organizationId: req.tenant?.organizationId, userId: req.user.id, action: 'mobile_app_github_build', resourceType: 'project', resourceId: c.domain, ip: req.ip, details: { platform: req.body.platform || 'all', sha: r.sha } })
+  res.json({ success: true, ...r, message: `${r.pushed ? 'App source pushed and build' : 'Build'} started on GitHub Actions. Android takes about 10–15 minutes, iOS 15–25.` })
+}))
+
+router.post('/mobile-app/github/status', mobileRoute(async (req, res, host, c) => {
+  res.json({ success: true, ...(await mobileApp.githubBuilds(c.server, c.dir, c.token)) })
+}))
+
+router.post('/mobile-app/github/artifact', mobileRoute(async (req, res, host, c) => {
+  await mobileApp.streamArtifact(c.server, c.dir, c.token, req.body.artifactId, res)
+}))
+
+router.post('/mobile-app/server/check', mobileRoute(async (req, res, host) => {
+  res.json({ success: true, ...(await mobileApp.checkServerTools(host)) })
+}))
+
+router.post('/mobile-app/server/install-tools', mobileRoute(async (req, res, host, c) => {
+  await mobileApp.installServerTools(host, c.domain)
+  res.json({ success: true, message: 'Installing JDK 17 and the Android SDK in the background (a few minutes).' })
+}))
+
+router.post('/mobile-app/server/build', mobileRoute(async (req, res, host, c) => {
+  await mobileApp.startServerBuild(host, c.server, c.dir, c.domain, { force: !!req.body.force })
+  recordAuditLog({ organizationId: req.tenant?.organizationId, userId: req.user.id, action: 'mobile_app_server_build', resourceType: 'project', resourceId: c.domain, ip: req.ip })
+  res.json({ success: true, message: 'Android build started on this server. The first build downloads the SDK parts and takes 15–30 minutes; later builds are faster.' })
+}))
+
+router.post('/mobile-app/server/status', mobileRoute(async (req, res, host, c) => {
+  res.json({ success: true, ...(await mobileApp.serverBuildStatus(host, c.domain)) })
+}))
+
+router.post('/mobile-app/server/download', mobileRoute(async (req, res, host, c) => {
+  sendDownload(res, await mobileApp.serverDownload(host, c.domain, String(req.body.file || '')))
 }))
 
 /**

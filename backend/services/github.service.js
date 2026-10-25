@@ -13,8 +13,8 @@ const API = 'https://api.github.com'
 const UA = 'AutoDeploy-Console-App'
 const STATE_TTL_MS = 10 * 60 * 1000
 const MAX_REPO_PAGES = 30 // 3000 repositories
-// repo: clone/pull private repositories; read:org: list repositories of the user's organizations
-export const OAUTH_SCOPES = 'repo read:user read:org'
+// repo: clone/pull private repositories; workflow: push the mobile app's build workflow; read:org: list repositories of the user's organizations
+export const OAUTH_SCOPES = 'repo workflow read:user read:org'
 
 const pending = new Map() // state -> { userId, redirectUri, expires }
 
