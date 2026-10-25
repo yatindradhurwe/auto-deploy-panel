@@ -22,6 +22,7 @@ import { migrateSupabaseStorage, publicBucketLocations, supabaseProjectUrl } fro
 
 export const STAGES = [
   { id: 'connect', label: 'Connecting to server', weight: 4 },
+  { id: 'dns', label: 'Pointing the domain', weight: 2 },
   { id: 'source', label: 'Getting source code', weight: 12 },
   { id: 'analyze', label: 'Detecting app type', weight: 4 },
   { id: 'database', label: 'Setting up database', weight: 10 },
@@ -43,6 +44,8 @@ const TYPES = ['static', 'spa', 'node-ssr', 'node-server', 'fullstack', 'php', '
 const httpError = (status, message) => Object.assign(new Error(message), { status })
 const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`
 const b64 = (s) => Buffer.from(String(s), 'utf8').toString('base64')
+// Loads .env literally (values are never executed); used by the PM2 runner and one-off app commands
+const loadEnv = `if [ -f .env ]; then while IFS= read -r line || [ -n "$line" ]; do case "$line" in ''|'#'*) continue;; esac; k="\${line%%=*}"; v="\${line#*=}"; v="\${v%\\"}"; v="\${v#\\"}"; export "$k=$v"; done < .env; fi`
 const randomPassword = () => crypto.randomBytes(18).toString('base64').replace(/[^A-Za-z0-9]/g, '').slice(0, 24)
 
 /** Commands from the wizard's "advanced" overrides: a single line without shell control chars. */
@@ -165,6 +168,8 @@ export function validateDeployConfig(body, userId, server = null) {
     ssl: body.ssl !== false,
     sslEmail: /^[^\s@'"]+@[^\s@'"]+\.[a-z]{2,}$/i.test(email) ? email : null,
     replaceDomain: !!body.replaceDomain,
+    // Create the domain's A record through the organization's connected DNS provider
+    autoDns: body.autoDns === true,
     githubToken: body._githubToken || null,
     server
   }
@@ -188,12 +193,65 @@ function mergeEnv(...layers) {
 }
 
 const envQuote = (v) => (/^[A-Za-z0-9_.:/@+-]*$/.test(v) ? v : `"${String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
+const envValue = (v) => String(v ?? '').trim().replace(/^(['"])(.*)\1$/, '$2')
+
+// The app's own secrets (signing, sessions, encryption). Third-party credentials are left alone:
+// a made-up Stripe or SMTP key would make the app think the provider is configured.
+const APP_SECRET_RE = /(SECRET|_KEY$|^KEY$|SALT|PEPPER)/
+const APP_SECRET_HINT_RE = /(JWT|SESSION|COOKIE|AUTH|SIGNING|SIGN|ENCRYPTION|ENCRYPT|CRYPT|HASH|SALT|PEPPER|TOKEN|REFRESH|ACCESS|MEDIA|APP_SECRET|SECRET_KEY_BASE|^SECRET|CSRF|HMAC|MASTER)/
+const PROVIDER_RE = /(STRIPE|RAZORPAY|PAYPAL|PAYU|CASHFREE|GOOGLE|GITHUB|FACEBOOK|META_|TWITTER|LINKEDIN|APPLE|MICROSOFT|AZURE|AWS|S3_|R2_|GCS|SMTP|MAIL|SES_|SENDGRID|RESEND|POSTMARK|OPENAI|ANTHROPIC|GEMINI|TWILIO|FIREBASE|SUPABASE|CLOUDINARY|SENTRY|PUSHER|ALGOLIA|MAPBOX|RECAPTCHA|HCAPTCHA|API_KEY|WEBHOOK|CLIENT_SECRET|CLIENT_ID|PUBLISHABLE|PUBLIC|VITE_|NEXT_PUBLIC_|REACT_APP_)/
+const PLACEHOLDER_RE = /^$|change.?me|changeme|^your[-_ ]|replace|example|placeholder|^dev[-_]|^test[-_]?secret|^secret$|^password$|^x{3,}|^<.*>$|^todo|^null$/i
+// Public-origin settings that templates ship pointing at localhost
+const URL_KEY_RE = /^((APP|API|SITE|PUBLIC|FRONTEND|CLIENT|BASE|WEB|SERVER|BACKEND|HOST|NEXTAUTH|AUTH|ORIGIN)_?URL|(NEXT_PUBLIC|VITE|REACT_APP)_(APP|SITE|API|BASE|PUBLIC)_?URL|CORS_ORIGINS?|ALLOWED_ORIGINS|FRONTEND_ORIGIN|CLIENT_ORIGIN)$/
+const LOCAL_ORIGIN_RE = /https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/
+
+/**
+ * Fills what a copied .env.example leaves unusable in production: generates the app's own secrets
+ * when empty or still a placeholder, an admin login for seed scripts, and points localhost origins
+ * at the public URL. Values the user typed in the wizard are applied afterwards and always win.
+ * Returns { pairs, generated: [keys], admin: { email, passwordKey } | null }.
+ */
+function fillEnvDefaults(pairs, { publicUrl, adminEmail, skip }) {
+  const generated = []
+  let admin = null
+  const out = pairs.map(([k, v]) => {
+    if (skip.has(k)) return [k, v]
+    const val = envValue(v)
+    if (/^(SUPER_)?ADMIN_EMAIL$/.test(k) && !val && adminEmail) {
+      admin = { ...admin, email: adminEmail }
+      return [k, adminEmail]
+    }
+    if (/^(SUPER_)?ADMIN_PASSWORD$/.test(k) && PLACEHOLDER_RE.test(val)) {
+      admin = { ...admin, passwordKey: k }
+      generated.push(k)
+      return [k, randomPassword()]
+    }
+    if (k !== 'APP_KEY' && APP_SECRET_RE.test(k) && APP_SECRET_HINT_RE.test(k) && !PROVIDER_RE.test(k) && PLACEHOLDER_RE.test(val)) {
+      generated.push(k)
+      // 32 random bytes as hex: valid for JWT/session secrets and for "32-byte key" encryption settings
+      return [k, crypto.randomBytes(32).toString('hex')]
+    }
+    if (URL_KEY_RE.test(k) && LOCAL_ORIGIN_RE.test(val)) {
+      return [k, envQuote(val.replace(new RegExp(LOCAL_ORIGIN_RE.source, 'g'), publicUrl))]
+    }
+    return [k, v]
+  })
+  if (admin && !admin.passwordKey) admin = null
+  if (admin) {
+    const emailKey = out.find(([k]) => /^(SUPER_)?ADMIN_EMAIL$/.test(k))
+    admin.email = emailKey ? envValue(emailKey[1]) : null
+    if (!admin.email) admin = null
+  }
+  return { pairs: out, generated, admin }
+}
 
 /**
  * Runs the pipeline. Never throws: the outcome is reported through emit({ kind: 'result' }).
- * Returns { success, url, plan, port }.
+ * pointDomain(ipv4) (optional, used when cfg.autoDns) writes the domain's A record through the
+ * organization's DNS provider and returns { zone, provider, action, detail }.
+ * Returns { success, url, plan, port, dns }.
  */
-export async function runDeployPipeline(cfg, emit, { host }) {
+export async function runDeployPipeline(cfg, emit, { host, pointDomain = null }) {
   const done = new Set()
   let current = null
   let stageFraction = 0
@@ -247,6 +305,8 @@ export async function runDeployPipeline(cfg, emit, { host }) {
   let port = cfg.port
   let dbInfo = null
   let storageInfo = null
+  let adminInfo = null
+  let dns = null
   const warnings = []
 
   try {
@@ -262,6 +322,27 @@ export async function runDeployPipeline(cfg, emit, { host }) {
       .split('\n').filter(Boolean).map(f => path.basename(f, '.conf')).filter(d => d !== cfg.domain)
     if (owners.length) {
       throw new Error(`The app name "${cfg.appName}" is already used by ${owners.join(', ')}. Deploying ${cfg.domain} with the same name would overwrite that site — go back and choose a different app name (e.g. "${cfg.domain.split('.')[0].replace(/[^a-z0-9-]/g, '')}").`)
+    }
+    const serverIp = (await query(`curl -s4 --max-time 5 https://api.ipify.org || hostname -I | awk '{print $1}'`)).trim()
+
+    // ------------------------------------------------------------------ dns
+    // Done first so the record propagates while the app installs and builds. A domain that
+    // already points elsewhere stops the deploy here, before anything on the server changes.
+    if (!cfg.autoDns || !pointDomain) {
+      stage('dns', 'skipped', 'DNS managed by you')
+    } else {
+      stage('dns', 'running', cfg.domain)
+      try {
+        dns = await pointDomain(serverIp)
+        log(`${dns.detail}\n`)
+        stage('dns', 'done', dns.action === 'ok' ? 'Already points here' : `${dns.provider} · A → ${serverIp}`)
+      } catch (e) {
+        if (e.status === 409) throw e
+        const msg = `Could not set DNS automatically: ${e.message} Point an A record for ${cfg.domain} to ${serverIp} yourself.`
+        warnings.push(msg)
+        log(`${msg}\n`, true)
+        stage('dns', 'warning', 'Set the A record yourself')
+      }
     }
 
     // ------------------------------------------------------------------ source
@@ -422,6 +503,8 @@ set -e
 ${pg(`DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='${db.user}') THEN CREATE ROLE "${db.user}" LOGIN PASSWORD '${db.password}'; ELSE ALTER ROLE "${db.user}" WITH LOGIN PASSWORD '${db.password}'; END IF; END $$;`)}
 ${exists ? `echo "Database ${db.name} already exists — keeping its data"` : `runuser -u postgres -- createdb -O ${q(db.user)} ${q(db.name)} && echo "Created database ${db.name}"`}
 `)
+        // An existing database with no tables yet (e.g. left by an earlier failed deploy) still needs seeding
+        db.fresh = !remoteDump && (!exists || (await query(`runuser -u postgres -- psql -d ${q(db.name)} -tAc ${q("SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")}`)).trim() === '0')
         if (remoteDump) {
           if (exists) { warnings.push(`Database ${db.name} already existed, so the uploaded dump was not imported (to protect existing data).`); log('Skipping import: database already has data.\n', true) }
           else if (cfg.database.format === 'pg_custom') await sh(`PGPASSWORD=${q(db.password)} pg_restore --no-owner --role=${q(db.user)} -h 127.0.0.1 -U ${q(db.user)} -d ${q(db.name)} ${q(remoteDump)} || echo "pg_restore reported warnings (see above)"`)
@@ -452,6 +535,7 @@ GRANT ALL PRIVILEGES ON \`${db.name}\`.* TO '${db.user}'@'localhost';
 GRANT ALL PRIVILEGES ON \`${db.name}\`.* TO '${db.user}'@'127.0.0.1';
 FLUSH PRIVILEGES;`
         await sh(`set -e\necho ${b64(sql)} | base64 -d | ${admin}\necho "${exists ? 'Database exists — kept its data' : `Created database ${db.name}`}"`)
+        db.fresh = !exists && !remoteDump
         if (remoteDump) {
           if (exists) { warnings.push(`Database ${db.name} already existed, so the uploaded dump was not imported.`); log('Skipping import: database already exists.\n', true) }
           else await sh(`set -o pipefail\n${cat} | MYSQL_PWD=${q(db.password)} mysql -u ${q(db.user)} -h 127.0.0.1 ${q(db.name)}\necho "Import finished"`)
@@ -517,12 +601,19 @@ FLUSH PRIVILEGES;`
     if (storageInfo) {
       autoEnv.push(['STORAGE_DIR', storageInfo.dir], ['STORAGE_PUBLIC_URL', `${cfg.ssl ? 'https' : 'http'}://${cfg.domain}/storage/v1/object/public`])
     }
+    const publicUrl = `${cfg.ssl ? 'https' : 'http'}://${cfg.domain}`
+    const skipKeys = new Set([...autoEnv, ...userEnv].map(([k]) => k))
+    let serverEnv = []
     for (const d of envDirs) {
-      const existing = parseEnv(await query(`cat ${q(`${d}/.env`)} 2>/dev/null || cat ${q(`${d}/.env.example`)} 2>/dev/null`))
-      // Order: existing/.env.example < generated values < what the user typed
-      const content = mergeEnv(existing, autoEnv, userEnv)
-      await sh(`echo ${b64(content)} | base64 -d > ${q(`${d}/.env`)} && chmod 600 ${q(`${d}/.env`)}`, { quiet: true })
-      log(`Wrote ${d}/.env (${content.trim().split('\n').length} variables)\n`)
+      const existing = parseEnv(await query(`cat ${q(`${d}/.env`)} 2>/dev/null || cat ${q(`${d}/.env.example`)} 2>/dev/null || cat ${q(`${d}/.env.sample`)} 2>/dev/null`))
+      const filled = fillEnvDefaults(existing, { publicUrl, adminEmail: cfg.sslEmail, skip: skipKeys })
+      if (filled.generated.length) log(`Generated ${filled.generated.join(', ')} (the template had empty or example values)\n`)
+      if (d === serverDir && filled.admin) adminInfo = { ...filled.admin, envFile: `${d}/.env` }
+      // Order: existing/.env.example (placeholders filled) < panel values < what the user typed
+      const merged = mergeEnv(filled.pairs, autoEnv, userEnv)
+      if (d === serverDir) serverEnv = parseEnv(merged)
+      await sh(`echo ${b64(merged)} | base64 -d > ${q(`${d}/.env`)} && chmod 600 ${q(`${d}/.env`)}`, { quiet: true })
+      log(`Wrote ${d}/.env (${merged.trim().split('\n').length} variables)\n`)
     }
     if (port) await sh(`echo ${port} > ${q(`${dir}/.autodeploy-port`)}`, { quiet: true })
 
@@ -614,6 +705,40 @@ chown -R www-data:www-data storage bootstrap/cache`)
     }
     stage('build', built ? 'done' : 'skipped', built ? null : 'No build step')
 
+    // Prisma apps: create/upgrade the tables before the app starts (they usually crash without them),
+    // then run the seed script once on a fresh database (plans, settings, first admin)
+    const dbUrl = envValue(serverEnv.find(([k]) => k === 'DATABASE_URL')?.[1])
+    const prismaSchema = ['node-server', 'node-ssr', 'fullstack'].includes(plan.type) && dbUrl && !PLACEHOLDER_RE.test(dbUrl) &&
+      await query(`cd ${q(serverDir)} && for f in prisma/schema.prisma prisma/schema schema.prisma; do [ -e "$f" ] && echo "$f" && break; done`)
+    if (prismaSchema) {
+      const inEnv = (cmd) => `cd ${q(serverDir)} && ${loadEnv}; ${cmd}`
+      const hasMigrations = await query(`ls -d ${q(serverDir)}/prisma/migrations/*/ 2>/dev/null | head -1`)
+      if (hasMigrations) {
+        log('Applying database migrations (prisma migrate deploy)\n')
+        const r = await sh(inEnv('npx --no-install prisma migrate deploy 2>&1'), { allowFailure: true })
+        if (r.code !== 0) warnings.push('Database migrations failed (see the log). The app may not work until `npx prisma migrate deploy` succeeds.')
+      } else if (dbInfo?.fresh) {
+        log('Creating database tables (prisma db push)\n')
+        const r = await sh(inEnv('npx --no-install prisma db push --skip-generate 2>&1'), { allowFailure: true })
+        if (r.code !== 0) warnings.push('Creating the database tables failed (see the log).')
+      }
+      if (dbInfo?.fresh) {
+        const pkg = await query(`cat ${q(`${serverDir}/package.json`)} 2>/dev/null`)
+        let seed = null
+        try {
+          const j = JSON.parse(pkg)
+          if (j.prisma?.seed) seed = 'npx --no-install prisma db seed'
+          else if (j.scripts?.['db:seed']) seed = 'npm run db:seed'
+          else if (j.scripts?.seed) seed = 'npm run seed'
+        } catch {}
+        if (seed) {
+          log(`Seeding the new database (${seed})\n`)
+          const r = await sh(inEnv(`${seed} 2>&1`), { allowFailure: true })
+          if (r.code !== 0) warnings.push(`The seed script (${seed}) failed (see the log). Run it from the app folder once the issue is fixed.`)
+        }
+      }
+    }
+
     // ------------------------------------------------------------------ service
     stage('service', 'running')
     if (needsPort) {
@@ -628,8 +753,7 @@ chown -R www-data:www-data storage bootstrap/cache`)
       } else if (plan.type === 'ruby') {
         startCmd = `${startCmd} -p ${port}`
       }
-      // Loads .env literally (values are never executed), then hands over to the app
-      const runner = `cd ${sd} && if [ -f .env ]; then while IFS= read -r line || [ -n "$line" ]; do case "$line" in ''|'#'*) continue;; esac; k="\${line%%=*}"; v="\${line#*=}"; v="\${v%\\"}"; v="\${v#\\"}"; export "$k=$v"; done < .env; fi; export PORT=${port}; exec ${startCmd}`
+      const runner = `cd ${sd} && ${loadEnv}; export PORT=${port}; exec ${startCmd}`
       await sh(`
 pm2 delete ${q(cfg.appName)} >/dev/null 2>&1 || true
 cd ${q(sd)}
@@ -703,10 +827,19 @@ echo "nginx is serving ${cfg.domain}"`)
       stage('ssl', 'skipped', 'HTTPS disabled')
     } else {
       stage('ssl', 'running')
-      const serverIp = await query(`curl -s4 --max-time 5 https://api.ipify.org || hostname -I | awk '{print $1}'`)
-      const resolved = await query(`getent ahostsv4 ${q(cfg.domain)} | awk '{print $1}' | sort -u | tr '\\n' ' '`)
-      if (!resolved.split(' ').includes(serverIp.trim())) {
-        const msg = `${cfg.domain} does not point to this server yet (DNS: ${resolved.trim() || 'not found'}, server: ${serverIp.trim()}). Add an A record, then redeploy to get HTTPS.`
+      // A record we just wrote: ask the zone's own nameserver (what Let's Encrypt sees) and give it
+      // a couple of minutes, since the server's resolver may not have it yet
+      const lookup = dns
+        ? `if command -v dig >/dev/null 2>&1; then ns=$(dig +short NS ${q(dns.zone)} | head -1); dig +short A ${q(cfg.domain)} \${ns:+@$ns}; else getent ahostsv4 ${q(cfg.domain)} | awk '{print $1}'; fi | sort -u | tr '\\n' ' '`
+        : `getent ahostsv4 ${q(cfg.domain)} | awk '{print $1}' | sort -u | tr '\\n' ' '`
+      let resolved = await query(lookup)
+      for (let i = 0; dns && i < 24 && !resolved.split(' ').includes(serverIp); i++) {
+        if (i === 0) log(`Waiting for ${cfg.domain} to resolve to ${serverIp}…\n`)
+        await sh('sleep 5', { quiet: true })
+        resolved = await query(lookup)
+      }
+      if (!resolved.split(' ').includes(serverIp)) {
+        const msg = `${cfg.domain} does not point to this server yet (DNS: ${resolved.trim() || 'not found'}, server: ${serverIp}). ${dns ? 'The record was saved but has not propagated yet — redeploy in a few minutes' : 'Add an A record, then redeploy'} to get HTTPS.`
         warnings.push(msg)
         log(`${msg}\n`, true)
         stage('ssl', 'warning', 'Domain does not point here yet')
@@ -760,10 +893,12 @@ echo "nginx is serving ${cfg.domain}"`)
           publicUrl: `${https ? 'https' : 'http'}://${cfg.domain}/storage/v1/object/public`,
           supabaseUrl: `${storageInfo.base}/storage/v1/object/public`
         } : null,
+        dns: dns ? { zone: dns.zone, provider: dns.provider, action: dns.action } : null,
+        admin: adminInfo && dbInfo?.fresh ? { email: adminInfo.email, password: envValue(serverEnv.find(([k]) => k === adminInfo.passwordKey)?.[1]), url } : null,
         warnings
       }
     })
-    return { success: true, url, plan, port }
+    return { success: true, url, plan, port, dns }
   } catch (err) {
     const failed = current || 'connect'
     const message = redactUrl(scrub(err.message || String(err)))

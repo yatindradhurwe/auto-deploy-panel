@@ -5,8 +5,9 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../store/AuthContext'
 import { useServers } from '../store/ServersContext'
+import DnsProviderPanel from './DnsProviderPanel'
 
-export default function DomainSSLManager() {
+export default function DomainSSLManager({ apiBaseUrl = '' }) {
   const { token: jwtToken } = useAuth()
   const { activeServer } = useServers()
   const [certificates, setCertificates] = useState([])
@@ -135,6 +136,9 @@ export default function DomainSSLManager() {
           <span>Sync Certbot</span>
         </button>
       </div>
+
+      {/* DNS provider (Hostinger / Cloudflare) */}
+      <DnsProviderPanel apiBaseUrl={apiBaseUrl} />
 
       {/* SSL Certificates List */}
       <div className="bg-slate-900/80 border border-white/10 rounded-3xl p-6 shadow-2xl space-y-4">

@@ -3,8 +3,9 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 
 /**
- * Connect a DNS provider once per organization, then the panel writes the email DNS records
- * (MX, SPF, DKIM, DMARC) for every mail domain itself — users never edit DNS by hand.
+ * Connect a DNS provider once per organization, then the panel writes DNS itself — users never
+ * edit DNS by hand: the email records (MX, SPF, DKIM, DMARC) for every mail domain, and the A
+ * record of every domain or subdomain a project is deployed to.
  *
  * Providers: Hostinger (developers.hostinger.com DNS API) and Cloudflare.
  * Stored in data/dns-providers.json (mode 0600) because it holds API tokens; tokens are never
@@ -23,8 +24,8 @@ const TTL = 3600
 const httpError = (status, message) => Object.assign(new Error(message), { status })
 
 export const PROVIDERS = {
-  hostinger: { label: 'Hostinger', tokenHelp: 'hPanel → Account (profile icon) → API → Generate token' },
-  cloudflare: { label: 'Cloudflare', tokenHelp: 'Cloudflare → My Profile → API Tokens → Create Token → "Edit zone DNS" template (all zones)' }
+  hostinger: { label: 'Hostinger', tokenHelp: 'hPanel → Account (profile icon) → API → Generate token', tokenUrl: 'https://hpanel.hostinger.com/profile/api' },
+  cloudflare: { label: 'Cloudflare', tokenHelp: 'Cloudflare → My Profile → API Tokens → Create Token → "Edit zone DNS" template (all zones)', tokenUrl: 'https://dash.cloudflare.com/profile/api-tokens' }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -86,7 +87,8 @@ export function disconnect(orgId) {
 // Provider adapters — common shape:
 //   listZones() -> ['example.com', …]
 //   getRecords(zone) -> [{ name: '@'|'sub', type, contents: [raw content…] }]
-//   setRecords(zone, name, type, contents)  replaces exactly that name+type set
+//   setRecords(zone, name, type, contents, ttl?)  replaces exactly that name+type set
+//   deleteRecords(zone, name, type)  removes that name+type set
 // MX contents are "PRIORITY HOST" everywhere.
 // ---------------------------------------------------------------------------------------------
 
@@ -130,10 +132,13 @@ function hostinger(token) {
         contents: (r.records || []).filter(x => !x.is_disabled).map(x => x.content)
       }))
     },
-    async setRecords(zone, name, type, contents) {
-      const body = { overwrite: true, zone: [{ name, type, ttl: TTL, records: contents.map(content => ({ content })) }] }
+    async setRecords(zone, name, type, contents, ttl = TTL) {
+      const body = { overwrite: true, zone: [{ name, type, ttl, records: contents.map(content => ({ content })) }] }
       await request(`${base}/dns/v1/zones/${encodeURIComponent(zone)}/validate`, { method: 'POST', token, body })
       await request(`${base}/dns/v1/zones/${encodeURIComponent(zone)}`, { method: 'PUT', token, body })
+    },
+    async deleteRecords(zone, name, type) {
+      await request(`${base}/dns/v1/zones/${encodeURIComponent(zone)}`, { method: 'DELETE', token, body: { filters: [{ name, type }] } })
     }
   }
 }
@@ -171,7 +176,7 @@ function cloudflare(token) {
       }
       return [...groups.values()]
     },
-    async setRecords(zone, name, type, contents) {
+    async setRecords(zone, name, type, contents, ttl = TTL) {
       const id = await zoneId(zone)
       const existing = await listRaw(zone, name, type)
       const want = new Set(contents)
@@ -180,10 +185,14 @@ function cloudflare(token) {
         else want.delete(content(r))
       }
       for (const c of want) {
-        const rec = { type, name: fqdn(zone, name), ttl: TTL }
+        const rec = { type, name: fqdn(zone, name), ttl }
         if (type === 'MX') { const [p, h] = c.split(/\s+/); Object.assign(rec, { priority: Number(p), content: stripDot(h) }) } else rec.content = c
         await request(`${base}/zones/${id}/dns_records`, { method: 'POST', token, body: rec })
       }
+    },
+    async deleteRecords(zone, name, type) {
+      const id = await zoneId(zone)
+      for (const r of await listRaw(zone, name, type)) await request(`${base}/zones/${id}/dns_records/${r.id}`, { method: 'DELETE', token })
     }
   }
 }
@@ -216,26 +225,90 @@ function findZone(zones, domain) {
   return [...zones].sort((a, b) => b.length - a.length).find(z => domain === z || domain.endsWith(`.${z}`)) || null
 }
 
+/** The connected account's domains, re-read from the provider when asked (it may have gained some). */
+export async function listZones(orgId, { refresh = false } = {}) {
+  const conn = getConnection(orgId)
+  if (!conn) return []
+  if (!refresh) return conn.zones || []
+  const zones = await adapter(conn.provider, conn.token).listZones()
+  const all = readAll(); if (all[orgKey(orgId)]) { all[orgKey(orgId)].zones = zones; writeAll(all) }
+  return zones
+}
+
+/** { conn, api, zone, name } for a domain in the connected account; throws when it isn't there. */
+async function locate(orgId, domain) {
+  const conn = getConnection(orgId)
+  if (!conn) throw httpError(400, 'Connect your DNS provider first.')
+  let zone = findZone(conn.zones || [], domain)
+  if (!zone) zone = findZone(await listZones(orgId, { refresh: true }), domain)
+  if (!zone) throw httpError(404, `${domain} is not managed in the connected ${PROVIDERS[conn.provider].label} account, so its DNS can't be set automatically.`)
+  return { conn, api: adapter(conn.provider, conn.token), zone, name: domain === zone ? '@' : domain.slice(0, -(zone.length + 1)) }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Website DNS: point a domain or subdomain at a server (like Vercel's "add domain")
+// ---------------------------------------------------------------------------------------------
+
+const SITE_TTL = 300 // short, so a moved site follows quickly
+
+/**
+ * What the domain points to now: { zone, name, a, aaaa, cname, status, detail }
+ * status: 'free' (no records) | 'here' (already this server) | 'taken' (points elsewhere)
+ */
+export async function inspectHost(orgId, domain, ipv4 = null) {
+  const { zone, name, api } = await locate(orgId, domain)
+  const records = await api.getRecords(zone)
+  const get = (t) => records.find(r => r.name === name && r.type === t)?.contents || []
+  const a = get('A')
+  const aaaa = get('AAAA')
+  const cname = get('CNAME').map(stripDot)
+  let status = 'free'
+  let detail = `${domain} is free — it will be pointed at your server.`
+  if (ipv4 && a.length && a.every(ip => ip === ipv4) && !cname.length) {
+    status = 'here'
+    detail = `${domain} already points to this server.`
+  } else if (a.length || aaaa.length || cname.length) {
+    status = 'taken'
+    detail = `${domain} already points to ${[...a, ...aaaa, ...cname].join(', ')}.`
+  }
+  return { zone, name, a, aaaa, cname, status, detail }
+}
+
+/**
+ * Creates/updates the A record of `domain` so it points at `ipv4`.
+ * A domain already pointing elsewhere is only taken over with { replace: true }; then its old
+ * A/AAAA/CNAME records are replaced (a leftover AAAA would send IPv6 visitors and Let's Encrypt
+ * to the old host).
+ * Returns { zone, action: 'added'|'updated'|'ok', detail }
+ */
+export async function pointHost(orgId, domain, ipv4, { replace = false } = {}) {
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(String(ipv4 || ''))) throw httpError(400, `Could not determine the server's public IPv4 address (got "${ipv4 || 'nothing'}").`)
+  const { conn, api, zone, name } = await locate(orgId, domain)
+  const now = await inspectHost(orgId, domain, ipv4)
+  const label = PROVIDERS[conn.provider].label
+  if (now.status === 'here') return { zone, provider: label, action: 'ok', detail: now.detail }
+  if (now.status === 'taken' && !replace) {
+    throw httpError(409, `${now.detail} Choose another subdomain, or tick "Replace an existing site" to point it at this server.`)
+  }
+  if (now.cname.length) await api.deleteRecords(zone, name, 'CNAME')
+  if (now.aaaa.length) await api.deleteRecords(zone, name, 'AAAA')
+  await api.setRecords(zone, name, 'A', [ipv4], SITE_TTL)
+  return {
+    zone,
+    provider: label,
+    action: now.status === 'free' ? 'added' : 'updated',
+    detail: now.status === 'free' ? `${domain} → ${ipv4} (A record added in ${label})` : `${domain} moved from ${[...now.a, ...now.aaaa, ...now.cname].join(', ')} to ${ipv4}`
+  }
+}
+
 /**
  * Writes MX/SPF/DKIM/DMARC for `domain` through the connected provider.
  * plan = { mailHost, ipv4, ipv6, dkim, selector, dmarc }
  * Returns [{ record, action: 'added'|'updated'|'ok'|'skipped', detail }]
  */
 export async function applyEmailDns(orgId, domain, plan, { takeOverMx = false } = {}) {
-  const conn = getConnection(orgId)
-  if (!conn) throw httpError(400, 'Connect your DNS provider first (Email → Domains & DNS → Connect DNS provider).')
-  const api = adapter(conn.provider, conn.token)
-
-  let zones = conn.zones || []
-  let zone = findZone(zones, domain)
-  if (!zone) { // the account may have gained domains since connecting
-    zones = await api.listZones()
-    const all = readAll(); if (all[orgKey(orgId)]) { all[orgKey(orgId)].zones = zones; writeAll(all) }
-    zone = findZone(zones, domain)
-  }
-  if (!zone) throw httpError(404, `${domain} is not managed in the connected ${PROVIDERS[conn.provider].label} account, so its DNS can't be set automatically.`)
-
-  const name = domain === zone ? '@' : domain.slice(0, -(zone.length + 1))
+  if (!getConnection(orgId)) throw httpError(400, 'Connect your DNS provider first (Email → Domains & DNS → Connect DNS provider).')
+  const { conn, api, zone, name } = await locate(orgId, domain)
   const sub = (prefix) => (name === '@' ? prefix : `${prefix}.${name}`)
   const records = await api.getRecords(zone)
   const get = (n, t) => records.find(r => r.name === n && r.type === t)?.contents || []

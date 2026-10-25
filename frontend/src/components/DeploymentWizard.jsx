@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
   Github, Upload, Server, Database, Rocket, Check, X, RefreshCw, ChevronRight, ChevronDown, ArrowLeft,
-  AlertTriangle, FileArchive, Globe, Lock, Search, Copy, ExternalLink, Sparkles, Settings2, Box, Loader2
+  AlertTriangle, FileArchive, Globe, Lock, Search, Copy, ExternalLink, Sparkles, Settings2, Box, Loader2, KeyRound
 } from 'lucide-react'
 import { useAuth } from '../store/AuthContext'
 import { useServers } from '../store/ServersContext'
@@ -107,6 +107,15 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
   const [sslEmail, setSslEmail] = useState('')
   const [replaceDomain, setReplaceDomain] = useState(false)
 
+  // Domain: a subdomain of a domain in the connected DNS account (record added automatically), or your own
+  const [dnsConn, setDnsConn] = useState(null) // { connected, provider, label, zones, providers }
+  const [domainMode, setDomainMode] = useState('custom') // 'managed' | 'custom'
+  const [zone, setZone] = useState('')
+  const [sub, setSub] = useState('')
+  const [subTouched, setSubTouched] = useState(false)
+  const [dnsCheck, setDnsCheck] = useState(null) // { busy } | { result } | { error }
+  const [dnsForm, setDnsForm] = useState({ open: false, provider: 'hostinger', token: '', busy: false })
+
   // --- progress
   const [deployId, setDeployId] = useState(null)
   const [stages, setStages] = useState([])
@@ -158,6 +167,55 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
     }
   }
   useEffect(() => { loadGithubAccount() }, [])
+
+  const applyDnsConnection = (c) => {
+    setDnsConn(c)
+    if (c?.connected && c.zones?.length) {
+      setDomainMode('managed')
+      setZone(z => (c.zones.includes(z) ? z : c.zones[0]))
+    } else {
+      setDomainMode('custom')
+    }
+  }
+  useEffect(() => { api('/dns').then(d => applyDnsConnection(d.connection)).catch(() => setDnsConn(null)) }, [])
+
+  const connectDns = async () => {
+    setError(null)
+    setDnsForm(f => ({ ...f, busy: true }))
+    try {
+      const d = await api('/dns/connect', { method: 'POST', body: { provider: dnsForm.provider, token: dnsForm.token.trim() } })
+      applyDnsConnection(d.connection)
+      setDnsForm(f => ({ ...f, open: false, token: '', busy: false }))
+    } catch (e) {
+      setError(e.message)
+      setDnsForm(f => ({ ...f, busy: false }))
+    }
+  }
+  const refreshDnsZones = async () => {
+    try { applyDnsConnection((await api('/dns/refresh', { method: 'POST', body: {} })).connection) } catch (e) { setError(e.message) }
+  }
+
+  // The subdomain follows the app name until it is edited
+  useEffect(() => { if (!subTouched) setSub(appName) }, [appName, subTouched])
+  useEffect(() => {
+    if (domainMode === 'managed' && zone) setDomain(sub ? `${sub}.${zone}` : zone)
+  }, [domainMode, zone, sub])
+
+  // Is the chosen (sub)domain free, already this server, or used by another site?
+  useEffect(() => {
+    if (domainMode !== 'managed' || !zone || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) { setDnsCheck(null); return }
+    setDnsCheck({ busy: true })
+    let live = true
+    const t = setTimeout(async () => {
+      try {
+        const d = await api('/dns/check', { method: 'POST', body: { domain } })
+        if (live) setDnsCheck({ result: d.check })
+      } catch (e) {
+        if (live) setDnsCheck({ error: e.message })
+      }
+    }, 500)
+    return () => { live = false; clearTimeout(t) }
+  }, [domainMode, zone, domain])
 
   const githubSignIn = async () => {
     setError(null)
@@ -337,7 +395,8 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
         ...(dbEngine === 'mysql' && dbAdmin.user ? { adminUser: dbAdmin.user, adminPassword: dbAdmin.password } : {}),
         ...(['mysql', 'postgresql'].includes(dbEngine) ? { name: dbCreds.name.trim(), user: dbCreds.user.trim(), password: dbCreds.password } : {})
       },
-      ssl, sslEmail, replaceDomain
+      ssl, sslEmail, replaceDomain,
+      autoDns: domainMode === 'managed'
     }
     try {
       const data = await api('/deploy', { method: 'POST', body })
@@ -407,7 +466,8 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
   const ghost = 'px-4 py-2.5 rounded-full bg-white/5 hover:bg-white/10 text-slate-200 text-sm flex items-center gap-2 cursor-pointer'
 
   const sourceReady = !!analysis && (sourceType === 'template' ? !!template : sourceType === 'github' ? !!gitUrl : upload?.status === 'ready')
-  const appReady = /^[a-z0-9][a-z0-9-]{0,48}[a-z0-9]$/.test(appName) && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain)
+  const dnsBlocked = domainMode === 'managed' && (!!dnsCheck?.busy || (dnsCheck?.result?.status === 'taken' && !replaceDomain))
+  const appReady = /^[a-z0-9][a-z0-9-]{0,48}[a-z0-9]$/.test(appName) && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain) && !dnsBlocked
   const dbReady = dbMode === 'import' ? dbUpload?.status === 'ready' : dbMode === 'migrate' ? /^postgres(ql)?:\/\/./i.test(migrate.sourceUrl.trim()) && !!migrate.storageUrl.trim() === !!migrate.storageKey.trim() : true
   const filteredRepos = repos.filter(r => r.full_name.toLowerCase().includes(repoQuery.toLowerCase())).slice(0, 50)
 
@@ -477,6 +537,15 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
                   ))}
                 </div>
               )}
+              {r.summary?.admin && (
+                <div className="text-left p-4 rounded-2xl bg-white/[0.03] border border-white/10 text-xs space-y-1.5">
+                  <div className="text-white font-semibold flex items-center gap-2"><KeyRound className="w-4 h-4 text-cyan-400" /> App admin login (created by the app's seed script, saved in .env)</div>
+                  {[['URL', r.summary.admin.url], ['Email', r.summary.admin.email], ['Password', r.summary.admin.password]].filter(([, v]) => v).map(([k, v]) => (
+                    <div key={k} className="flex items-center gap-2"><span className="text-slate-500 w-28 shrink-0">{k}</span><code className="text-slate-200 truncate flex-1">{v}</code>
+                      <button onClick={() => navigator.clipboard?.writeText(v)} className="text-slate-500 hover:text-white cursor-pointer"><Copy className="w-3.5 h-3.5" /></button></div>
+                  ))}
+                </div>
+              )}
               {r.summary?.storage && (
                 <div className="text-left p-4 rounded-2xl bg-white/[0.03] border border-white/10 text-xs space-y-1.5">
                   <div className="text-white font-semibold flex items-center gap-2"><FileArchive className="w-4 h-4 text-cyan-400" /> Storage — {r.summary.storage.files} file(s) copied (STORAGE_DIR and STORAGE_PUBLIC_URL are in .env)</div>
@@ -527,7 +596,7 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
           <div className="flex justify-center gap-3">
             {r.status === 'failed' && <button onClick={() => setStep('launch')} className={ghost}><ArrowLeft className="w-4 h-4" /> Back to settings</button>}
             {r.status === 'failed' && <button onClick={startDeploy} className={primary}><RefreshCw className="w-4 h-4" /> Try again</button>}
-            {r.status === 'success' && <button onClick={() => { setStep('source'); setDeployId(null); setAnalysis(null); setUpload(null); setDbUpload(null); setAppName(''); setDomain('') }} className={ghost}>Deploy another app</button>}
+            {r.status === 'success' && <button onClick={() => { setStep('source'); setDeployId(null); setAnalysis(null); setUpload(null); setDbUpload(null); setAppName(''); setDomain(''); setSubTouched(false) }} className={ghost}>Deploy another app</button>}
             {r.status === 'success' && onBackToHub && <button onClick={onBackToHub} className={primary}>Done</button>}
           </div>
         )}
@@ -706,9 +775,73 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
             <label className="block"><span className="text-xs text-slate-400">App name</span>
               <input value={appName} onChange={(e) => setAppName(slug(e.target.value))} placeholder="my-shop" className={`${input} mt-1`} />
               <span className="text-[11px] text-slate-500">Installed in /var/www/{appName || 'app-name'}</span></label>
-            <label className="block"><span className="text-xs text-slate-400">Domain</span>
-              <input value={domain} onChange={(e) => setDomain(e.target.value.trim().toLowerCase())} placeholder="shop.example.com" className={`${input} mt-1`} />
-              <span className="text-[11px] text-slate-500">Point its DNS A record to {activeServer?.ipAddress || 'your server'} for HTTPS</span></label>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs text-slate-400">Domain</span>
+              {dnsConn?.connected && dnsConn.zones?.length > 0 && (
+                <div className="flex rounded-full bg-white/5 p-0.5 text-xs">
+                  {[['managed', `Subdomain of my ${dnsConn.label} domains`], ['custom', 'Other domain']].map(([id, l]) => (
+                    <button key={id} onClick={() => setDomainMode(id)} className={`px-3 py-1 rounded-full cursor-pointer ${domainMode === id ? 'bg-cyan-500 text-slate-950 font-semibold' : 'text-slate-300 hover:text-white'}`}>{l}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {domainMode === 'managed' ? (
+              <>
+                <div className="flex items-stretch rounded-xl border border-white/10 bg-slate-950 focus-within:border-cyan-500/60 overflow-hidden">
+                  <input value={sub} onChange={(e) => { setSubTouched(true); setSub(e.target.value.toLowerCase().replace(/[^a-z0-9.-]/g, '')) }} placeholder="(root domain)" className="flex-1 min-w-0 bg-transparent px-3.5 py-2.5 text-sm text-slate-100 focus:outline-none text-right" />
+                  <span className="px-1 py-2.5 text-sm text-slate-500">.</span>
+                  <select value={zone} onChange={(e) => setZone(e.target.value)} className="bg-white/5 border-l border-white/10 px-3 text-sm text-slate-100 focus:outline-none cursor-pointer">
+                    {dnsConn.zones.map(z => <option key={z} value={z}>{z}</option>)}
+                  </select>
+                </div>
+                <div className="flex items-start justify-between gap-3 text-[11px]">
+                  <span className={dnsCheck?.result?.status === 'taken' || dnsCheck?.error ? 'text-amber-300' : 'text-slate-500'}>
+                    {dnsCheck?.busy ? <span className="inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Checking {domain}…</span>
+                      : dnsCheck?.error ? dnsCheck.error
+                        : dnsCheck?.result ? <>{dnsCheck.result.status === 'free' && <Check className="inline w-3 h-3 text-emerald-400 mr-1" />}{dnsCheck.result.detail} {dnsCheck.result.status !== 'taken' && `The A record is added in ${dnsConn.label} automatically and HTTPS is issued once it resolves.`}</>
+                          : `The A record is added in ${dnsConn.label} automatically.`}
+                  </span>
+                  <button onClick={refreshDnsZones} className="shrink-0 text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer" title="Re-read the domains in the DNS account"><RefreshCw className="w-3 h-3" /> Domains</button>
+                </div>
+                {dnsCheck?.result?.status === 'taken' && (
+                  <label className="flex items-center gap-2 text-xs text-amber-200 cursor-pointer"><input type="checkbox" checked={replaceDomain} onChange={(e) => setReplaceDomain(e.target.checked)} /> Point {domain} at this server instead (replaces its current DNS record and any site using it here)</label>
+                )}
+              </>
+            ) : (
+              <>
+                <input value={domain} onChange={(e) => setDomain(e.target.value.trim().toLowerCase())} placeholder="shop.example.com" className={input} />
+                <span className="text-[11px] text-slate-500">Point its DNS A record to {activeServer?.ipAddress || 'your server'} for HTTPS.</span>
+              </>
+            )}
+
+            {dnsConn && !dnsConn.connected && (
+              <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10 text-xs space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-slate-300"><Globe className="inline w-3.5 h-3.5 mr-1 text-cyan-400" />Connect your DNS provider to pick a subdomain and have its DNS record added automatically.</span>
+                  {!dnsForm.open && <button onClick={() => setDnsForm(f => ({ ...f, open: true }))} className="shrink-0 text-cyan-300 hover:text-cyan-200 cursor-pointer">Connect</button>}
+                </div>
+                {dnsForm.open && (
+                  <>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <select value={dnsForm.provider} onChange={(e) => setDnsForm(f => ({ ...f, provider: e.target.value }))} className={`${input} sm:max-w-[10rem]`}>
+                        {Object.entries(dnsConn.providers || {}).map(([id, p]) => <option key={id} value={id}>{p.label}</option>)}
+                      </select>
+                      <input type="password" value={dnsForm.token} onChange={(e) => setDnsForm(f => ({ ...f, token: e.target.value }))} placeholder="API token" className={input} />
+                      <button onClick={connectDns} disabled={dnsForm.busy || !dnsForm.token.trim()} className={primary}>{dnsForm.busy ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Connect'}</button>
+                    </div>
+                    <div className="text-slate-500">
+                      {dnsConn.providers?.[dnsForm.provider]?.tokenHelp}
+                      {dnsConn.providers?.[dnsForm.provider]?.tokenUrl && <> · <a href={dnsConn.providers[dnsForm.provider].tokenUrl} target="_blank" rel="noreferrer" className="text-cyan-400 hover:underline">open it <ExternalLink className="inline w-3 h-3" /></a></>}
+                      . The token stays on the panel (never shown again) and is shared with Domains and Email.
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
           <label className="block"><span className="text-xs text-slate-400">Environment variables (optional, one per line)</span>
             <textarea value={envVars} onChange={(e) => setEnvVars(e.target.value)} rows={4} placeholder={'API_KEY=…\nSMTP_HOST=…'} className={`${input} mt-1 font-mono text-xs`} />
@@ -870,6 +1003,7 @@ export default function DeploymentWizard({ apiBaseUrl = '', onDeploymentSuccess,
               ['Source', sourceType === 'template' ? `Template: ${template?.name}` : sourceType === 'github' ? `${gitUrl.replace(/^https:\/\/(github\.com\/)?/, '').replace(/\.git$/, '')} · ${branch}` : upload?.name],
               ['App', `${overrides.type !== 'auto' ? TYPE_OPTIONS.find(t => t[0] === overrides.type)?.[1] : analysis?.framework}`],
               ['Address', `${ssl ? 'https' : 'http'}://${domain}`],
+              ['DNS', domainMode === 'managed' ? `Automatic · ${dnsConn?.label} A record → ${activeServer?.ipAddress || 'this server'}` : `You point ${domain} to ${activeServer?.ipAddress || 'the server'}`],
               ['Folder', `/var/www/${appName}`],
               ['Database', dbMode === 'none' ? 'None' : dbMode === 'migrate' ? `PostgreSQL · copy of ${migrateCheck?.result?.database?.provider === 'supabase' || /supabase\./i.test(migrate.sourceUrl) ? 'Supabase' : 'external database'}${migrate.storageUrl.trim() ? ' + Storage files' : ''}` : `${ENGINES.find(e => e[0] === dbEngine)?.[1]}${dbMode === 'import' ? ` · import ${dbUpload?.name}` : ' · new, empty'}`],
               ['Server', activeServer?.name || 'This server']

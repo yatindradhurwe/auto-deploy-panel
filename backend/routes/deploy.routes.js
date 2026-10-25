@@ -9,6 +9,7 @@ import { isSuperSession } from '../services/project-access.service.js'
 import { checkEntitlement } from '../services/subscription.service.js'
 import { inspectExternalPostgres } from '../services/database.service.js'
 import { inspectSupabaseStorage } from '../services/supabase-storage.service.js'
+import * as dnsProvider from '../services/dns-provider.service.js'
 import { bareToken, callbackUrl, githubOAuthAvailable, startGithubOAuth, finishGithubOAuth, githubUser, listGithubRepos, revokeGithubOAuth } from '../services/github.service.js'
 
 const router = express.Router()
@@ -346,6 +347,64 @@ router.get('/stream/:deployId', (req, res) => {
   req.on('close', () => { clearInterval(ping); deploy.listeners.delete(listener) })
 })
 
+/**
+ * DNS provider for project domains (the same per-organization connection Email uses).
+ * GET  /dns                     → { connection } with the account's domains (zones)
+ * POST /dns/connect { provider, token } · POST /dns/disconnect · POST /dns/refresh
+ * POST /dns/check { domain }    → is that (sub)domain free, already this server, or taken?
+ * POST /dns/point { domain, replace } → point it at this server now
+ * Organization owners/admins only (requireDeployAccess).
+ */
+const dnsHandler = (fn) => async (req, res) => {
+  try {
+    res.json({ success: true, ...(await fn(req, req.tenant?.organizationId || 'org-default')) })
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, error: err.message })
+  }
+}
+
+router.get('/dns', dnsHandler(async (req, orgId) => ({ connection: dnsProvider.publicConnection(orgId) })))
+
+router.post('/dns/connect', dnsHandler(async (req, orgId) => {
+  const connection = await dnsProvider.connect(orgId, req.body || {}, req.user?.id)
+  return { connection, message: `${connection.label} connected — ${connection.zones.length} domain(s) available.` }
+}))
+
+router.post('/dns/disconnect', dnsHandler(async (req, orgId) => ({ connection: dnsProvider.disconnect(orgId), message: 'DNS provider disconnected. Existing DNS records were not changed.' })))
+
+router.post('/dns/refresh', dnsHandler(async (req, orgId) => {
+  await dnsProvider.listZones(orgId, { refresh: true })
+  return { connection: dnsProvider.publicConnection(orgId) }
+}))
+
+const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/
+const dnsDomain = (req) => {
+  const domain = String(req.body?.domain || '').trim().toLowerCase()
+  if (!/^(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))+$/.test(domain)) throw Object.assign(new Error('Enter a valid domain.'), { status: 400 })
+  return domain
+}
+/** Public IPv4 of the selected server: its saved address, else asked from the machine (the panel's own server has none saved). */
+async function serverIpv4(req) {
+  const saved = req.tenant?.server?.ipAddress
+  if (IPV4.test(saved || '')) return saved
+  try {
+    const { stdout } = await getHost(req.tenant?.server || null).exec(`curl -s4 --max-time 5 https://api.ipify.org || hostname -I | awk '{print $1}'`, { timeout: 15000 })
+    return IPV4.test(stdout.trim()) ? stdout.trim() : null
+  } catch { return null }
+}
+
+router.post('/dns/check', dnsHandler(async (req, orgId) => {
+  const domain = dnsDomain(req)
+  const ip = await serverIpv4(req)
+  return { ip, check: await dnsProvider.inspectHost(orgId, domain, ip) }
+}))
+
+/** POST /dns/point { domain, replace } → A record of an existing domain set to this server (no deploy). */
+router.post('/dns/point', dnsHandler(async (req, orgId) => {
+  const result = await dnsProvider.pointHost(orgId, dnsDomain(req), await serverIpv4(req), { replace: req.body?.replace === true })
+  return { result, message: result.detail }
+}))
+
 import { makeDeploymentLockKey, acquireLock, releaseLock } from '../services/lock.service.js'
 import { recordWebhookEvent } from '../services/db.service.js'
 
@@ -390,7 +449,8 @@ router.post('/deploy', async (req, res) => {
   }
 
   try {
-    const result = await runDeployPipeline(cfg, emit, { host: getHost(req.tenant?.server || null) })
+    const pointDomain = cfg.autoDns ? (ip) => dnsProvider.pointHost(orgId, cfg.domain, ip, { replace: cfg.replaceDomain }) : null
+    const result = await runDeployPipeline(cfg, emit, { host: getHost(req.tenant?.server || null), pointDomain })
     session.status = result.success ? 'success' : 'failed'
     if (result.success) {
       if (cfg.templateId) recordTemplateDeploy(cfg.templateId)
