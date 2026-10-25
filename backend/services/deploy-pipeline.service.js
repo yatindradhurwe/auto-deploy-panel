@@ -46,6 +46,64 @@ const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`
 const b64 = (s) => Buffer.from(String(s), 'utf8').toString('base64')
 // Loads .env literally (values are never executed); used by the PM2 runner and one-off app commands
 const loadEnv = `if [ -f .env ]; then while IFS= read -r line || [ -n "$line" ]; do case "$line" in ''|'#'*) continue;; esac; k="\${line%%=*}"; v="\${line#*=}"; v="\${v%\\"}"; v="\${v#\\"}"; export "$k=$v"; done < .env; fi`
+// Prints pip requirement lines from pyproject.toml (PEP 621 or Poetry) or a Pipfile, so apps that
+// are not installable packages still get their dependencies. Exit 3: no TOML parser (Python < 3.11).
+const PY_DEPS = `import sys
+try:
+    import tomllib
+except ImportError:
+    try:
+        import tomli as tomllib
+    except ImportError:
+        sys.exit(3)
+
+def spec(v):
+    v = (v or '').strip()
+    if v in ('', '*'):
+        return ''
+    if v[0] in '^~' and v[1:2] != '=':
+        return '>=' + v[1:]
+    return '==' + v if v[0].isdigit() else v
+
+def entry(name, v):
+    if isinstance(v, dict):
+        if v.get('git'):
+            ref = v.get('rev') or v.get('tag') or v.get('branch')
+            return name + ' @ git+' + v['git'] + ('@' + ref if ref else '')
+        if v.get('path') or v.get('url') or v.get('file'):
+            return None
+        if v.get('extras'):
+            name += '[' + ','.join(v['extras']) + ']'
+        v = v.get('version', '')
+    return name + spec(v)
+
+reqs = []
+if sys.argv[1] == 'Pipfile':
+    d = tomllib.load(open('Pipfile', 'rb'))
+    reqs += [entry(n, v) for n, v in d.get('packages', {}).items()]
+else:
+    d = tomllib.load(open('pyproject.toml', 'rb'))
+    reqs += d.get('project', {}).get('dependencies', [])
+    reqs += [entry(n, v) for n, v in d.get('tool', {}).get('poetry', {}).get('dependencies', {}).items() if n.lower() != 'python']
+print('\\n'.join(r for r in reqs if r))
+`
+
+// Prints the PHP-FPM address nginx should use: a unix socket, or a TCP pool (control panels such as
+// CloudPanel run their default pools on 127.0.0.1:<port>). Prefers the PHP version of the php CLI.
+const FIND_PHP_FPM = `v=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null)
+for s in /run/php/php$v-fpm.sock $(ls /run/php/php*-fpm.sock /var/run/php/php*-fpm.sock /run/php-fpm/www.sock 2>/dev/null | sort -rV); do [ -S "$s" ] && echo "unix:$s" && exit 0; done
+LISTENING=$(ss -ltnH 2>/dev/null | awk '{print $4}')
+for f in /etc/php/$v/fpm/pool.d/www.conf /etc/php/$v/fpm/pool.d/default.conf $(ls /etc/php/*/fpm/pool.d/www.conf /etc/php/*/fpm/pool.d/default.conf /etc/php-fpm.d/www.conf 2>/dev/null | sort -rV); do
+  [ -f "$f" ] || continue
+  l=$(sed -n 's/^[[:space:]]*listen[[:space:]]*=[[:space:]]*//p' "$f" | head -1 | tr -d ' "')
+  case "$l" in
+    /*) [ -S "$l" ] && echo "unix:$l" && exit 0 ;;
+    *:*) echo "$LISTENING" | grep -qx "$l" && echo "$l" && exit 0 ;;
+    [0-9]*) echo "$LISTENING" | grep -qE "(^|:)$l$" && echo "127.0.0.1:$l" && exit 0 ;;
+  esac
+done
+exit 0`
+
 const randomPassword = () => crypto.randomBytes(18).toString('base64').replace(/[^A-Za-z0-9]/g, '').slice(0, 24)
 
 /** Commands from the wizard's "advanced" overrides: a single line without shell control chars. */
@@ -451,8 +509,22 @@ echo "Extracted $(find ${q(dir)} -type f | wc -l) files into ${dir}"
       php: ['php'], python: ['python3'], go: ['go'], java: ['java'], ruby: ['ruby', 'bundle']
     }[plan.type] || []
     if (plan.type === 'php' && plan.composer) tools.push('composer')
+    const isPython = (u) => u?.type === 'python'
+    const appUnits = plan.type === 'fullstack' ? [plan.frontend, plan.backend] : [plan]
+    if (plan.type === 'fullstack' && isPython(plan.backend)) tools.push('python3')
     const missing = (await query(tools.map(t => `command -v ${t} >/dev/null || echo ${t}`).join('\n'))).split('\n').filter(Boolean)
     if (missing.length) throw new Error(`The server is missing: ${missing.join(', ')}. Install ${missing.join(' and ')} on the server (e.g. apt install ${missing.map(m => ({ node: 'nodejs', npm: 'npm', python3: 'python3 python3-venv', go: 'golang', java: 'default-jdk maven', bundle: 'ruby-bundler' }[m] || m)).join(' ')}) and deploy again.`)
+    if (appUnits.some(isPython)) {
+      // Ubuntu/Debian ship python3 without venv/ensurepip; without it every Python deploy fails
+      const venvOk = async () => (await query(`python3 -c 'import ensurepip, venv' >/dev/null 2>&1 && echo ok`)) === 'ok'
+      if (!await venvOk()) {
+        log('Installing python3-venv (needed for the app\'s virtual environment)…\n')
+        await sh(`export DEBIAN_FRONTEND=noninteractive
+PKGS="python3-venv python3-pip python3.$(python3 -c 'import sys; print(sys.version_info[1])')-venv"
+apt-get install -y $PKGS >/dev/null 2>&1 || { apt-get update -qq >/dev/null 2>&1; apt-get install -y $PKGS 2>&1 | tail -n 5; } || yum install -y python3-pip 2>&1 | tail -n 5`, { allowFailure: true })
+        if (!await venvOk()) throw new Error('Python virtual environments are not available on the server. Install them (apt install python3-venv) and deploy again.')
+      }
+    }
     const pm2 = await query('command -v pm2')
     if (needsPort && !pm2 && !await query('command -v npm')) throw new Error('PM2 (which keeps the app running) needs Node.js. Install Node.js on the server (apt install nodejs npm) and deploy again.')
     if (needsPort && !pm2) {
@@ -587,6 +659,8 @@ FLUSH PRIVILEGES;`
     const autoEnv = []
     if (port) autoEnv.push(['PORT', String(port)])
     if (['node-ssr', 'node-server', 'fullstack'].includes(plan.type)) autoEnv.push(['NODE_ENV', 'production'])
+    if (isPython(serverUnit)) autoEnv.push(['PYTHONUNBUFFERED', '1'])
+    if (serverUnit.django) autoEnv.push(['ALLOWED_HOSTS', `${cfg.domain},127.0.0.1,localhost`], ['DJANGO_ALLOWED_HOSTS', `${cfg.domain},127.0.0.1,localhost`], ['CSRF_TRUSTED_ORIGINS', `${cfg.ssl ? 'https' : 'http'}://${cfg.domain}`])
     if (dbInfo) {
       autoEnv.push(['DATABASE_URL', envQuote(dbInfo.url)])
       if (dbInfo.engine === 'mongodb') autoEnv.push(['MONGODB_URI', dbInfo.url])
@@ -635,23 +709,53 @@ echo "Created wp-config.php"`)
     stage('install', 'running')
     lines = 0
     const nodeInstall = (d) => `cd ${q(d)} && if [ -f package-lock.json ]; then npm ci --include=dev --no-audit --no-fund || npm install --include=dev --no-audit --no-fund --legacy-peer-deps; else npm install --include=dev --no-audit --no-fund --legacy-peer-deps; fi`
-    const units = plan.type === 'fullstack' ? [plan.frontend, plan.backend] : [plan]
+    const pyInstall = (d, u) => {
+      const server = (/^(\S*\/)?(gunicorn|uvicorn)\b/.exec(u.start || '') || [])[2]
+      return `
+set -e
+cd ${q(d)}
+# Recreate a venv that is missing, half-created by an earlier failed deploy, or committed from another machine
+if ! venv/bin/python -c 'import sys' >/dev/null 2>&1 || [ ! -x venv/bin/pip ]; then rm -rf venv; python3 -m venv venv; echo "Created virtual environment ($(venv/bin/python --version))"; fi
+venv/bin/pip install --upgrade pip -q
+pydeps() {
+  if [ -f requirements.txt ]; then venv/bin/pip install -r requirements.txt; return; fi
+  for m in pyproject.toml Pipfile; do
+    [ -f "$m" ] || continue
+    T=$(mktemp -d)
+    echo ${b64(PY_DEPS)} | base64 -d > "$T/deps.py"
+    set +e; venv/bin/python "$T/deps.py" "$m" > "$T/requirements.txt"; rc=$?; set -e
+    if [ $rc = 0 ]; then
+      echo "Installing dependencies from $m"
+      [ -s "$T/requirements.txt" ] && venv/bin/pip install -r "$T/requirements.txt"
+      [ "$m" = pyproject.toml ] && grep -q '^\[build-system\]' pyproject.toml && { venv/bin/pip install --no-deps . || echo "The project itself could not be installed as a package; running it from its folder"; }
+    else
+      venv/bin/pip install .
+    fi
+    rm -rf "$T"
+    return
+  done
+}
+# Packages such as psycopg2 or mysqlclient compile against system libraries: install them once and retry
+pydeps || { echo "Installing build tools and database client libraries, then retrying"; DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential python3-dev libpq-dev default-libmysqlclient-dev pkg-config >/dev/null 2>&1 || true; pydeps; }
+${server ? `[ -x venv/bin/${server} ] || venv/bin/pip install -q ${server}` : ''}`
+    }
+    const units = appUnits
     if (['spa', 'node-ssr', 'node-server', 'fullstack'].includes(plan.type)) {
       for (const u of units) {
-        log(`npm install in ${u.dir || '.'}\n`)
-        await sh(nodeInstall(appDirOf(u)))
+        if (isPython(u)) {
+          log(`pip install in ${u.dir || '.'}\n`)
+          await sh(pyInstall(appDirOf(u), u))
+        } else {
+          log(`npm install in ${u.dir || '.'}\n`)
+          await sh(nodeInstall(appDirOf(u)))
+        }
       }
     } else if (plan.type === 'php') {
       if (plan.composer) await sh(`cd ${q(dir)} && COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --optimize-autoloader --no-interaction --no-progress`)
       if (await query(`[ -f ${q(`${dir}/package.json`)} ] && grep -q '"build"' ${q(`${dir}/package.json`)} && echo yes`)) await sh(nodeInstall(dir), { allowFailure: true })
     } else if (plan.type === 'python') {
-      await sh(`
-set -e
-cd ${q(serverDir)}
-[ -d venv ] || python3 -m venv venv
-venv/bin/pip install --upgrade pip -q
-if [ -f requirements.txt ]; then venv/bin/pip install -r requirements.txt; elif [ -f pyproject.toml ]; then venv/bin/pip install .; fi
-venv/bin/pip install -q ${plan.uvicorn ? 'uvicorn' : 'gunicorn'}`)
+      if (!plan.start) plan.start = 'gunicorn app:app'
+      await sh(pyInstall(serverDir, plan))
     } else if (plan.type === 'ruby') {
       await sh(`cd ${q(serverDir)} && bundle config set --local without 'development test' && bundle install`)
     } else if (plan.type === 'go') {
@@ -682,8 +786,8 @@ php artisan config:cache && php artisan route:cache || true
 [ -f package.json ] && grep -q '"build"' package.json && npm run build || true
 chown -R www-data:www-data storage bootstrap/cache`)
       built = true
-    } else if (plan.type === 'python' && plan.django) {
-      await sh(`cd ${q(serverDir)} && venv/bin/python manage.py migrate --noinput && venv/bin/python manage.py collectstatic --noinput || true`)
+    } else if (isPython(serverUnit) && serverUnit.django) {
+      await sh(`cd ${q(serverDir)} && ${loadEnv}; venv/bin/python manage.py migrate --noinput || echo "Migrations reported an error (see above)"; venv/bin/python manage.py collectstatic --noinput || true`)
       built = true
     } else if (plan.type === 'go') {
       await sh(`cd ${q(serverDir)} && go build -o app .`)
@@ -691,6 +795,11 @@ chown -R www-data:www-data storage bootstrap/cache`)
     } else if (plan.type === 'java') {
       await sh(`cd ${q(serverDir)} && ${plan.build}`)
       built = true
+    }
+    if (isPython(serverUnit) && serverUnit.factory) {
+      // gunicorn needs a module-level app; the project only has create_app()
+      const shim = `from ${serverUnit.factory.module} import ${serverUnit.factory.fn}\n\napp = ${serverUnit.factory.fn}()\n`
+      await sh(`echo ${b64(shim)} | base64 -d > ${q(`${serverDir}/autodeploy_wsgi.py`)}`, { quiet: true })
     }
     // Static output must exist before nginx points at it
     for (const u of units) {
@@ -744,16 +853,19 @@ chown -R www-data:www-data storage bootstrap/cache`)
     if (needsPort) {
       let startCmd = serverUnit.start || 'npm run start'
       const sd = serverDir
-      if (plan.type === 'python') {
-        startCmd = plan.uvicorn
-          ? `venv/bin/${startCmd.replace(/--host\s+\S+/, '').trim()} --host 127.0.0.1 --port ${port}`
-          : `venv/bin/${startCmd} --bind 127.0.0.1:${port} --workers 2 --timeout 120`
+      let pyEnv = ''
+      if (isPython(serverUnit)) {
+        // The venv's bin comes first on PATH, so gunicorn, uvicorn, python, flask … are the app's own
+        pyEnv = `export VIRTUAL_ENV=${sd}/venv PATH="${sd}/venv/bin:$PATH"; `
+        startCmd = startCmd.replace(/^venv\/bin\//, '')
+        if (/^gunicorn\b/.test(startCmd) && !/(\s-b|--bind)\b/.test(startCmd)) startCmd = `${startCmd} --bind 127.0.0.1:${port} --workers 2 --timeout 120`
+        else if (/^uvicorn\b/.test(startCmd)) startCmd = `${startCmd.replace(/--(host|port)[\s=]+\S+/g, '').replace(/\s+/g, ' ').trim()} --host 127.0.0.1 --port ${port}`
       } else if (plan.type === 'java') {
         startCmd = `java -jar "$(ls -S target/*.jar build/libs/*.jar 2>/dev/null | grep -v plain | head -1)" --server.port=${port}`
       } else if (plan.type === 'ruby') {
         startCmd = `${startCmd} -p ${port}`
       }
-      const runner = `cd ${sd} && ${loadEnv}; export PORT=${port}; exec ${startCmd}`
+      const runner = `cd ${sd} && ${loadEnv}; ${pyEnv}export PORT=${port}; exec ${startCmd}`
       await sh(`
 pm2 delete ${q(cfg.appName)} >/dev/null 2>&1 || true
 cd ${q(sd)}
@@ -789,20 +901,34 @@ echo "Started ${cfg.appName} with PM2"`)
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 300;`
+    // Django serves no static files once DEBUG is off: let nginx serve what collectstatic gathered
+    let djangoLocations = ''
+    if (isPython(serverUnit) && serverUnit.django) {
+      const [staticUrl, staticRoot] = (await query(`cd ${q(serverDir)} && ${loadEnv}; venv/bin/python manage.py shell -c 'from django.conf import settings as s; print(s.STATIC_URL or ""); print(s.STATIC_ROOT or "")' 2>/dev/null | tail -n 2`)).split('\n')
+      if (/^\/[\w\/.-]*\/$/.test(staticUrl || '') && /^\/[\w\/.-]+$/.test(staticRoot || '')) djangoLocations += `    location ${staticUrl} { alias ${staticRoot.replace(/\/$/, '')}/; expires 7d; }\n`
+      if (plan.type === 'fullstack') djangoLocations += `    location /admin/ {\n        ${proxy(port)}\n    }\n`
+    }
     let body
     if (plan.type === 'static') {
       body = `    root ${dir}${plan.dir ? `/${plan.dir}` : ''};\n    index index.html;\n    location / { try_files $uri $uri/ =404; }`
     } else if (plan.type === 'spa') {
       body = `    root ${appDirOf(plan)}/${plan.outputDir};\n    index index.html;\n    location / { try_files $uri $uri/ /index.html; }`
     } else if (plan.type === 'fullstack') {
-      body = `    root ${appDirOf(plan.frontend)}/${plan.frontend.outputDir};\n    index index.html;\n    location /api/ {\n        ${proxy(port)}\n    }\n    location /socket.io/ {\n        ${proxy(port)}\n    }\n    location / { try_files $uri $uri/ /index.html; }`
+      body = `${djangoLocations}    root ${appDirOf(plan.frontend)}/${plan.frontend.outputDir};\n    index index.html;\n    location /api/ {\n        ${proxy(port)}\n    }\n    location /socket.io/ {\n        ${proxy(port)}\n    }\n    location / { try_files $uri $uri/ /index.html; }`
     } else if (plan.type === 'php') {
-      const sock = (await query('ls /run/php/php*-fpm.sock /var/run/php/php*-fpm.sock 2>/dev/null | sort -V | tail -1')) || '/run/php/php-fpm.sock'
-      if (!await query(`[ -S ${q(sock)} ] && echo yes`)) throw new Error('PHP-FPM is not running on the server (apt install php-fpm).')
-      body = `    root ${dir}${plan.webRoot ? `/${plan.webRoot}` : ''};\n    index index.php index.html;\n    location / { try_files $uri $uri/ /index.php?$query_string; }\n    location ~ \\.php$ {\n        include snippets/fastcgi-php.conf;\n        fastcgi_pass unix:${sock};\n    }\n    location ~ /\\.(?!well-known) { deny all; }`
+      let fpm = await query(FIND_PHP_FPM)
+      if (!fpm) {
+        log('PHP-FPM is not running; installing it…\n')
+        await sh('DEBIAN_FRONTEND=noninteractive apt-get install -y php-fpm 2>&1 | tail -n 3; systemctl enable --now "$(systemctl list-unit-files "php*-fpm.service" --no-legend | awk \'{print $1}\' | sort -V | tail -1)" 2>&1 || true', { allowFailure: true })
+        fpm = await query(FIND_PHP_FPM)
+      }
+      if (!/^(unix:\/[\w\/.-]+|[\w.-]+:\d+)$/.test(fpm)) throw new Error('PHP-FPM is not running on the server (apt install php-fpm).')
+      log(`PHP-FPM: ${fpm}\n`)
+      // Inline fastcgi settings: snippets/fastcgi-php.conf only exists on Debian's nginx package
+      body = `    root ${dir}${plan.webRoot ? `/${plan.webRoot}` : ''};\n    index index.php index.html;\n    location / { try_files $uri $uri/ /index.php?$query_string; }\n    location ~ \\.php$ {\n        try_files $fastcgi_script_name =404;\n        fastcgi_split_path_info ^(.+\\.php)(/.+)$;\n        include fastcgi_params;\n        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;\n        fastcgi_param PATH_INFO $fastcgi_path_info;\n        fastcgi_index index.php;\n        fastcgi_read_timeout 300;\n        fastcgi_pass ${fpm};\n    }\n    location ~ /\\.(?!well-known) { deny all; }`
       await sh(`chown -R www-data:www-data ${q(dir)}`, { allowFailure: true, quiet: true })
     } else {
-      body = `    location / {\n        ${proxy(port)}\n    }`
+      body = `${djangoLocations}    location / {\n        ${proxy(port)}\n    }`
     }
     // Migrated public Supabase buckets keep their URL paths on the app's domain
     const storageLocations = storageInfo ? publicBucketLocations(storageInfo.dir, storageInfo.buckets) : ''

@@ -70,7 +70,7 @@ export function manifestPaths(files) {
   }
   // Python entry candidates and Django wsgi modules
   for (const f of files) {
-    if (/(^|\/)(app|main|wsgi|run|server|application)\.py$/.test(f) && f.split('/').length <= 2) wanted.push(f)
+    if (/(^|\/)(app|main|wsgi|run|server|application|asgi|index|__init__)\.py$/.test(f) && f.split('/').length <= 3) wanted.push(f)
     if (/(^|\/)vite\.config\.(js|ts|mjs|cjs)$/.test(f) && f.split('/').length <= 2) wanted.push(f)
   }
   return [...new Set(wanted)]
@@ -203,6 +203,10 @@ function detectPhp(prefix, has, read, evidence) {
   return null
 }
 
+// Where Python web apps usually define their app object, most likely first
+const PY_ENTRIES = ['main.py', 'app.py', 'wsgi.py', 'asgi.py', 'application.py', 'run.py', 'server.py', 'app/main.py', 'app/app.py', 'app/__init__.py', 'src/main.py', 'src/app.py', 'api/main.py', 'api/index.py', 'api/app.py']
+const pyModule = (entry) => entry.replace(/\.py$/, '').replace(/\/__init__$/, '').replace(/\//g, '.')
+
 function detectPython(prefix, files, has, read, evidence) {
   const file = (f) => (prefix ? `${prefix}/${f}` : f)
   const reqs = [read(file('requirements.txt')), read(file('pyproject.toml')), read(file('Pipfile'))].filter(Boolean).join('\n').toLowerCase()
@@ -212,25 +216,32 @@ function detectPython(prefix, files, has, read, evidence) {
     evidence.push(`${file('manage.py')} present${module ? `, WSGI module ${module}` : ''}`)
     return { type: 'python', framework: 'Django', start: `gunicorn ${module || 'config.wsgi'}:application`, django: true, port: 8000 }
   }
-  if (!reqs && !['app.py', 'main.py', 'wsgi.py'].some(f => has(file(f)))) return null
-  const entries = ['main.py', 'app.py', 'wsgi.py', 'application.py', 'run.py', 'server.py'].filter(f => has(file(f)))
+  const entries = PY_ENTRIES.filter(f => has(file(f)))
+  if (!reqs && !entries.some(e => ['app.py', 'main.py', 'wsgi.py'].includes(e))) return null
   for (const e of entries) {
     const src = read(file(e)) || ''
-    const fast = src.match(/^(\w+)\s*=\s*FastAPI\(/m)
+    const mod = pyModule(e)
+    const fast = src.match(/^(\w+)\s*(?::\s*\w+\s*)?=\s*FastAPI\(/m)
     if (fast || (reqs.includes('fastapi') && /FastAPI\(/.test(src))) {
       evidence.push(`${file(e)} creates a FastAPI app`)
-      return { type: 'python', framework: 'FastAPI', start: `uvicorn ${e.replace('.py', '')}:${fast ? fast[1] : 'app'} --host 127.0.0.1`, uvicorn: true, port: 8000 }
+      return { type: 'python', framework: 'FastAPI', start: `uvicorn ${mod}:${fast ? fast[1] : 'app'} --host 127.0.0.1`, uvicorn: true, port: 8000 }
     }
-    const flask = src.match(/^(\w+)\s*=\s*Flask\(/m)
+    const flask = src.match(/^(\w+)\s*(?::\s*\w+\s*)?=\s*(?:Flask\(|create_app\(|make_app\()/m)
     if (flask) {
       evidence.push(`${file(e)} creates a Flask app`)
-      return { type: 'python', framework: 'Flask', start: `gunicorn ${e.replace('.py', '')}:${flask[1]}`, port: 8000 }
+      return { type: 'python', framework: 'Flask', start: `gunicorn ${mod}:${flask[1]}`, port: 8000 }
+    }
+    // Application factory (def create_app(): app = Flask(...)); gunicorn loads it through a small shim
+    const factory = /Flask\(/.test(src) && src.match(/^def\s+(create_app|make_app)\s*\(/m)
+    if (factory) {
+      evidence.push(`${file(e)} defines a Flask app factory ${factory[1]}()`)
+      return { type: 'python', framework: 'Flask', start: 'gunicorn autodeploy_wsgi:app', factory: { module: mod, fn: factory[1] }, port: 8000 }
     }
   }
   if (reqs) {
     const fw = reqs.includes('fastapi') ? 'FastAPI' : reqs.includes('flask') ? 'Flask' : 'Python web app'
     evidence.push(`Python dependencies found (${fw})`)
-    const entry = (entries[0] || 'app.py').replace('.py', '')
+    const entry = pyModule(entries[0] || 'app.py')
     return { type: 'python', framework: fw, start: fw === 'FastAPI' ? `uvicorn ${entry}:app --host 127.0.0.1` : `gunicorn ${entry}:app`, uvicorn: fw === 'FastAPI', port: 8000 }
   }
   return null
@@ -318,7 +329,7 @@ export function analyzeProject(files, read) {
 
   // SPA at the root + Node API in server/ (or a Node server at the root + SPA in client/)
   const pairEvidence = []
-  const subBackend = () => BACKEND_DIRS.filter(d => has(`${d}/package.json`)).map(d => detectUnit(d, files, has, read, pairEvidence)).find(u => u?.type === 'node-server')
+  const subBackend = () => BACKEND_DIRS.filter(d => MANIFESTS.some(m => has(`${d}/${m}`))).map(d => detectUnit(d, files, has, read, pairEvidence)).find(u => u?.type === 'node-server' || u?.type === 'python')
   const subFrontend = () => FRONTEND_DIRS.filter(d => has(`${d}/package.json`)).map(d => detectUnit(d, files, has, read, pairEvidence)).find(u => u?.type === 'spa')
   const pairedBackend = rootUnit?.type === 'spa' && !wrapper ? subBackend() : null
   const pairedFrontend = rootUnit?.type === 'node-server' && !wrapper && !pairedBackend ? subFrontend() : null
@@ -327,7 +338,7 @@ export function analyzeProject(files, read) {
     const fe = pairedBackend ? rootUnit : pairedFrontend
     const be = pairedBackend || rootUnit
     evidence.push(...pairEvidence)
-    plan = { type: 'fullstack', language: 'nodejs', framework: `${fe.framework} + ${be.framework}`, frontend: fe, backend: be, port: be.port }
+    plan = { type: 'fullstack', language: be.language, framework: `${fe.framework} + ${be.framework}`, frontend: fe, backend: be, port: be.port }
     evidence.push(`Frontend in ${fe.dir || 'the project root'}, backend in ${be.dir || 'the project root'}`)
   } else if (rootUnit && !(wrapper && rootUnit.language === 'nodejs') && rootUnit.type !== 'static') {
     plan = { ...rootUnit }
@@ -336,8 +347,8 @@ export function analyzeProject(files, read) {
     const fe = FRONTEND_DIRS.filter(d => has(`${d}/package.json`) || has(`${d}/index.html`)).map(d => detectUnit(d, files, has, read, subEvidence)).find(u => u && ['spa', 'static', 'node-ssr'].includes(u.type))
     const be = BACKEND_DIRS.filter(d => [...MANIFESTS, 'index.php', 'artisan'].some(m => has(`${d}/${m}`))).map(d => detectUnit(d, files, has, read, subEvidence)).find(u => u && !['spa', 'static'].includes(u.type))
     evidence.push(...subEvidence)
-    if (fe && be && fe.type !== 'node-ssr' && be.language === 'nodejs') {
-      plan = { type: 'fullstack', language: 'nodejs', framework: `${fe.framework} + ${be.framework}`, frontend: fe, backend: be, port: be.port }
+    if (fe && be && fe.type !== 'node-ssr' && ['nodejs', 'python'].includes(be.language)) {
+      plan = { type: 'fullstack', language: be.language, framework: `${fe.framework} + ${be.framework}`, frontend: fe, backend: be, port: be.port }
       evidence.push(`Monorepo: frontend in ${fe.dir}/, backend in ${be.dir}/`)
     } else if (be && fe) {
       plan = { ...be }
