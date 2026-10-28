@@ -225,8 +225,9 @@ const gemini = {
   label: 'Gemini',
   defaultModel: 'gemini-pro-latest',
   envKey: 'GEMINI_API_KEY',
-  keyPattern: /^[A-Za-z0-9_-]{30,}$/,
-  keyHelp: 'aistudio.google.com/apikey',
+  // Classic keys are AIza… (39 chars); newer AI Studio keys start with AQ. and contain dots
+  keyPattern: /^[A-Za-z0-9_.-]{30,}$/,
+  keyHelp: 'aistudio.google.com/apikey (starts with AIza or AQ.)',
   price: null,
 
   userMessage: (text) => ({ role: 'user', parts: [{ text }] }),

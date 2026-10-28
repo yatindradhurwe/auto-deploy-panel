@@ -110,7 +110,8 @@ export function callMultiProviderApi(provider, apiKey, promptText, systemInstruc
     } else {
       // Default: Google Gemini API
       hostname = 'generativelanguage.googleapis.com'
-      pathStr = `/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`
+      pathStr = '/v1beta/models/gemini-flash-latest:generateContent'
+      headers['x-goog-api-key'] = apiKey
       payload = JSON.stringify({
         contents: [{ parts: [{ text: `${systemInstruction ? systemInstruction + '\n\n' : ''}${promptText}` }] }]
       })
