@@ -11,6 +11,7 @@ import McpAccessModal from './McpAccessModal'
 import { useProjects, canShareProject, canManageProject, ACCESS_LABELS } from '../store/ProjectsContext'
 import ThemeToggle from './ThemeToggle'
 import SupabaseProjectsPanel from './SupabaseProjectsPanel'
+import SelfHostDatabaseModal from './SelfHostDatabaseModal'
 
 export default function AllProjectsHub({
   server,
@@ -39,15 +40,27 @@ export default function AllProjectsHub({
   const [projectToDelete, setProjectToDelete] = useState(null)
   const [projectToShare, setProjectToShare] = useState(null)
   const [projectForMcp, setProjectForMcp] = useState(null)
+  const [projectForSelfHostDb, setProjectForSelfHostDb] = useState(null)
+  const [dbFilter, setDbFilter] = useState('all') // 'all' | 'self-hosted' | 'cloud' | 'none'
+
+  const selfHostedProjectsCount = projects.filter(p => p.dbInfo?.isSelfHosted).length
+  const cloudProjectsCount = projects.filter(p => p.dbInfo && !p.dbInfo.isSelfHosted && p.dbInfo.type !== 'none').length
+  const noDbProjectsCount = projects.filter(p => !p.dbInfo || p.dbInfo.type === 'none').length
 
   const filteredProjects = projects.filter((p) => {
+    if (dbFilter === 'self-hosted' && !p.dbInfo?.isSelfHosted) return false
+    if (dbFilter === 'cloud' && (p.dbInfo?.isSelfHosted || !p.dbInfo || p.dbInfo.type === 'none')) return false
+    if (dbFilter === 'none' && p.dbInfo && p.dbInfo.type !== 'none') return false
+
     if (!searchQuery.trim()) return true
     const q = searchQuery.toLowerCase()
     return (
       (p.name && p.name.toLowerCase().includes(q)) ||
       (p.path && p.path.toLowerCase().includes(q)) ||
       (p.domain && p.domain.toLowerCase().includes(q)) ||
-      (p.repoName && p.repoName.toLowerCase().includes(q))
+      (p.repoName && p.repoName.toLowerCase().includes(q)) ||
+      (p.dbInfo?.label && p.dbInfo.label.toLowerCase().includes(q)) ||
+      (p.dbInfo?.database && p.dbInfo.database.toLowerCase().includes(q))
     )
   })
 
@@ -343,7 +356,53 @@ export default function AllProjectsHub({
         )}
 
         {/* Sort & Grid Toggle Bar */}
-        <div className="flex items-center justify-between font-mono text-xs pt-2">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 font-mono text-xs pt-2">
+          {/* Database Type Filter Tabs */}
+          <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none">
+            <button
+              onClick={() => setDbFilter('all')}
+              className={`px-3 py-1.5 rounded-xl font-bold transition whitespace-nowrap cursor-pointer ${
+                dbFilter === 'all'
+                  ? 'bg-slate-800 text-white border border-white/20 shadow-sm'
+                  : 'text-slate-400 hover:text-white bg-slate-950/80 border border-white/5'
+              }`}
+            >
+              All Projects ({projects.length})
+            </button>
+            <button
+              onClick={() => setDbFilter('self-hosted')}
+              className={`px-3 py-1.5 rounded-xl font-bold transition whitespace-nowrap cursor-pointer flex items-center space-x-1.5 ${
+                dbFilter === 'self-hosted'
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
+                  : 'text-slate-400 hover:text-emerald-300 bg-slate-950/80 border border-white/5'
+              }`}
+            >
+              <Zap className="w-3 h-3 text-emerald-400" />
+              <span>⚡ Self-Hosted DB ({selfHostedProjectsCount})</span>
+            </button>
+            <button
+              onClick={() => setDbFilter('cloud')}
+              className={`px-3 py-1.5 rounded-xl font-bold transition whitespace-nowrap cursor-pointer flex items-center space-x-1.5 ${
+                dbFilter === 'cloud'
+                  ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm'
+                  : 'text-slate-400 hover:text-indigo-300 bg-slate-950/80 border border-white/5'
+              }`}
+            >
+              <span>☁️ Cloud DB ({cloudProjectsCount})</span>
+            </button>
+            <button
+              onClick={() => setDbFilter('none')}
+              className={`px-3 py-1.5 rounded-xl font-bold transition whitespace-nowrap cursor-pointer ${
+                dbFilter === 'none'
+                  ? 'bg-slate-800 text-slate-200 border border-white/20 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-300 bg-slate-950/80 border border-white/5'
+              }`}
+            >
+              No DB ({noDbProjectsCount})
+            </button>
+          </div>
+
+          <div className="flex items-center space-x-3 shrink-0">
           <div className="flex items-center space-x-2">
             <span className="text-slate-500 uppercase text-[10px] font-bold">SORT:</span>
             <select
@@ -375,6 +434,7 @@ export default function AllProjectsHub({
               <List className="w-4 h-4" />
             </button>
           </div>
+        </div>
         </div>
 
         {/* Project Cards Grid View (Exact Estage Screenshot Layout) */}
@@ -515,6 +575,13 @@ export default function AllProjectsHub({
                 </>
         )}
       </main>
+
+      <SelfHostDatabaseModal
+        project={projectForSelfHostDb}
+        isOpen={Boolean(projectForSelfHostDb)}
+        onClose={() => setProjectForSelfHostDb(null)}
+        onSuccess={() => fetchProjects()}
+      />
 
       <ShareProjectModal project={projectToShare} onClose={() => setProjectToShare(null)} />
       <McpAccessModal project={projectForMcp} onClose={() => setProjectForMcp(null)} />

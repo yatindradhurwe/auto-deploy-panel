@@ -68,7 +68,9 @@ import {
   rotateSupabaseKeys,
   manageGoTrueUser,
   manageStorageBucket,
-  deleteSupabaseStack
+  deleteSupabaseStack,
+  enrichProjectsWithDatabaseInfo,
+  attachSelfHostedDatabase
 } from '../services/supabase-management.service.js'
 import { setupSupabaseStack } from '../services/supabase-stack.service.js'
 
@@ -481,7 +483,8 @@ router.all('/projects', withHost(async (req, res, host) => {
     seen.add(p.path)
     projects.push({ ...p, organizationId: req.tenant?.organizationId || 'org-default', serverId: server?.id || 'srv-default', serverName: server?.name || host.label })
   }
-  res.json({ success: true, projects: visibleProjects(req, projects), server: server ? publicServer(server) : null })
+  const enriched = await enrichProjectsWithDatabaseInfo(host, projects)
+  res.json({ success: true, projects: visibleProjects(req, enriched), server: server ? publicServer(server) : null })
 }))
 
 /**
@@ -785,6 +788,15 @@ router.post('/supabase/projects/buckets', dbHandler(async (body, req, host) => {
  * POST /api/studio/supabase/projects/delete
  * Delete Supabase stack and clean up services
  */
+
+/**
+ * POST /api/studio/projects/attach-database
+ * Provisions or attaches a self-hosted Supabase stack or database to an existing project
+ */
+router.post('/projects/attach-database', dbHandler(async (body, req, host) => {
+  return attachSelfHostedDatabase(host, body)
+}))
+
 router.post('/supabase/projects/delete', dbHandler(async (body, req, host) => {
   const appName = String(body.appName || '').trim()
   return deleteSupabaseStack(host, appName, body.dropDatabase === true)
