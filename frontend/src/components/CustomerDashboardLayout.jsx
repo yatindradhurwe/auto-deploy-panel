@@ -10,6 +10,7 @@ import ServerSelectorDropdown from './ServerSelectorDropdown'
 import ServerManager from './ServerManager'
 import ProjectExplorer from './ProjectExplorer'
 import DatabaseManager from './DatabaseManager'
+import SupabaseProjectsPanel from './SupabaseProjectsPanel'
 import CodeStudio from './CodeStudio'
 import EnvManager from './EnvManager'
 import LogsTelemetryManager from './LogsTelemetryManager'
@@ -346,7 +347,14 @@ export default function CustomerDashboardLayout({ apiBaseUrl = '' }) {
       )
     }
 
-    if (activeTab === 'databases') {
+    if (activeTab === 'databases' || activeTab === 'supabase') {
+      return renderHubSubView(
+        <SupabaseProjectsPanel apiBaseUrl={apiBaseUrl} />,
+        'Self-Hosted Supabase & DB Projects'
+      )
+    }
+
+    if (activeTab === 'legacy-databases') {
       return renderHubSubView(
         <DatabaseManager apiBaseUrl={apiBaseUrl} />,
         'Database Management Suite'

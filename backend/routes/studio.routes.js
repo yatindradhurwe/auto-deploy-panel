@@ -61,6 +61,17 @@ import {
 } from '../services/database.service.js'
 import { initUpload, appendChunk, completeUpload, getReadyUpload } from '../services/upload.service.js'
 
+import {
+  listAllSupabaseAndDatabases,
+  getSupabaseProjectDetails,
+  restartSupabaseService,
+  rotateSupabaseKeys,
+  manageGoTrueUser,
+  manageStorageBucket,
+  deleteSupabaseStack
+} from '../services/supabase-management.service.js'
+import { setupSupabaseStack } from '../services/supabase-stack.service.js'
+
 const router = express.Router()
 
 // Hostnames only (e.g. app.example.com) — blocks path traversal and config/shell injection via the domain field
@@ -674,6 +685,111 @@ router.post('/databases/migrate', dbHandler(async (body, req, host) => {
   const targetProjectPath = body.targetProjectPath ? await requireManagedProject(req, host, body.targetProjectPath) : null
   return migrateToLocal(host, body.connectionId, { ...body, targetProjectPath })
 }))
+
+// =========================================================================
+// SELF-HOSTED SUPABASE & DATABASE STACK MANAGEMENT ROUTES
+// =========================================================================
+
+/**
+ * GET & POST /api/studio/supabase/projects
+ * Lists all self-hosted Supabase instances and server databases on the selected host
+ */
+router.all('/supabase/projects', dbHandler((body, req, host) =>
+  listAllSupabaseAndDatabases(host, {
+    force: body.refresh === true || req.query.refresh === '1',
+    registered: registeredProjectsFor(req.tenant?.server || null, req.tenant?.organizationId, isSuperAdminUser(req))
+  })
+))
+
+/**
+ * POST /api/studio/supabase/projects/create
+ * Deploys a new self-hosted Supabase stack with PostgreSQL, GoTrue, PostgREST, Storage, and JWT keys
+ */
+router.post('/supabase/projects/create', dbHandler(async (body, req, host) => {
+  const appName = String(body.appName || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '')
+  if (!appName) throw Object.assign(new Error('App name is required (lowercase letters, numbers, hyphens).'), { status: 400 })
+
+  const dbName = String(body.dbName || appName).trim()
+  const dbUser = String(body.dbUser || appName).trim()
+  const dbPassword = String(body.dbPassword || crypto.randomBytes(12).toString('hex'))
+  const domain = String(body.domain || '').trim() || null
+
+  try {
+    await createDatabase(host, { engine: 'postgresql', name: dbName, user: dbUser, password: dbPassword })
+  } catch (err) {
+    console.log('[Supabase Stack] Database note:', err.message)
+  }
+
+  const publicUrl = domain ? `https://${domain}` : `http://${host.ipAddress || host.host || '127.0.0.1'}:54100`
+  const ref = crypto.randomBytes(8).toString('hex')
+  const result = await setupSupabaseStack(host, {
+    appName,
+    publicUrl,
+    projectDir: `/var/www/${appName}`,
+    db: { name: dbName, user: dbUser, password: dbPassword },
+    ref,
+    auth: body.auth || {},
+    onLog: (msg) => console.log(`[Supabase Deploy ${appName}] ${msg}`)
+  })
+
+  return { success: true, project: result }
+}))
+
+/**
+ * POST /api/studio/supabase/projects/details
+ * Fetch complete stack details (tables, GoTrue auth users, storage buckets, ports, credentials)
+ */
+router.post('/supabase/projects/details', dbHandler(async (body, req, host) => {
+  const appName = String(body.appName || '').trim()
+  if (!appName) throw Object.assign(new Error('appName is required'), { status: 400 })
+  return getSupabaseProjectDetails(host, appName)
+}))
+
+/**
+ * POST /api/studio/supabase/projects/restart
+ * Restart PM2 service(s) for a Supabase project
+ */
+router.post('/supabase/projects/restart', dbHandler(async (body, req, host) => {
+  const appName = String(body.appName || '').trim()
+  return restartSupabaseService(host, appName, body.service || 'all')
+}))
+
+/**
+ * POST /api/studio/supabase/projects/keys/rotate
+ * Rotate JWT secret and mint new anon and service_role keys
+ */
+router.post('/supabase/projects/keys/rotate', dbHandler(async (body, req, host) => {
+  const appName = String(body.appName || '').trim()
+  return rotateSupabaseKeys(host, appName)
+}))
+
+/**
+ * POST /api/studio/supabase/projects/users
+ * Manage GoTrue auth users (create, delete, update password)
+ */
+router.post('/supabase/projects/users', dbHandler(async (body, req, host) => {
+  const appName = String(body.appName || '').trim()
+  return manageGoTrueUser(host, appName, body.action, body.payload || {})
+}))
+
+/**
+ * POST /api/studio/supabase/projects/buckets
+ * Manage Supabase storage buckets (create, delete, toggle public)
+ */
+router.post('/supabase/projects/buckets', dbHandler(async (body, req, host) => {
+  const appName = String(body.appName || '').trim()
+  return manageStorageBucket(host, appName, body.action, body.payload || {})
+}))
+
+/**
+ * POST /api/studio/supabase/projects/delete
+ * Delete Supabase stack and clean up services
+ */
+router.post('/supabase/projects/delete', dbHandler(async (body, req, host) => {
+  const appName = String(body.appName || '').trim()
+  return deleteSupabaseStack(host, appName, body.dropDatabase === true)
+}))
+
 
 const TREE_SKIP = ['node_modules', '.git', 'dist', '.user_uploaded', 'chunks']
 const MAX_EDIT_BYTES = 10 * 1024 * 1024

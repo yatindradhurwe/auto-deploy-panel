@@ -10,6 +10,7 @@ import ShareProjectModal from './ShareProjectModal'
 import McpAccessModal from './McpAccessModal'
 import { useProjects, canShareProject, canManageProject, ACCESS_LABELS } from '../store/ProjectsContext'
 import ThemeToggle from './ThemeToggle'
+import SupabaseProjectsPanel from './SupabaseProjectsPanel'
 
 export default function AllProjectsHub({
   server,
@@ -24,7 +25,16 @@ export default function AllProjectsHub({
   const { logout } = useAuth()
   const [searchQuery, setSearchQuery] = useState('')
   const [sortOrder, setSortOrder] = useState('custom')
-  const [viewMode, setViewMode] = useState('grid') // 'grid' | 'list'
+  const [viewMode, setViewMode] = useState('grid')
+  const [hubCategory, setHubCategory] = useState(activeHubTab === 'supabase' || activeHubTab === 'databases' ? 'supabase' : 'apps')
+
+  useEffect(() => {
+    if (activeHubTab === 'supabase' || activeHubTab === 'databases') {
+      setHubCategory('supabase')
+    } else if (activeHubTab === 'projects') {
+      setHubCategory('apps')
+    }
+  }, [activeHubTab]) // 'grid' | 'list'
   const [showCreditNotice, setShowCreditNotice] = useState(true)
   const [projectToDelete, setProjectToDelete] = useState(null)
   const [projectToShare, setProjectToShare] = useState(null)
@@ -108,14 +118,18 @@ export default function AllProjectsHub({
               <span>Marketplace</span>
             </button>
             <button
-              onClick={() => onTabChange && onTabChange('databases')}
-              className={`h-8 px-3.5 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap inline-flex items-center justify-center shrink-0 ${
-                activeHubTab === 'databases'
-                  ? 'text-white bg-white/15 border border-white/20 shadow-md'
+              onClick={() => {
+                setHubCategory('supabase')
+                onTabChange && onTabChange('supabase')
+              }}
+              className={`h-8 px-3.5 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap inline-flex items-center justify-center space-x-1.5 shrink-0 ${
+                activeHubTab === 'supabase' || activeHubTab === 'databases' || hubCategory === 'supabase'
+                  ? 'text-emerald-300 bg-emerald-500/20 border border-emerald-500/40 shadow-md backdrop-blur-md'
                   : 'text-slate-400 hover:text-white hover:bg-white/5'
               }`}
             >
-              Databases
+              <Zap className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span>Supabase & DBs</span>
             </button>
             <button
               onClick={() => onTabChange && onTabChange('email')}
@@ -223,6 +237,43 @@ export default function AllProjectsHub({
 
       {/* Main All Projects Hub Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
+        
+        {/* Hub Category Switcher: Web Applications vs Self-Hosted Supabase & DBs */}
+        <div className="flex items-center space-x-2 bg-slate-900/90 p-1.5 rounded-2xl border border-white/10 shadow-inner font-mono text-xs w-fit">
+          <button
+            onClick={() => {
+              setHubCategory('apps')
+              onTabChange && onTabChange('projects')
+            }}
+            className={`px-4 py-2 rounded-xl font-bold transition flex items-center space-x-2 cursor-pointer ${
+              hubCategory === 'apps'
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <FolderGit2 className="w-3.5 h-3.5" />
+            <span>Web Applications ({projects.length})</span>
+          </button>
+          <button
+            onClick={() => {
+              setHubCategory('supabase')
+              onTabChange && onTabChange('supabase')
+            }}
+            className={`px-4 py-2 rounded-xl font-bold transition flex items-center space-x-2 cursor-pointer ${
+              hubCategory === 'supabase'
+                ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-300 border border-emerald-500/40 shadow'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Zap className="w-3.5 h-3.5 text-emerald-400" />
+            <span>⚡ Self-Hosted Supabase & DBs</span>
+          </button>
+        </div>
+
+        {hubCategory === 'supabase' ? (
+          <SupabaseProjectsPanel onOpenProjectStudio={onOpenProjectStudio} />
+        ) : (
+          <>
         
         {/* Workspace Sub-header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -461,6 +512,8 @@ export default function AllProjectsHub({
           </div>
         )}
 
+                </>
+        )}
       </main>
 
       <ShareProjectModal project={projectToShare} onClose={() => setProjectToShare(null)} />
