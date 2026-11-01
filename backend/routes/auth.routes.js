@@ -283,20 +283,19 @@ router.get('/me', authenticateToken, (req, res) => {
 
 /**
  * POST /api/auth/onboarding
- * Complete onboarding workflow: create organization, choose plan, generate install script command
+ * Complete onboarding workflow: generate install script command for the user's organization.
+ * Signup already created the organization, so one is only created here if the user has none.
+ * Paid plans are bought through /api/billing/checkout, so a plan named here is not applied.
  */
 router.post('/onboarding', authenticateToken, (req, res) => {
   try {
-    const { orgName, planId = 'STARTER' } = req.body
+    const { orgName } = req.body
     const userId = req.user.id
 
-    let org = null
-    if (orgName) {
-      org = createOrganization({ name: orgName, ownerId: userId, planId })
+    let org = getOrganizationById(getUserById(userId)?.organizationId)
+    if (!org && orgName) {
+      org = createOrganization({ name: orgName, ownerId: userId, planId: getPlatformSettings().defaultSignupPlanId || 'FREE' })
       updateUser(userId, { organizationId: org.id })
-    } else {
-      const user = getUserById(userId)
-      org = getOrganizationById(user.organizationId)
     }
 
     // Generate installation curl command for server agent; store the token so /api/agent/register can verify it
