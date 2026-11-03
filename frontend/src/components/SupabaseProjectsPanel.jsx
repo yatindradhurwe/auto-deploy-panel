@@ -58,6 +58,10 @@ CREATE TABLE IF NOT EXISTS public.documents (
   }
 ]
 
+// A Supabase stack is browsed through its PostgreSQL database; other rows are databases already
+const connectionIdOf = (proj) => (proj?.isSupabaseStack ? proj.connectionId : proj?.id) || null
+const cellText = (val) => (val === null || val === undefined ? 'NULL' : typeof val === 'object' ? JSON.stringify(val) : String(val))
+
 export default function SupabaseProjectsPanel({ onOpenProjectStudio, onBackToHub }) {
   const { token: jwtToken } = useAuth()
   const { activeServer } = useServers()
@@ -89,6 +93,7 @@ export default function SupabaseProjectsPanel({ onOpenProjectStudio, onBackToHub
 
   // Table Data View
   const [selectedTable, setSelectedTable] = useState(null)
+  const [selectedSchema, setSelectedSchema] = useState(null)
   const [tableRows, setTableRows] = useState(null)
   const [tableLoading, setTableLoading] = useState(false)
 
@@ -160,6 +165,10 @@ export default function SupabaseProjectsPanel({ onOpenProjectStudio, onBackToHub
   const openProjectStudio = async (proj) => {
     setSelectedProject(proj)
     setActiveTab('overview')
+    setSelectedTable(null)
+    setSelectedSchema(null)
+    setTableRows(null)
+    setSqlResult(null)
     setDetailsLoading(true)
     setProjectDetails(null)
     try {
@@ -189,8 +198,10 @@ export default function SupabaseProjectsPanel({ onOpenProjectStudio, onBackToHub
     e.preventDefault()
     setDeploying(true)
     try {
-      await apiCall('/api/studio/supabase/projects/create', deployForm)
+      const res = await apiCall('/api/studio/supabase/projects/create', deployForm)
       setShowDeployModal(false)
+      const notes = res.project?.notes || []
+      alert(`Supabase stack deployed at ${res.project?.url || deployForm.domain}.${notes.length ? `\n\n${notes.join('\n')}` : ''}`)
       setDeployForm({ appName: '', dbName: '', dbUser: '', dbPassword: '', domain: '' })
       fetchProjects(true)
     } catch (err) {
@@ -233,7 +244,7 @@ export default function SupabaseProjectsPanel({ onOpenProjectStudio, onBackToHub
     try {
       const res = await apiCall('/api/studio/supabase/projects/keys/rotate', { appName: selectedProject.appName })
       setProjectDetails(prev => ({ ...prev, keys: res.keys, jwtSecret: res.jwtSecret }))
-      alert('API Keys and JWT Secret rotated successfully!')
+      alert(['API keys and JWT secret rotated.', ...(res.notes || [])].join('\n\n'))
     } catch (err) {
       alert('Failed to rotate keys: ' + err.message)
     }
@@ -245,15 +256,9 @@ export default function SupabaseProjectsPanel({ onOpenProjectStudio, onBackToHub
     setRunningSql(true)
     setSqlResult(null)
     try {
-      let res
-      if (selectedProject?.id) {
-        res = await apiCall('/api/studio/databases/query', { connectionId: selectedProject.id, query: sqlQuery })
-      } else {
-        res = await apiCall('/api/studio/databases/query', {
-          connectionId: selectedProject?.isSupabaseStack ? `pg-${selectedProject.appName}` : selectedProject.id,
-          query: sqlQuery
-        })
-      }
+      const connectionId = connectionIdOf(selectedProject)
+      if (!connectionId) throw new Error('The database of this stack was not found on the server. Refresh the list and try again.')
+      const res = await apiCall('/api/studio/databases/query', { connectionId, query: sqlQuery })
       setSqlResult(res)
     } catch (err) {
       setSqlResult({ error: err.message })
@@ -263,16 +268,19 @@ export default function SupabaseProjectsPanel({ onOpenProjectStudio, onBackToHub
   }
 
   // Load Table Rows
-  const handleSelectTable = async (tableName) => {
+  const handleSelectTable = async (tableName, schema = selectedSchema) => {
     setSelectedTable(tableName)
+    setSelectedSchema(schema)
     setTableLoading(true)
     try {
-      const connId = selectedProject?.id || (selectedProject?.isSupabaseStack ? `pg-${selectedProject.appName}` : null)
+      const connId = connectionIdOf(selectedProject)
+      if (!connId) throw new Error('The database of this stack was not found on the server. Refresh the list and try again.')
       const res = await apiCall('/api/studio/databases/table-data', {
         connectionId: connId,
+        schema: schema || undefined,
         table: tableName,
         page: 1,
-        limit: 50
+        pageSize: 50
       })
       setTableRows(res)
     } catch (err) {
@@ -749,9 +757,9 @@ export default function SupabaseProjectsPanel({ onOpenProjectStudio, onBackToHub
                   {(projectDetails?.tables || []).map((t, idx) => (
                     <button
                       key={idx}
-                      onClick={() => handleSelectTable(t.name)}
+                      onClick={() => handleSelectTable(t.name, t.schema || null)}
                       className={`w-full text-left px-3 py-2 rounded-xl text-xs font-mono transition flex items-center justify-between cursor-pointer ${
-                        selectedTable === t.name ? 'bg-emerald-500/20 text-emerald-300 font-bold' : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                        selectedTable === t.name && (selectedSchema || null) === (t.schema || null) ? 'bg-emerald-500/20 text-emerald-300 font-bold' : 'text-slate-400 hover:bg-white/5 hover:text-white'
                       }`}
                     >
                       <span className="truncate">{t.name}</span>
@@ -796,8 +804,8 @@ export default function SupabaseProjectsPanel({ onOpenProjectStudio, onBackToHub
                       <tbody className="divide-y divide-white/5 text-slate-300">
                         {tableRows.rows.map((row, rIdx) => (
                           <tr key={rIdx} className="hover:bg-white/5">
-                            {(Array.isArray(row) ? row : Object.values(row)).map((val, cIdx) => (
-                              <td key={cIdx} className="p-3 truncate max-w-xs">{String(val ?? 'NULL')}</td>
+                            {(Array.isArray(row) ? row : (tableRows.columns || []).length ? tableRows.columns.map(c => row[c.name || c]) : Object.values(row)).map((val, cIdx) => (
+                              <td key={cIdx} className="p-3 truncate max-w-xs">{cellText(val)}</td>
                             ))}
                           </tr>
                         ))}
@@ -1298,7 +1306,7 @@ const { user, session, error: authError } = await supabase.auth.signInWithPasswo
                     type="text"
                     placeholder="Defaults to app name"
                     value={deployForm.dbName}
-                    onChange={(e) => setDeployForm({ ...deployForm, dbName: e.target.value })}
+                    onChange={(e) => setDeployForm({ ...deployForm, dbName: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_') })}
                     className="w-full p-2.5 bg-slate-950 border border-white/10 rounded-xl text-white focus:outline-none focus:border-emerald-500"
                   />
                 </div>
@@ -1308,16 +1316,17 @@ const { user, session, error: authError } = await supabase.auth.signInWithPasswo
                     type="text"
                     placeholder="Defaults to app name"
                     value={deployForm.dbUser}
-                    onChange={(e) => setDeployForm({ ...deployForm, dbUser: e.target.value })}
+                    onChange={(e) => setDeployForm({ ...deployForm, dbUser: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 32) })}
                     className="w-full p-2.5 bg-slate-950 border border-white/10 rounded-xl text-white focus:outline-none focus:border-emerald-500"
                   />
                 </div>
               </div>
 
               <div className="space-y-1">
-                <label className="text-slate-300 font-bold">Custom Domain (Optional):</label>
+                <label className="text-slate-300 font-bold">API Domain (pointed at this server):</label>
                 <input
                   type="text"
+                  required
                   placeholder="e.g. api.yourdomain.com"
                   value={deployForm.domain}
                   onChange={(e) => setDeployForm({ ...deployForm, domain: e.target.value })}

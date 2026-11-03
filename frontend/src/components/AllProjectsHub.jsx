@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Layers, Search, Grid, List, ExternalLink, Globe, Play, Sparkles, Code,
   Server, RefreshCw, CheckCircle2, ChevronDown, Bell, User, FolderGit2,
-  Trash2, ShieldCheck, DownloadCloud, Activity, Zap, HardDrive, ShoppingBag, Users, LogOut, Plug
+  Trash2, ShieldCheck, DownloadCloud, Activity, Zap, HardDrive, ShoppingBag, Users, LogOut, Plug, Database, X
 } from 'lucide-react'
 import { useAuth } from '../store/AuthContext'
 import DeleteProjectModal from './DeleteProjectModal'
@@ -12,6 +12,31 @@ import { useProjects, canShareProject, canManageProject, ACCESS_LABELS } from '.
 import ThemeToggle from './ThemeToggle'
 import SupabaseProjectsPanel from './SupabaseProjectsPanel'
 import SelfHostDatabaseModal from './SelfHostDatabaseModal'
+
+const STATUS_STYLE = {
+  active: { label: 'Live', thumb: 'Running', pill: 'bg-emerald-950 text-emerald-300 border-emerald-800', dot: 'bg-emerald-400 animate-pulse' },
+  stopped: { label: 'Stopped', thumb: 'Stopped', pill: 'bg-rose-950 text-rose-300 border-rose-800', dot: 'bg-rose-400' },
+  idle: { label: 'No process', thumb: 'No PM2 process', pill: 'bg-slate-900 text-slate-400 border-slate-800', dot: 'bg-slate-500' }
+}
+
+const dbBadgeStyle = (info) => {
+  if (info.isSelfHosted) return 'bg-emerald-950 text-emerald-300 border-emerald-800'
+  if (info.type === 'none') return 'bg-slate-900 text-slate-500 border-slate-800'
+  return 'bg-indigo-950 text-indigo-300 border-indigo-800'
+}
+
+function timeAgo(ms) {
+  const s = Math.max(0, (Date.now() - ms) / 1000)
+  if (s < 60) return 'just now'
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`
+  if (s < 86400 * 30) return `${Math.floor(s / 86400)}d ago`
+  return new Date(ms).toLocaleDateString()
+}
+
+// Per-viewer UI preferences; storage may be unavailable (private mode)
+const readPref = (key, fallback) => { try { return localStorage.getItem(key) || fallback } catch { return fallback } }
+const writePref = (key, value) => { try { localStorage.setItem(key, value) } catch { /* ignore */ } }
 
 export default function AllProjectsHub({
   server,
@@ -25,8 +50,25 @@ export default function AllProjectsHub({
   const { projects, loading, error: projectsError, refresh: fetchProjects, sharedWithMe, fullAccess } = useProjects()
   const { logout } = useAuth()
   const [searchQuery, setSearchQuery] = useState('')
-  const [sortOrder, setSortOrder] = useState('custom')
-  const [viewMode, setViewMode] = useState('grid')
+  const [sortOrder, setSortOrder] = useState(() => readPref('hub.sort', 'custom'))
+  const [viewMode, setViewMode] = useState(() => readPref('hub.view', 'grid')) // 'grid' | 'list'
+  const searchRef = useRef(null)
+
+  useEffect(() => { writePref('hub.sort', sortOrder) }, [sortOrder])
+  useEffect(() => { writePref('hub.view', viewMode) }, [viewMode])
+
+  // Ctrl/Cmd + K focuses the project search
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        searchRef.current?.focus()
+        searchRef.current?.select()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   const [hubCategory, setHubCategory] = useState(activeHubTab === 'supabase' || activeHubTab === 'databases' ? 'supabase' : 'apps')
 
   useEffect(() => {
@@ -35,8 +77,8 @@ export default function AllProjectsHub({
     } else if (activeHubTab === 'projects') {
       setHubCategory('apps')
     }
-  }, [activeHubTab]) // 'grid' | 'list'
-  const [showCreditNotice, setShowCreditNotice] = useState(true)
+  }, [activeHubTab])
+  const [showCreditNotice, setShowCreditNotice] = useState(() => readPref('hub.creditNotice', 'show') !== 'hidden')
   const [projectToDelete, setProjectToDelete] = useState(null)
   const [projectToShare, setProjectToShare] = useState(null)
   const [projectForMcp, setProjectForMcp] = useState(null)
@@ -47,7 +89,7 @@ export default function AllProjectsHub({
   const cloudProjectsCount = projects.filter(p => p.dbInfo && !p.dbInfo.isSelfHosted && p.dbInfo.type !== 'none').length
   const noDbProjectsCount = projects.filter(p => !p.dbInfo || p.dbInfo.type === 'none').length
 
-  const filteredProjects = projects.filter((p) => {
+  const matchingProjects = projects.filter((p) => {
     if (dbFilter === 'self-hosted' && !p.dbInfo?.isSelfHosted) return false
     if (dbFilter === 'cloud' && (p.dbInfo?.isSelfHosted || !p.dbInfo || p.dbInfo.type === 'none')) return false
     if (dbFilter === 'none' && p.dbInfo && p.dbInfo.type !== 'none') return false
@@ -63,6 +105,18 @@ export default function AllProjectsHub({
       (p.dbInfo?.database && p.dbInfo.database.toLowerCase().includes(q))
     )
   })
+
+  // "Custom order" keeps the server's order (running projects first, then by name)
+  const filteredProjects = useMemo(() => {
+    if (sortOrder === 'name') return [...matchingProjects].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    if (sortOrder === 'recent') return [...matchingProjects].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+    return matchingProjects
+  }, [matchingProjects, sortOrder])
+
+  const dismissCreditNotice = () => {
+    setShowCreditNotice(false)
+    writePref('hub.creditNotice', 'hidden')
+  }
 
   // Generate thumbnail preview placeholder styling
   const getThumbnailStyle = (index) => {
@@ -81,14 +135,10 @@ export default function AllProjectsHub({
       d = d.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '')
       if (d) return `https://${d}`
     }
-    const name = (proj.repoName || proj.name || '').toLowerCase()
-    if (name === 'auto-deploy-panel' || name === 'autodeploy') return 'https://automate-deployment.yjtechnosoft.com'
-    if (name === 'tip-crm' || name === 'crm-export') return 'https://tip-crm.yjtechnosoft.com'
-    if (name === 'litigation') return 'https://litigation.yjtechnosoft.com'
-
-    const host = server ? (server.ipAddress || server.host) : '187.127.165.128'
-    const port = proj.backendPort || proj.port || 5050
-    return `http://${host}:${port}`
+    // No domain: the app's port on the server, when it has one
+    const port = proj.backendPort || proj.port
+    const host = server?.ipAddress || server?.host || window.location.hostname
+    return port && host ? `http://${host}:${port}` : null
   }
 
   return (
@@ -305,10 +355,12 @@ export default function AllProjectsHub({
             {/* Filter Search Input */}
             <div className="flex-1 md:w-64 md:flex-none">
               <input
-                type="text"
+                ref={searchRef}
+                type="search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Name, project ID or domain..."
+                onKeyDown={(e) => { if (e.key === 'Escape') setSearchQuery('') }}
+                placeholder="Name, domain or database…  (Ctrl K)"
                 className="w-full px-4 py-2 bg-slate-950 border border-slate-800 rounded-2xl text-xs text-slate-100 placeholder-slate-500 font-mono focus:border-cyan-500 focus:outline-none shadow-inner"
               />
             </div>
@@ -346,12 +398,22 @@ export default function AllProjectsHub({
                 <span className="text-slate-400">All autonomous tools, live preview, and PM2 auto-updaters ready.</span>
               </div>
             </div>
-            <button
-              onClick={() => setShowCreditNotice(false)}
-              className="px-3 py-1 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold font-mono text-xs rounded-xl shadow transition cursor-pointer self-start sm:self-auto shrink-0"
-            >
-              Top up credits
-            </button>
+            <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+              <button
+                onClick={() => onTabChange && onTabChange('billing')}
+                className="px-3 py-1 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold font-mono text-xs rounded-xl shadow transition cursor-pointer"
+              >
+                Top up credits
+              </button>
+              <button
+                onClick={dismissCreditNotice}
+                title="Dismiss"
+                aria-label="Dismiss"
+                className="p-1 text-slate-500 hover:text-white rounded-lg transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         )}
 
@@ -419,6 +481,8 @@ export default function AllProjectsHub({
           <div className="flex items-center space-x-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
             <button
               onClick={() => setViewMode('grid')}
+              title="Grid view"
+              aria-pressed={viewMode === 'grid'}
               className={`p-1.5 rounded-lg transition cursor-pointer ${
                 viewMode === 'grid' ? 'bg-slate-800 text-cyan-400' : 'text-slate-500'
               }`}
@@ -427,6 +491,8 @@ export default function AllProjectsHub({
             </button>
             <button
               onClick={() => setViewMode('list')}
+              title="List view"
+              aria-pressed={viewMode === 'list'}
               className={`p-1.5 rounded-lg transition cursor-pointer ${
                 viewMode === 'list' ? 'bg-slate-800 text-cyan-400' : 'text-slate-500'
               }`}
@@ -470,7 +536,7 @@ export default function AllProjectsHub({
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80"></span>
                     </div>
                     <span className="text-[10px] font-mono text-cyan-400 truncate max-w-[160px]">
-                      {getProjectWebsiteUrl(proj).replace(/^https?:\/\//, '')}
+                      {(getProjectWebsiteUrl(proj) || 'no domain').replace(/^https?:\/\//, '')}
                     </span>
                   </div>
 
@@ -480,7 +546,7 @@ export default function AllProjectsHub({
                       {proj.name}
                     </h5>
                     <p className="text-[11px] text-cyan-300 font-mono truncate px-4">
-                      {proj.type || 'Web App'} • PM2 Active
+                      {proj.type || 'Web App'} • {STATUS_STYLE[proj.status]?.thumb || 'Not running'}
                     </p>
                   </div>
 
@@ -510,20 +576,42 @@ export default function AllProjectsHub({
                       }`}>
                         {ACCESS_LABELS[proj.access] || 'Shared'}
                       </span>
-                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border flex items-center gap-1 ${
-                        proj.status === 'active'
-                          ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                          : 'bg-cyan-950 text-cyan-300 border-cyan-800'
-                      }`}>
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                        {proj.status === 'active' ? 'LIVE' : 'IN PROGRESS'}
+                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border flex items-center gap-1 ${(STATUS_STYLE[proj.status] || STATUS_STYLE.idle).pill}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${(STATUS_STYLE[proj.status] || STATUS_STYLE.idle).dot}`}></span>
+                        {(STATUS_STYLE[proj.status] || STATUS_STYLE.idle).label}
                       </span>
                     </div>
                   </div>
 
+                  {proj.dbInfo && (
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span
+                        title={proj.dbInfo.database ? `${proj.dbInfo.label}: ${proj.dbInfo.database}` : proj.dbInfo.label}
+                        className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border inline-flex items-center gap-1 min-w-0 ${dbBadgeStyle(proj.dbInfo)}`}
+                      >
+                        <Database className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{proj.dbInfo.label}{proj.dbInfo.database ? ` · ${proj.dbInfo.database}` : ''}</span>
+                      </span>
+                    </div>
+                  )}
+
                   <div className="text-[11px] text-slate-500 flex items-center justify-between gap-2 border-t border-slate-900 pt-2">
-                    <span className="truncate min-w-0 text-cyan-400">{getProjectWebsiteUrl(proj)}</span>
-                    <span className="text-slate-600 text-[10px] shrink-0">Updated Today</span>
+                    {getProjectWebsiteUrl(proj) ? (
+                      <a
+                        href={getProjectWebsiteUrl(proj)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="truncate min-w-0 text-cyan-400 hover:text-cyan-300 hover:underline inline-flex items-center gap-1"
+                      >
+                        <span className="truncate">{getProjectWebsiteUrl(proj)}</span>
+                        <ExternalLink className="w-3 h-3 shrink-0" />
+                      </a>
+                    ) : (
+                      <span className="truncate min-w-0 text-slate-600">No domain or port</span>
+                    )}
+                    <span className="text-slate-600 text-[10px] shrink-0" title={proj.updatedAt ? new Date(proj.updatedAt).toLocaleString() : ''}>
+                      {proj.updatedAt ? `Updated ${timeAgo(proj.updatedAt)}` : ''}
+                    </span>
                   </div>
 
                   {/* Direct Action Buttons */}
@@ -543,6 +631,16 @@ export default function AllProjectsHub({
                         className="p-2 bg-emerald-950/80 hover:bg-emerald-900/90 text-emerald-300 border border-emerald-800 rounded-xl text-xs transition cursor-pointer"
                       >
                         <Plug className="w-4 h-4 text-emerald-300" />
+                      </button>
+                    )}
+
+                    {canManageProject(proj) && !proj.dbInfo?.isSelfHosted && (
+                      <button
+                        onClick={() => setProjectForSelfHostDb(proj)}
+                        title="Self-host a database or Supabase stack for this project on this server"
+                        className="p-2 bg-teal-950/80 hover:bg-teal-900/90 text-teal-300 border border-teal-800 rounded-xl text-xs transition cursor-pointer"
+                      >
+                        <Database className="w-4 h-4 text-teal-300" />
                       </button>
                     )}
 
@@ -579,6 +677,7 @@ export default function AllProjectsHub({
       <SelfHostDatabaseModal
         project={projectForSelfHostDb}
         isOpen={Boolean(projectForSelfHostDb)}
+        canManageStacks={canShareProject(projectForSelfHostDb)}
         onClose={() => setProjectForSelfHostDb(null)}
         onSuccess={() => fetchProjects()}
       />

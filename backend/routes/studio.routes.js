@@ -70,7 +70,11 @@ import {
   manageStorageBucket,
   deleteSupabaseStack,
   enrichProjectsWithDatabaseInfo,
-  attachSelfHostedDatabase
+  attachSelfHostedDatabase,
+  publishStackNginx,
+  domainScheme,
+  stackAppName,
+  cleanDomain
 } from '../services/supabase-management.service.js'
 import { setupSupabaseStack } from '../services/supabase-stack.service.js'
 
@@ -694,10 +698,21 @@ router.post('/databases/migrate', dbHandler(async (body, req, host) => {
 // =========================================================================
 
 /**
+ * Supabase stacks are server-wide services that hold JWT secrets and service keys: only the
+ * platform super admin and organization owners/admins may list or change them.
+ */
+function requireStackAdmin(req) {
+  if (!['super', 'owner'].includes(req.studioAccess?.level)) {
+    throw Object.assign(new Error('Only organization owners and admins can manage self-hosted Supabase stacks.'), { status: 403 })
+  }
+}
+const stackHandler = (fn) => dbHandler((body, req, host) => { requireStackAdmin(req); return fn(body, req, host) })
+
+/**
  * GET & POST /api/studio/supabase/projects
  * Lists all self-hosted Supabase instances and server databases on the selected host
  */
-router.all('/supabase/projects', dbHandler((body, req, host) =>
+router.all('/supabase/projects', stackHandler((body, req, host) =>
   listAllSupabaseAndDatabases(host, {
     force: body.refresh === true || req.query.refresh === '1',
     registered: registeredProjectsFor(req.tenant?.server || null, req.tenant?.organizationId, isSuperAdminUser(req))
@@ -705,101 +720,82 @@ router.all('/supabase/projects', dbHandler((body, req, host) =>
 ))
 
 /**
- * POST /api/studio/supabase/projects/create
- * Deploys a new self-hosted Supabase stack with PostgreSQL, GoTrue, PostgREST, Storage, and JWT keys
+ * POST /api/studio/supabase/projects/create { appName, domain, dbName?, dbUser?, dbPassword?, auth? }
+ * Deploys a new self-hosted Supabase stack (Auth, REST, Storage) on a new PostgreSQL database,
+ * served by nginx at https?://<domain>/{auth,rest,storage,functions}/v1
  */
-router.post('/supabase/projects/create', dbHandler(async (body, req, host) => {
-  const appName = String(body.appName || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '')
-  if (!appName) throw Object.assign(new Error('App name is required (lowercase letters, numbers, hyphens).'), { status: 400 })
+router.post('/supabase/projects/create', stackHandler(async (body, req, host) => {
+  const appName = stackAppName(String(body.appName || '').trim().toLowerCase())
+  if (await host.exists(`/opt/autodeploy-supabase/apps/${appName}/stack.json`)) throw Object.assign(new Error(`A Supabase stack named "${appName}" already exists.`), { status: 409 })
+  const domain = cleanDomain(body.domain)
+  if (!domain) throw Object.assign(new Error('Enter the domain the Supabase API will be served on (e.g. api.example.com), pointed at this server.'), { status: 400 })
 
-  const dbName = String(body.dbName || appName).trim()
-  const dbUser = String(body.dbUser || appName).trim()
-  const dbPassword = String(body.dbPassword || crypto.randomBytes(12).toString('hex'))
-  const domain = String(body.domain || '').trim() || null
+  const dbName = String(body.dbName || appName.replace(/-/g, '_')).trim()
+  const dbUser = String(body.dbUser || dbName).trim()
+  const dbPassword = String(body.dbPassword || crypto.randomBytes(18).toString('base64url'))
+  await createDatabase(host, { engine: 'postgresql', name: dbName, user: dbUser, password: dbPassword })
 
-  try {
-    await createDatabase(host, { engine: 'postgresql', name: dbName, user: dbUser, password: dbPassword })
-  } catch (err) {
-    console.log('[Supabase Stack] Database note:', err.message)
-  }
-
-  const publicUrl = domain ? `https://${domain}` : `http://${host.ipAddress || host.host || '127.0.0.1'}:54100`
-  const ref = crypto.randomBytes(8).toString('hex')
+  const scheme = await domainScheme(host, domain)
   const result = await setupSupabaseStack(host, {
     appName,
-    publicUrl,
+    publicUrl: `${scheme}://${domain}`,
     projectDir: `/var/www/${appName}`,
     db: { name: dbName, user: dbUser, password: dbPassword },
-    ref,
+    ref: crypto.randomBytes(8).toString('hex'),
     auth: body.auth || {},
-    onLog: (msg) => console.log(`[Supabase Deploy ${appName}] ${msg}`)
+    onLog: (msg) => console.log(`[Supabase Deploy ${appName}] ${String(msg).trim()}`)
   })
-
-  return { success: true, project: result }
+  const published = await publishStackNginx(host, appName, result.ports, { domain, functions: (result.functions || []).length > 0 })
+  const { jwtSecret, gateway, locations, ...project } = result
+  return { project: { ...project, notes: [...(result.notes || []), ...published.notes] } }
 }))
 
 /**
  * POST /api/studio/supabase/projects/details
  * Fetch complete stack details (tables, GoTrue auth users, storage buckets, ports, credentials)
  */
-router.post('/supabase/projects/details', dbHandler(async (body, req, host) => {
-  const appName = String(body.appName || '').trim()
-  if (!appName) throw Object.assign(new Error('appName is required'), { status: 400 })
-  return getSupabaseProjectDetails(host, appName)
-}))
+router.post('/supabase/projects/details', stackHandler((body, req, host) => getSupabaseProjectDetails(host, body.appName)))
 
 /**
  * POST /api/studio/supabase/projects/restart
  * Restart PM2 service(s) for a Supabase project
  */
-router.post('/supabase/projects/restart', dbHandler(async (body, req, host) => {
-  const appName = String(body.appName || '').trim()
-  return restartSupabaseService(host, appName, body.service || 'all')
-}))
+router.post('/supabase/projects/restart', stackHandler((body, req, host) => restartSupabaseService(host, body.appName, body.service || 'all')))
 
 /**
  * POST /api/studio/supabase/projects/keys/rotate
  * Rotate JWT secret and mint new anon and service_role keys
  */
-router.post('/supabase/projects/keys/rotate', dbHandler(async (body, req, host) => {
-  const appName = String(body.appName || '').trim()
-  return rotateSupabaseKeys(host, appName)
-}))
+router.post('/supabase/projects/keys/rotate', stackHandler((body, req, host) => rotateSupabaseKeys(host, body.appName)))
 
 /**
  * POST /api/studio/supabase/projects/users
  * Manage GoTrue auth users (create, delete, update password)
  */
-router.post('/supabase/projects/users', dbHandler(async (body, req, host) => {
-  const appName = String(body.appName || '').trim()
-  return manageGoTrueUser(host, appName, body.action, body.payload || {})
-}))
+router.post('/supabase/projects/users', stackHandler((body, req, host) => manageGoTrueUser(host, body.appName, body.action, body.payload || {})))
 
 /**
  * POST /api/studio/supabase/projects/buckets
- * Manage Supabase storage buckets (create, delete, toggle public)
+ * Manage Supabase storage buckets (create, delete)
  */
-router.post('/supabase/projects/buckets', dbHandler(async (body, req, host) => {
-  const appName = String(body.appName || '').trim()
-  return manageStorageBucket(host, appName, body.action, body.payload || {})
-}))
+router.post('/supabase/projects/buckets', stackHandler((body, req, host) => manageStorageBucket(host, body.appName, body.action, body.payload || {})))
 
 /**
  * POST /api/studio/supabase/projects/delete
  * Delete Supabase stack and clean up services
  */
+router.post('/supabase/projects/delete', stackHandler((body, req, host) => deleteSupabaseStack(host, body.appName, body.dropDatabase === true)))
 
 /**
  * POST /api/studio/projects/attach-database
- * Provisions or attaches a self-hosted Supabase stack or database to an existing project
+ * { projectPath, mode: supabase|postgresql|mysql|existing, dbName, dbUser, dbPassword, domain?, existingApp?, restart? }
+ * Gives an existing project a database or Supabase stack on this server and points its .env at it.
+ * Needs manager access to the project; creating or linking a Supabase stack needs owner rights.
  */
 router.post('/projects/attach-database', dbHandler(async (body, req, host) => {
-  return attachSelfHostedDatabase(host, body)
-}))
-
-router.post('/supabase/projects/delete', dbHandler(async (body, req, host) => {
-  const appName = String(body.appName || '').trim()
-  return deleteSupabaseStack(host, appName, body.dropDatabase === true)
+  const projectPath = await requireManagedProject(req, host, body.projectPath)
+  if (body.mode === 'supabase' || body.mode === 'existing') requireStackAdmin(req)
+  return attachSelfHostedDatabase(host, { ...body, projectPath, restart: body.restart !== false })
 }))
 
 

@@ -1482,7 +1482,7 @@ async function probePg(host, spec) {
 }
 
 /** Sets KEY=value in .env text (replacing the existing line). Returns { text, previous }. */
-function upsertEnvVar(text, key, value) {
+export function upsertEnvVar(text, key, value) {
   let previous = null
   let found = false
   const lines = text.split('\n').map(line => {
@@ -1500,7 +1500,7 @@ function upsertEnvVar(text, key, value) {
 }
 
 /** The project's main .env: the first existing .env file in the project folder (or backend/, server/, api/), else <project>/.env. */
-async function primaryEnvFile(host, projectPath) {
+export async function primaryEnvFile(host, projectPath) {
   for (const sd of ENV_SUBDIRS) {
     for (const f of ENV_FILES) {
       const file = sd ? `${projectPath}/${sd}/${f}` : `${projectPath}/${f}`
@@ -1510,12 +1510,12 @@ async function primaryEnvFile(host, projectPath) {
   return `${projectPath}/.env`
 }
 
-async function writeEnvWithBackup(host, file, before, after) {
+export async function writeEnvWithBackup(host, file, before, after) {
   if (before !== null) await host.writeFile(`${file}.bak`, before, { mode: 0o600 })
   await host.writeFile(file, after, { mode: 0o600 })
 }
 
-async function restartPm2(host, names) {
+export async function restartPm2(host, names) {
   const restarted = []
   for (const n of names) {
     const r = await host.run('pm2', ['restart', n, '--update-env'], { timeout: 60000 })
@@ -1525,7 +1525,7 @@ async function restartPm2(host, names) {
 }
 
 /** PM2 process names of one discovered project. */
-async function projectPm2(host, projectPath) {
+export async function projectPm2(host, projectPath) {
   const projects = await discoverHostProjects(host, [])
   return (projects.find(p => p.path === projectPath)?.pm2Processes || []).map(x => x.name)
 }
@@ -1783,4 +1783,9 @@ export async function migrateToLocal(host, connectionId, { name, user, password,
     restarted,
     connection: { ...created.connection, url: target.url || created.connection.url }
   }
+}
+
+/** Drops the cached database discovery of a server, so the next listing sees new databases and .env changes. */
+export function forgetDiscovery(host) {
+  discoveryCache.delete(host.id)
 }

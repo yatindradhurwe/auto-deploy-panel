@@ -24,6 +24,7 @@ for d in /var/www/*/ /home/*/htdocs/*/ $CWDS; do
   r=$(readlink -f "$d" 2>/dev/null); [ -n "$r" ] && [ "$r" != "$d" ] && echo "real=$r"
   git -C "$d" config --get remote.origin.url 2>/dev/null | sed 's/^/git=/'
   git -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null | sed 's/^/branch=/'
+  t=$(git -C "$d" log -1 --format=%ct 2>/dev/null); [ -n "$t" ] || t=$(stat -c %Y "$d" 2>/dev/null); [ -n "$t" ] && echo "updated=$t"
   grep -m1 -E '^PORT[[:space:]]*=' "$d/.env" 2>/dev/null | sed 's/^/env/'
   [ -f "$d/package.json" ] && echo "pkg=1"
   [ -f "$d/composer.json" ] || [ -f "$d/index.php" ] && echo "php=1"
@@ -81,6 +82,7 @@ function parseOutput(stdout) {
     else if (k === 'pkg') meta.get(dir).node = true
     else if (k === 'php') meta.get(dir).php = true
     else if (k === 'real') meta.get(dir).real = v
+    else if (k === 'updated' && /^\d+$/.test(v)) meta.get(dir).updatedAt = Number(v) * 1000
   }
   return { pm2, byPath, byPort, meta }
 }
@@ -153,7 +155,9 @@ export async function discoverProjects(host, registered = [], { panelRoot = null
       pm2Processes: procs.map(p => ({ name: p.name, status: p.status, memory: p.memory, cpu: p.cpu, restarts: p.restarts })),
       type: procs.length ? 'Active PM2 Service' : m.php ? 'PHP Website' : m.node ? 'Node.js App' : 'Web Application',
       status: running ? 'active' : procs.length ? 'stopped' : 'idle',
-      registered: !!reg
+      registered: !!reg,
+      // Last commit (or folder change) time, ms
+      updatedAt: m.updatedAt || null
     })
   }
   return projects.sort((a, b) => (b.status === 'active') - (a.status === 'active') || a.name.localeCompare(b.name))
