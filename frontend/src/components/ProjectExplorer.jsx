@@ -6,7 +6,7 @@ import { useServers } from '../store/ServersContext'
 import { useProjects } from '../store/ProjectsContext'
 
 export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio }) {
-  const { token: jwtToken } = useAuth()
+  const { token: jwtToken, isSuperAdmin } = useAuth()
   const { activeServer } = useServers()
   const [processes, setProcesses] = useState([])
   const [serverStats, setServerStats] = useState(null)
@@ -35,6 +35,7 @@ export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio })
   }, [activeServer])
 
   const fetchAutoUpdateConfigs = async () => {
+    if (!isSuperAdmin) return // auto-update is managed by platform staff
     const tok = jwtToken
     try {
       const res = await fetch('/api/studio/autoupdate/list', {
@@ -192,6 +193,7 @@ export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio })
       })
       const data = await res.json()
       if (data.success) {
+        if (data.config) setAutoUpdateModal((m) => (m ? { ...m, ...data.config } : m)) // shows the new webhook secret
         fetchAutoUpdateConfigs()
         alert(`Antigravity Auto-Update settings saved for '${autoUpdateModal.appName}'!`)
       } else {
@@ -376,7 +378,7 @@ export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio })
               <tr>
                 <th className="py-3.5 px-5">ID</th>
                 <th className="py-3.5 px-5">Application Service & Path</th>
-                <th className="py-3.5 px-5">Antigravity Auto-Update</th>
+                {isSuperAdmin && <th className="py-3.5 px-5">Antigravity Auto-Update</th>}
                 <th className="py-3.5 px-5">Status</th>
                 <th className="py-3.5 px-5">CPU Load</th>
                 <th className="py-3.5 px-5">Memory Usage</th>
@@ -387,7 +389,7 @@ export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio })
             <tbody className="divide-y divide-white/5 font-mono">
               {processes.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-8 text-center text-slate-400">
+                  <td colSpan={isSuperAdmin ? 8 : 7} className="py-8 text-center text-slate-400">
                     <div className="flex flex-col items-center justify-center space-y-3">
                       <Layers className="w-8 h-8 text-slate-600" />
                       <p className="text-xs font-bold text-slate-300">No active PM2 application services detected yet on host node.</p>
@@ -409,7 +411,7 @@ export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio })
                       <div className="font-extrabold text-white text-xs">{proc.name}</div>
                       <div className="text-[10px] text-slate-500 font-mono mt-0.5">{proc.cwd || `/var/www/${proc.name}`}</div>
                     </td>
-                    <td className="py-4 px-5">
+                    {isSuperAdmin && <td className="py-4 px-5">
                       {autoUpdateConfigs[proc.name]?.enabled ? (
                         <span
                           onClick={() => handleOpenAutoUpdateModal(proc.name, proc.cwd)}
@@ -429,7 +431,7 @@ export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio })
                           <span>⏸ OFF</span>
                         </span>
                       )}
-                    </td>
+                    </td>}
                     <td className="py-4 px-5">
                       <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border inline-flex items-center gap-1.5 shadow-sm ${
                         proc.status === 'online'
@@ -445,14 +447,14 @@ export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio })
                     <td className="py-4 px-5 text-purple-300 font-bold">{proc.restarts}</td>
                     <td className="py-4 px-5 text-right space-x-2">
                       {/* Antigravity Auto-Update Settings Button */}
-                      <button
+                      {isSuperAdmin && <button
                         onClick={() => handleOpenAutoUpdateModal(proc.name, proc.cwd)}
                         className="px-3 py-1.5 bg-gradient-to-r from-amber-600/30 to-orange-600/30 hover:from-amber-600/50 hover:to-orange-600/50 text-amber-200 border border-amber-500/40 rounded-xl text-[11px] transition cursor-pointer font-bold inline-flex items-center gap-1.5 shadow-md shadow-amber-950/40"
                         title="Configure Antigravity Auto-Update interval, repo branch, and GitHub Webhooks for this project"
                       >
                         <Zap className="w-3.5 h-3.5 text-amber-400" />
                         <span>Auto-Update Settings</span>
-                      </button>
+                      </button>}
 
                       {/* 1-Click Pull & Update Live Server Button */}
                       <button
@@ -802,6 +804,12 @@ export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio })
                   <span>{copiedWebhook ? 'Copied!' : 'Copy URL'}</span>
                 </button>
               </div>
+              <p className="text-[11px] text-slate-400">
+                Set <code className="text-cyan-300">Content type</code> to <code className="text-cyan-300">application/json</code> and paste this <b>Secret</b>. Unsigned requests are refused.
+              </p>
+              <div className="bg-slate-900 border border-white/10 rounded-xl p-2.5 text-xs font-mono text-amber-200 break-all select-all">
+                {autoUpdateModal.webhookSecret || 'Save these settings to generate the webhook secret.'}
+              </div>
             </div>
 
             {/* Frequency & Git Options */}
@@ -809,7 +817,7 @@ export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio })
               <div className="space-y-1.5">
                 <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">Sync Frequency</label>
                 <select
-                  value={autoUpdateModal.autoSyncInterval || 5}
+                  value={autoUpdateModal.autoSyncInterval ?? 5}
                   onChange={(e) => setAutoUpdateModal({ ...autoUpdateModal, autoSyncInterval: Number(e.target.value) })}
                   className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-cyan-400"
                 >
@@ -824,9 +832,9 @@ export default function ProjectExplorer({ onOpenInStudio, onOpenProjectStudio })
                 <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">Target Branch</label>
                 <input
                   type="text"
-                  value={autoUpdateModal.branch || 'main'}
+                  value={autoUpdateModal.branch || ''}
                   onChange={(e) => setAutoUpdateModal({ ...autoUpdateModal, branch: e.target.value })}
-                  placeholder="main"
+                  placeholder="Current branch"
                   className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-cyan-400"
                 />
               </div>

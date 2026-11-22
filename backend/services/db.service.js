@@ -288,11 +288,11 @@ export function getProjectAutoUpdateConfig(appName) {
     appName,
     enabled: false,
     autoSyncInterval: 5, // minutes (0 = Webhook only, 5, 15, 60)
-    branch: 'main',
+    branch: '', // empty → keep the branch the project folder already tracks
     gitRepoUrl: '',
     projectPath: `/var/www/${appName}`,
-    host: '187.127.165.128',
-    webhookSecret: `sec_${appName}_${Math.random().toString(36).substring(2, 8)}`,
+    host: '',
+    webhookSecret: '', // generated and stored when the config is first saved
     lastAutoUpdate: null,
     lastStatus: 'never',
     lastLog: ''

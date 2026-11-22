@@ -1,4 +1,5 @@
 import express from 'express'
+import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -1292,18 +1293,28 @@ router.get('/autoupdate/config/:appName', authenticateToken, (req, res) => {
  * Save Antigravity Auto-Update configuration for a project
  */
 router.post('/autoupdate/config', authenticateToken, (req, res) => {
-  const { appName, enabled, autoSyncInterval, branch, gitRepoUrl, projectPath, host } = req.body
-  if (!appName) {
-    return res.status(400).json({ error: 'appName is required' })
+  const { appName, enabled, autoSyncInterval, branch, gitRepoUrl, projectPath } = req.body
+  if (!appName || !/^[a-zA-Z0-9._-]{1,100}$/.test(String(appName))) {
+    return res.status(400).json({ success: false, error: 'A valid appName is required' })
   }
 
+  const existing = getProjectAutoUpdateConfig(appName)
+  const server = req.tenant?.server || null
+  const interval = Number(autoSyncInterval)
   const updated = saveProjectAutoUpdateConfig(appName, {
     enabled: Boolean(enabled),
-    autoSyncInterval: Number(autoSyncInterval) || 5,
-    branch: branch || 'main',
+    autoSyncInterval: Number.isFinite(interval) && interval >= 0 ? interval : 5, // 0 = webhook only
+    // Empty branch keeps whatever the folder tracks; never force 'main' (one repo can serve several branches)
+    branch: String(branch || '').trim(),
     gitRepoUrl: gitRepoUrl || '',
     projectPath: projectPath || `/var/www/${appName}`,
-    host: host || '187.127.165.128'
+    // Run against the server this was configured on, with its stored credentials
+    host: server?.ipAddress || existing.host || '',
+    serverId: server?.id || existing.serverId || null,
+    organizationId: req.tenant?.organizationId || existing.organizationId || null,
+    ownerUserId: existing.ownerUserId || req.user?.id || null,
+    // GitHub webhook signing secret for this project (set it as the webhook's Secret in GitHub)
+    webhookSecret: existing.webhookSecret || crypto.randomBytes(24).toString('hex')
   })
 
   res.json({ success: true, config: updated, message: `Antigravity Auto-Update config saved for project '${appName}'` })

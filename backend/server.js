@@ -17,6 +17,7 @@ import mcpRoutes from './routes/mcp.routes.js'
 import { authenticateToken } from './middleware/auth.middleware.js'
 import { requireStudioAccess, requireDeployAccess } from './middleware/studioAccess.middleware.js'
 import { initAutoUpdateService, executeProjectAutoUpdate } from './services/autoupdate.service.js'
+import { getAllProjectAutoUpdateConfigs } from './services/db.service.js'
 import { initMailService } from './services/mail.service.js'
 import { initSubscriptionSweeper } from './services/subscription.service.js'
 import { attachTerminalServer } from './services/terminal.service.js'
@@ -63,23 +64,36 @@ app.get('/api/health', (req, res) => {
 // Public GitHub Webhook Endpoint (Called automatically on git push)
 app.post('/api/webhooks/github/:appName', (req, res) => {
   const { appName } = req.params
-
-  // Verify GitHub HMAC signature (set the same secret in GitHub > Settings > Webhooks)
-  const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET
-  if (webhookSecret) {
-    const signature = req.headers['x-hub-signature-256'] || ''
-    const expected = 'sha256=' + crypto.createHmac('sha256', webhookSecret).update(req.rawBody || '').digest('hex')
-    const valid = signature.length === expected.length && crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
-    if (!valid) {
-      return res.status(401).json({ success: false, error: 'Invalid webhook signature' })
-    }
-  } else {
-    console.warn('[GITHUB WEBHOOK] GITHUB_WEBHOOK_SECRET is not set — webhook requests are not being verified')
-  }
-
   if (!/^[a-zA-Z0-9._-]+$/.test(appName)) {
     return res.status(400).json({ success: false, error: 'Invalid app name' })
   }
+
+  // Only projects with auto-update switched on in the panel can be triggered
+  const config = (getAllProjectAutoUpdateConfigs() || {})[appName]
+  if (!config || !config.enabled) {
+    return res.status(404).json({ success: false, error: 'Auto-update is not enabled for this project' })
+  }
+
+  // Every request must be signed: the project's secret (Webhooks CI/CD page) or GITHUB_WEBHOOK_SECRET.
+  // Unsigned requests are refused, otherwise anyone could pull, rebuild and restart a project.
+  const secrets = [config.webhookSecret, process.env.GITHUB_WEBHOOK_SECRET].filter(Boolean)
+  if (!secrets.length) {
+    return res.status(403).json({ success: false, error: 'No webhook secret is set for this project. Save its auto-update settings in the panel, then add the secret to the GitHub webhook.' })
+  }
+  const signature = String(req.headers['x-hub-signature-256'] || '')
+  const valid = secrets.some((secret) => {
+    const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(req.rawBody || '').digest('hex')
+    return signature.length === expected.length && crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
+  })
+  if (!valid) {
+    return res.status(401).json({ success: false, error: 'Invalid webhook signature' })
+  }
+
+  // GitHub sends a ping when the webhook is created
+  if (req.headers['x-github-event'] === 'ping') {
+    return res.json({ success: true, message: 'Webhook verified' })
+  }
+
   const payload = req.body || {}
   const pusherName = payload.pusher ? payload.pusher.name : (payload.sender ? payload.sender.login : 'GitHub Webhook')
   const commitMsg = payload.head_commit ? payload.head_commit.message : 'GitHub Push Event Received'

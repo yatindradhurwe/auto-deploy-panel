@@ -34,6 +34,12 @@ const POLICIES = [
   [/^\/ai\/agent\/status$/, 'list', { needsServer: false }],
   [/^\/ai\/agent\/sessions$/, 'project:manager'],
   [/^\/ai\/agent\/sessions\/[^/]+(\/(delete|message|stop|changes|revert|deploy))?$/, 'agent-session'],
+  // Chunked dump import (start is matched by databases/... below), mobile app builds and self-hosted Supabase stacks;
+  // the routes re-check for owner level. Attaching a database needs manager access to that project.
+  [/^\/databases\/uploads\/[^/]+\/(chunk|complete)$/, 'org-admin'],
+  [/^\/mobile-app\/(get|save|source|github\/(connect|disconnect|build|status|artifact)|server\/(check|install-tools|build|status|download))$/, 'org-admin'],
+  [/^\/supabase\/projects(\/(create|details|restart|keys\/rotate|users|buckets|delete))?$/, 'org-admin'],
+  [/^\/projects\/attach-database$/, 'project:manager'],
   [/^\/(servers\/scan|terminal\/(exec|session)|nginx\/config|ssl\/(issue|certificates)|cron\/(list|save)|databases(\/[a-z-]+)?|projects\/delete|maintenance\/(health|caches|run))$/, 'org-admin']
 ]
 

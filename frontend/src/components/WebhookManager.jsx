@@ -7,7 +7,7 @@ import { useAuth } from '../store/AuthContext'
 import { useServers } from '../store/ServersContext'
 
 export default function WebhookManager() {
-  const { token: jwtToken } = useAuth()
+  const { token: jwtToken, isSuperAdmin } = useAuth()
   const { activeServer } = useServers()
   const [projects, setProjects] = useState([])
   const [history, setHistory] = useState([])
@@ -15,6 +15,8 @@ export default function WebhookManager() {
   const [copiedId, setCopiedId] = useState(null)
 
   const fetchData = async () => {
+    // Auto-update configs are platform-wide, so only platform staff can see and manage them
+    if (!isSuperAdmin) { setLoading(false); return }
     setLoading(true)
     try {
       const headers = {
@@ -30,12 +32,7 @@ export default function WebhookManager() {
       const histData = await histRes.json()
 
       if (listData.success && listData.configs) {
-        const projs = Object.values(listData.configs)
-        setProjects(projs.length > 0 ? projs : [
-          { appName: 'litigation', branch: 'main', enabled: true },
-          { appName: 'tip-crm-backend', branch: 'main', enabled: true },
-          { appName: 'auto-deploy-backend', branch: 'main', enabled: true }
-        ])
+        setProjects(Object.values(listData.configs))
       }
       if (histData.success && histData.history) {
         setHistory(histData.history)
@@ -49,7 +46,16 @@ export default function WebhookManager() {
 
   useEffect(() => {
     fetchData()
-  }, [jwtToken, activeServer])
+  }, [jwtToken, activeServer, isSuperAdmin])
+
+  if (!isSuperAdmin) {
+    return (
+      <div className="bg-slate-900/80 border border-white/10 rounded-3xl p-6 text-slate-300 text-sm font-sans space-y-2">
+        <h2 className="text-lg font-bold text-white flex items-center gap-2"><Webhook className="w-5 h-5 text-indigo-400" /> GitHub Webhooks & Auto-Update</h2>
+        <p>Automatic updates on push are set up by platform staff. Contact support to enable them for one of your projects. Until then, use <b>Pull &amp; Update</b> on the Projects page to deploy the latest commit.</p>
+      </div>
+    )
+  }
 
   const handleCopyWebhook = (appName) => {
     const domain = window.location.origin
@@ -95,6 +101,11 @@ export default function WebhookManager() {
           <Github className="w-4 h-4 text-cyan-400" />
           Project Auto-Deploy Webhook URLs ({projects.length})
         </h3>
+        {!loading && projects.length === 0 && (
+          <div className="text-xs text-slate-500 font-mono text-center p-6 bg-slate-950/50 rounded-2xl border border-dashed border-slate-800">
+            No project has auto-update set up yet. Use Auto-Update Settings on the Projects page.
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {projects.map((proj) => {
@@ -123,7 +134,7 @@ export default function WebhookManager() {
                     )}
                   </div>
                   <span className="text-[10px] text-slate-400 font-mono bg-slate-900 px-2 py-0.5 rounded border border-white/10">
-                    {proj.branch || 'main'}
+                    {proj.branch || 'current branch'}
                   </span>
                 </div>
 
@@ -137,6 +148,11 @@ export default function WebhookManager() {
                     <span>{isCopied ? 'Copied!' : 'Copy URL'}</span>
                   </button>
                 </div>
+                <p className={`text-[10px] font-mono ${proj.webhookSecret ? 'text-slate-400' : 'text-amber-300'}`}>
+                  {proj.webhookSecret
+                    ? 'Signed with this project\'s secret (see Auto-Update Settings on the Projects page).'
+                    : 'No webhook secret yet: open Auto-Update Settings on the Projects page and save to create one. Unsigned pushes are refused.'}
+                </p>
               </div>
             )
           })}
