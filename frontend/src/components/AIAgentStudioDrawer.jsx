@@ -34,7 +34,7 @@ export default function AIAgentStudioDrawer({ isOpen, onClose, projectPath, sele
       <aside className="relative w-full max-w-xl h-full bg-slate-950 border-l border-white/10 flex flex-col shadow-2xl">
         <div className="p-3.5 border-b border-slate-800 bg-slate-950 flex items-center gap-2 font-mono text-xs">
           <div className="p-1.5 rounded-lg bg-gradient-to-tr from-cyan-500 to-purple-600 text-slate-950"><Bot className="w-4 h-4" /></div>
-          <span className="font-extrabold text-white">AI Project Agent</span>
+          <span className="font-extrabold text-white">AI Assistant</span>
           <select
             value={currentPath}
             onChange={(e) => setCurrentPath(e.target.value)}

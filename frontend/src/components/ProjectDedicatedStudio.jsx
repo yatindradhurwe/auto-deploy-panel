@@ -357,10 +357,10 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
         </div>
       </header>
 
-      {/* Main Studio Body (Split into Left AI Chat & Center Canvas) */}
+      {/* Main Studio Body (Split into Left AI Assistant & Center Canvas) */}
       <div className="flex-1 flex overflow-hidden relative">
         
-        {/* Left AI Agent Chat Panel */}
+        {/* Left AI Assistant Panel */}
         <aside
           className={`${
             sidebarHidden ? 'w-0 border-r-0' : 'w-[85vw] max-w-[20rem] md:w-96 md:max-w-none border-r border-white/10'
@@ -372,14 +372,14 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
               <div className="p-1.5 rounded-lg bg-gradient-to-tr from-cyan-500 to-purple-600 text-slate-950 font-bold">
                 <Bot className="w-4 h-4" />
               </div>
-              <span className="font-extrabold text-white whitespace-nowrap">AI Project Agent</span>
+              <span className="font-extrabold text-white whitespace-nowrap">AI Assistant</span>
             </div>
 
             <span className="text-[10px] text-slate-500 font-bold hidden sm:inline truncate">Claude · ChatGPT · Gemini</span>
 
             <button
               onClick={() => setSidebarHidden(true)}
-              title="Hide AI Chat Panel"
+              title="Hide AI Assistant"
               className="p-1 text-slate-400 hover:text-white rounded"
             >
               <X className="w-4 h-4" />
@@ -406,7 +406,7 @@ export default function ProjectDedicatedStudio({ project, onBackToDashboard }) {
           <div className="w-11 shrink-0 border-r border-white/10 bg-slate-950 flex flex-col items-center py-2">
             <button
               onClick={() => setSidebarHidden(false)}
-              title="Open AI Agent"
+              title="Open AI Assistant"
               className="h-8.5 w-8.5 bg-slate-900 border border-slate-800 text-cyan-400 rounded-xl shadow-lg hover:bg-slate-800 transition cursor-pointer inline-flex items-center justify-center"
             >
               <Bot className="w-4 h-4" />

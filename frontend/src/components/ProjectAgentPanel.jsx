@@ -212,7 +212,7 @@ export default function ProjectAgentPanel({ projectPath, projectName, onFilesCha
     liveStreamRef.current = true
     try {
       const res = await fetch(`${API}/sessions/${s.id}/message`, { method: 'POST', headers: headers(), body: JSON.stringify({ prompt: text }) })
-      if (!res.ok || !res.body) throw new Error(`Agent request failed (${res.status})`)
+      if (!res.ok || !res.body) throw new Error(`Assistant request failed (${res.status})`)
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buf = ''
@@ -232,7 +232,7 @@ export default function ProjectAgentPanel({ projectPath, projectName, onFilesCha
         }
       }
     } catch (e) {
-      setError(`${e.message}. The agent keeps working on the server — reopen this session to see progress.`)
+      setError(`${e.message}. The assistant keeps working on the server — reopen this session to see progress.`)
     } finally {
       liveStreamRef.current = false
       api('/status').then(d => setStatus(d.status)).catch(() => {})
@@ -312,7 +312,7 @@ export default function ProjectAgentPanel({ projectPath, projectName, onFilesCha
       <div className="flex-1 overflow-y-auto p-4 font-mono text-xs">
         <div className="flex flex-col items-center text-center gap-2 pt-6">
           <Key className="w-7 h-7 text-cyan-400" />
-          <div className="text-sm font-bold text-white">AI agent not available yet</div>
+          <div className="text-sm font-bold text-white">AI Assistant not available yet</div>
           <p className="text-slate-400 max-w-xs">The platform administrator hasn't connected an AI model (Claude, ChatGPT or Gemini). It's set up in the platform console under AI Models &amp; Tokens.</p>
         </div>
         {error && <div className="text-rose-300 mt-3">{error}</div>}
@@ -382,8 +382,8 @@ export default function ProjectAgentPanel({ projectPath, projectName, onFilesCha
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-2.5">
         {transcript.length === 0 && !runningState && (
           <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 space-y-2 leading-relaxed">
-            <div className="flex items-center gap-2 text-white font-bold"><Bot className="w-4 h-4 text-cyan-400" /> {(session ? sessionProvider : status?.providers.find(p => p.id === provider))?.label || 'AI agent'} · {projectName}</div>
-            <p>Describe what you want changed in this {projectName ? 'project' : 'site'}. The agent reads the code, makes the edits on the server, and checks them with the project's build or tests.</p>
+            <div className="flex items-center gap-2 text-white font-bold"><Bot className="w-4 h-4 text-cyan-400" /> {(session ? sessionProvider : status?.providers.find(p => p.id === provider))?.label || 'AI Assistant'} · {projectName}</div>
+            <p>Describe what you want changed in this {projectName ? 'project' : 'site'}. The assistant reads the code, makes the edits on the server, and checks them with the project's build or tests.</p>
             <p className="text-slate-500">Examples: "Change the hero heading to …", "Add a contact form that emails me", "The login page shows a blank screen — fix it".</p>
             <p className="text-slate-500">You review every changed file and can undo it. Restarting the live app only happens when you press Deploy.</p>
           </div>
@@ -474,7 +474,7 @@ export default function ProjectAgentPanel({ projectPath, projectName, onFilesCha
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
             rows={3}
             disabled={!status || outOfTokens}
-            placeholder={runningState ? 'The agent is working… (you can stop it)' : 'Describe what to change… (Enter to send, Shift+Enter for a new line)'}
+            placeholder={runningState ? 'The assistant is working… (you can stop it)' : 'Describe what to change… (Enter to send, Shift+Enter for a new line)'}
             className="w-full p-3 pr-11 bg-slate-900 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-500 focus:border-cyan-500 focus:outline-none resize-none"
           />
           {runningState ? (
